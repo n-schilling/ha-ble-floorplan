@@ -5,139 +5,88 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![HACS: custom](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 
-A custom integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and solves for the position by weighted trilateration. Each tracker gets a *Room* sensor and its position, and a Lovelace card draws the plan with the trackers live.
+BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor, its coordinates and a presence tracker, and a dashboard card shows the plan with the trackers moving live.
 
-It reads the raw advertisements from Home Assistant's Bluetooth stack, so it works with every scanner Home Assistant has: the adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices as proxies. It complements [Bermuda](https://github.com/agittins/bermuda), which assigns a tracker to the area of the nearest scanner; this integration computes a point on the plan, with the scanners' heights and a correction per scanner. [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) resolves the changing addresses of phones and watches; this integration tracks whatever address it currently resolves to.
+![The card: two trackers walk through the doors of a flat, the panel follows the tag](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.gif)
 
-![The card: the floor plan with two trackers and four scanners](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.png)
+*All images show a made-up example flat with made-up devices, rendered from the test data of this repository.*
 
-All screenshots show a made-up example flat with made-up devices, rendered from the test data.
+## Features
 
-## How it works
-
-1. Every second, for each tracker, the newest advertisement of every scanner that sees it is read: its RSSI, the scanner's address and the time the scanner saw it. Advertisements older than 30 s count as not seen. Per scanner the RSSI is the median of the samples of the last 10 s.
-2. The RSSI becomes a distance with the log-distance path loss model: `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`. `ref_power` is the RSSI at one metre, per tracker or the global default (−55 dBm); `rssi_offset` is a correction per scanner, `pair_offset` one per scanner and tracker (see [Calibration](#calibration)); `attenuation` is the path loss exponent (3.0 by default). The distance is projected onto the floor with the scanner's height and the tracker's height.
-3. The distances of the scanners within `max_distance` go into a weighted Gauss-Newton least-squares solution: near scanners count more (weights 1/d²), and a residual that puts the tracker nearer than measured counts a quarter, because walls make measured distances rather too long. With four or more scanners, a scanner whose distance the others contradict by more than `robust_residual` while they agree with each other loses weight, so one scanner that swings cannot drag the position. With clamping on, a point outside every room is moved to the closest wall.
-4. The position is smoothed with a time constant (`smoothing_seconds`), independent of how often it is computed; moves below `min_move` are ignored. A raw position farther than `jump_distance` away is followed only once it stayed there for `jump_confirm_seconds`; until then the shown position holds, and afterwards it catches up as if it had followed all along. It never moves faster than `max_speed`. With `walls` on, the shown position passes a wall only through an opening: a step that would cross a wall heads for the door of its room that lies best on the way instead, and goes through it; a room without a door keeps the position before the wall.
-5. The room is the zone or room the smoothed point lies in; of overlapping rooms the one drawn last wins. The room changes only after the point lay in another room for `room_hold_seconds`, at least `room_margin` away from that room's walls, so a tracker that hovers around a wall keeps the room it came from.
+- **Works with every scanner Home Assistant has:** the Bluetooth adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices acting as proxies. The integration reads the raw advertisements from Home Assistant's Bluetooth stack and needs nothing else.
+- **Phones and watches included:** devices set up with [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) change their address every few minutes; BLE Floorplan follows whatever address they currently use. Tags and beacons with a fixed address work as they are.
+- **A position, not only the nearest scanner:** distances from all scanners go into a weighted least-squares fit, with the heights of scanners and trackers taken into account.
+- **Calm, plausible movement:** smoothing, a speed limit, a confirmation for jumps and walls that can only be passed through doors keep trackers from hopping across the plan. Rooms change only after a hold time.
+- **Calibration on your own data:** record a tracker at a few known places, and a least-squares fit proposes the reference power of every tracker, the offset of every scanner and a correction per pair of scanner and tracker. Nothing is applied until you say so.
+- **Everything in the card:** draw the floor plan, add scanners and trackers, move scanners, tune the settings and run the calibration from the dashboard, without YAML files or developer tools.
+- **Home Assistant native:** rooms link to areas, presence works with persons, and an *Active scanners* sensor tells you when a scanner goes quiet.
+- **Local only:** no cloud, no network access of its own. All data stays in Home Assistant's storage.
 
 ## Requirements
 
-- Home Assistant 2026.10 or newer with the Bluetooth integration and at least two scanners that see the trackers; three or more spread over the home give useful positions.
-- Trackers that advertise often: a beacon or a tag with a fixed address, or a phone or watch set up as a Private BLE Device.
+- Home Assistant 2026.10 or newer with the Bluetooth integration.
+- At least two scanners that see the trackers; three or more spread over the home give useful positions, four or more let the integration spot a scanner that disagrees with the others.
+- Trackers that advertise often: a tag or beacon with a fixed address, or a phone or watch set up as a Private BLE Device.
 
 ## Installation
 
 1. In HACS: **⋮ → Custom repositories**, add `https://github.com/n-schilling/ha-ble-floorplan` as type **Integration**.
 2. Install **BLE Floorplan** and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → BLE Floorplan**. There is nothing to fill in.
-4. Add the card `custom:ble-floorplan-card` to a dashboard; it registers itself as a dashboard resource. Then go on with [Getting started](#getting-started).
+4. Add the card `custom:ble-floorplan-card` to a dashboard. The integration registers the card as a dashboard resource by itself.
 
 ## Getting started
 
-Everything is done in the card, as an administrator, from the gear (⚙). It opens the floor plan, the scanners and the trackers right away while the plan is empty.
+Everything is done in the card, as an administrator, from the gear (⚙). While the plan is empty, the gear opens with the floor plan, the scanners and the trackers.
 
 ![Setting up: the floor plan as YAML, adding scanners and trackers](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/setup.png)
 
-1. **Floor plan.** Measure your rooms, or take them from a floor plan drawing. The text field starts with a template of two rooms and a door: replace it with your rooms (rectangles with `x`, `y`, `w`, `h` or polygons with `points`, in metres, the origin top left), zones, outdoor areas and the doors as `openings`, then **Save**. A mistake comes back as a message and nothing is saved. See [The floor plan](#the-floor-plan) for every option.
-2. **Scanners.** The list offers every Bluetooth scanner Home Assistant has: its own adapter, ESPHome proxies, Shelly devices. Choose one, set the height it hangs at, **Add**. It lands in the middle of the plan; tap it, **Move**, drag it to its place, **Save**. Repeat for every scanner; three or more spread over the home give useful positions.
-3. **Trackers.** The list offers the phones and watches set up as [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) and the devices with a fixed Bluetooth address, such as tags. Choose one, give it a name and the height it is usually carried at, **Add**. Its *Room* and *Position* sensors appear right away.
-4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time; then compute and apply the proposal. Uncalibrated, the positions are rough.
-5. **Tune.** The motion rules, the room rules and the robust weights in the gear have defaults that suit a flat; see [How it works](#how-it-works).
+1. **Draw the floor plan.** The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, with the origin at the top left corner: rectangles with `x`, `y`, `w`, `h` or polygons with `points`, plus zones, outdoor areas and the doors as `openings`. Then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
+2. **Add the scanners.** The list offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. It lands in the middle of the plan: tap it, **Move**, drag it to its place and **Save**.
+3. **Add the trackers.** The list offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its sensors appear right away.
+4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time, then compute and apply the proposal. Without calibration the positions are rough.
+5. **Tune if needed.** The defaults of the [settings](#settings) suit a flat.
 
 A scanner or a tracker is taken off the plan with the ✕ next to it in the same lists.
 
-## The floor plan
+## The card
 
-Everything is in metres, the origin is the top left corner of the plan, y grows downwards.
+The card is the plan. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan. The three buttons at the top rotate the plan, switch the labels of rooms, scanners and trackers, and open the gear (administrators only).
+
+| Tracker panel with the distance circles | Scanner panel |
+|---|---|
+| ![Tracker panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![Scanner panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
+
+- **Tracker panel:** room, position, the distance and signal strength at every scanner, height, reference power and pair corrections. Administrators edit those values, show the distance circles and start a calibration run from here.
+- **Scanner panel:** position, height, offset, what the scanner hears from every tracker and its pair corrections. Administrators move the scanner and edit its values.
+- **Gear:** sections that fold, for the floor plan, the scanners, the trackers, the display (rotation and labels, kept per browser), the settings and the calibration.
 
 ```yaml
-rooms:
-  - name: Living room          # a rectangle
-    area: living_room          # optional: the area of Home Assistant (id or name)
-    x: 0
-    y: 0
-    w: 6
-    h: 5
-  - name: Bedroom              # or a polygon
-    points: [[0, 5], [6, 5], [6, 9], [2, 9], [2, 8], [0, 8]]
-  - name: Dining               # a zone inside a room: dashed, wins when a tracker lies in it
-    x: 3
-    y: 0
-    w: 3
-    h: 2.5
-    zone: true
-  - name: Balcony              # outdoors: dashed, trackers are kept out unless clamp_outdoor
-    x: 0
-    y: 9
-    w: 10
-    h: 2
-    outdoor: true
-openings:                      # doors and passages, drawn as gaps in the walls
-  - [6, 1, 6, 2.5]
-scanners:
-  - key: living
-    name: Living room scanner
-    source: AA:BB:CC:DD:EE:01   # the address Home Assistant knows the scanner by
-    x: 1
-    y: 1
-    z: 0.8                     # height above the floor
-    rssi_offset: 0             # correction of the reference power for this scanner, dB
-trackers:
-  - key: tag
-    name: Tag
-    address: AA:BB:CC:DD:EE:10 # a fixed address …
-    height: 0.3
-    ref_power: -60             # RSSI at one metre; omit for the default
-  - key: phone
-    name: Phone
-    device_id: 1f2e3d…         # … or the device of a Private BLE Device
-    height: 1.0
-settings:
-  attenuation: 3.0
-  ref_power_default: -55
-  smoothing_seconds: 20
-  min_move: 0.25
-  max_distance: 15
-  clamp: true
-  clamp_outdoor: false
-  max_speed: 1.5              # m/s; 0 for no limit
-  jump_distance: 2            # m; a raw position farther away is a jump, 0 follows at once
-  jump_confirm_seconds: 3     # a jump is followed after it stayed this long
-  room_hold_seconds: 5        # the room changes after this long in the new room
-  room_margin: 0.3            # m from the new room's walls; 0 for anywhere inside
-  robust_residual: 1          # m; a scanner the others contradict by more loses weight, 0 off
-  walls: true                 # pass walls only through openings
-  away_seconds: 120           # presence turns not_home after this long without a sighting
-pair_offsets:                  # correction per scanner and tracker in dB, from the calibration
-  living:
-    tag: -2.5
+type: custom:ble-floorplan-card
+title: Home            # optional
+rotation: 90           # optional default: 0, 90, 180 or 270
+show_room_labels: true
+show_scanner_labels: true
+show_tracker_labels: true
 ```
 
-Room labels take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) and `label: false`.
-
-The addresses of the scanners are those of the Bluetooth devices in **Settings → Devices & services → Bluetooth**; the device id of a Private BLE Device is in the URL of its device page.
+The visual editor offers the title; rotation and labels are set on the card itself. Numbers are shown in the language of Home Assistant, and a point and a comma are both taken as the decimal sign.
 
 ## Entities
 
-Each tracker is a device named after the tracker, with:
+Each tracker becomes a device with these entities:
 
 | Entity | Description |
 |---|---|
-| Room (`sensor`) | The room the tracker is in; unknown while no scanner sees it. Attributes: `x`, `y` (m), `nearest_scanner`, `scanner_count`, `distances` (floor distance of every scanner in m, null when not seen), `area_id` (the area of Home Assistant the room stands for, see below). |
+| Room (`sensor`) | The room the tracker is in, unknown while no scanner sees it. Attributes: `x`, `y` in metres, `nearest_scanner`, `scanner_count`, `distances` (the floor distance to every scanner, null when not seen) and `area_id`. |
 | Position X, Position Y (`sensor`, diagnostic) | The coordinates on the plan in metres. |
-| Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds` (120 s), `not_home` after that. Unknown right after a start of Home Assistant until the tracker is seen or `away_seconds` passed, so a restart does not look like leaving. Assign it to a person to replace another tracker. |
+| Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds`, `not_home` after that. Right after a start of Home Assistant it stays unknown until the tracker is seen or `away_seconds` passed, so a restart does not look like leaving home. Assign it to a person in **Settings → People**. |
 
-The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): how many scanners of the plan received anything within the last minute, with the names of the active and the inactive ones as attributes. Useful for a notification when a scanner fails.
+The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with the names of the active and inactive ones as attributes. Use it to get notified when a scanner fails.
 
 ### Rooms and areas
 
-A room of the plan can stand for an area of Home Assistant: give it `area` with the area's id or name. The *Room* sensor then carries the area as `area_id`, so automations can work with areas:
-
-```yaml
-rooms:
-  - {name: Kitchen, x: 6, y: 0, w: 4, h: 5, area: kitchen}
-```
+A room of the plan can stand for an area of Home Assistant. Give it `area` with the area's id or name; an area Home Assistant does not know is refused when the plan is saved. The *Room* sensor then carries the area as `area_id`, so automations can work with areas:
 
 ```yaml
 triggers:
@@ -149,89 +98,127 @@ actions:
       area_id: "{{ state_attr('sensor.phone_room', 'area_id') }}"
 ```
 
-An area Home Assistant does not know is refused when the plan is saved.
+The *Room* sensor changes only after the room hold time, so it suits "who is where" better than switching lights the moment someone walks in. A motion sensor is quicker for that.
 
-The *Room* sensor changes only after the room hold time, so it suits "who is where" better than switching lights the moment someone walks in; a motion sensor is quicker for that.
+## Calibration
+
+Every scanner hears every tracker a little differently: an adapter may hear a tag as loud as a proxy does, and a phone 15 dB louder. One reference power per tracker and one offset per scanner cannot express that. The calibration therefore records each tracker at known places and fits all of it at once.
+
+1. In the card, tap the tracker and choose **Calibration run**. Set the tracker's height for this run, tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. While the run goes, a crosshair marks the true position and the panel counts the samples per scanner.
+
+   ![A calibration run](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/measure.png)
+
+2. Repeat at other places and with the other trackers. A scanner needs at least three samples in a run to count. Fitting the exponent needs runs at different distances from a scanner.
+3. In the gear, open **Calibration** and **Compute**. The proposal lists the current and the proposed value of every parameter, the runs and samples behind it, and the error before and after.
+
+   ![The calibration proposal](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/calibration.png)
+
+4. **Apply** writes the proposal into the plan. Nothing is applied by itself; a proposal you do not like is simply not applied.
+
+How the fit works: for each run and scanner, the median signal strength is one observation, and its true distance follows from the positions and heights of the run and the scanner. A least-squares fit over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(distance)` gives the reference power of every tracker and the offset of every scanner. The offsets are made to average zero, because only the sum of a tracker's and a scanner's value can be observed. What the fit leaves per pair of scanner and tracker becomes the pair's correction. With runs of one tracker only, the differences between the scanners all land in the offsets and then apply to every tracker, so calibrate every tracker you care about.
+
+The runs are kept in `.storage/ble_floorplan.calibration`.
+
+## Settings
+
+All settings are in the gear of the card. Setting a value to 0 switches a rule off where noted.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Path loss exponent (`attenuation`) | 3.0 | How fast the signal weakens with distance. |
+| Default reference power (`ref_power_default`) | −55 dBm | Signal strength at one metre for trackers without their own value. |
+| Largest distance (`max_distance`) | 15 m | Scanners farther away are ignored for the position. |
+| Smoothing (`smoothing_seconds`) | 20 s | Time constant of the smoothing of the shown position. |
+| Dead zone (`min_move`) | 0.25 m | Smaller moves are ignored. |
+| Keep trackers in the rooms (`clamp`) | on | A position outside every room moves to the closest wall. |
+| Outdoor areas count as rooms (`clamp_outdoor`) | off | Lets trackers stay on balconies and terraces. |
+| Top speed (`max_speed`) | 1.5 m/s | The shown position never moves faster; 0 is off. |
+| Jump distance (`jump_distance`) | 2 m | A measured position this far away counts as a jump; 0 is off. |
+| Jump confirmation (`jump_confirm_seconds`) | 3 s | A jump is followed only after it stayed that long. |
+| Through walls only at doors (`walls`) | on | The shown position passes walls only through openings. |
+| Away after (`away_seconds`) | 120 s | Presence turns `not_home` after this long without a sighting. |
+| Hold time (`room_hold_seconds`) | 5 s | The room changes only after this long in the new room. |
+| Wall margin (`room_margin`) | 0.3 m | ... and at least this far from the new room's walls; 0 is off. |
+| Residual (`robust_residual`) | 1 m | With four or more scanners, a scanner the others contradict by more loses weight; 0 is off. |
+
+## The floor plan
+
+The floor plan is edited as YAML in the gear. Everything is in metres; the origin is the top left corner and y grows downwards.
+
+```yaml
+rooms:
+  - name: Living room          # a rectangle
+    area: living_room          # optional: the area of Home Assistant, by id or name
+    x: 0
+    y: 0
+    w: 6
+    h: 5
+  - name: Bedroom              # a polygon
+    points: [[0, 5], [6, 5], [6, 9], [2, 9], [2, 8], [0, 8]]
+  - name: Dining               # a zone inside a room: dashed, and wins when a tracker lies in it
+    x: 3
+    y: 0
+    w: 3
+    h: 2.5
+    zone: true
+  - name: Balcony              # outdoors: dashed, trackers are kept out unless clamp_outdoor is on
+    x: 0
+    y: 9
+    w: 10
+    h: 2
+    outdoor: true
+openings:                      # doors and open passages, as a line on a wall
+  - [6, 1, 6, 2.5]
+```
+
+Room labels also take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) and `label: false`. Of overlapping rooms the one drawn last wins; zones win over the rooms they lie in. Walls are the outlines of the rooms; a tracker passes them only where an opening lies on them, so add every door and open passage.
+
+## How it works
+
+1. **Signals.** Every second, for each tracker, the newest advertisement of every scanner that sees it is read: its signal strength (RSSI) and the time the scanner saw it. Per scanner, the RSSI is the median of the last 10 s; an advertisement older than 30 s counts as not seen.
+2. **Distances.** The RSSI becomes a distance with the log-distance path loss model, `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`, and is projected onto the floor with the heights of scanner and tracker.
+3. **Position.** The distances of the scanners within reach go into a weighted Gauss-Newton least-squares fit. Near scanners count more, and a position nearer to a scanner than its measured distance costs less than one farther away, because walls make measured distances rather too long. With four or more scanners, one that the others contradict loses weight.
+4. **Movement.** The shown position follows the measured one with smoothing, ignores small moves, confirms jumps, keeps to the top speed and passes walls only through doors: a step through a wall heads for the door of its room that lies best on the way instead.
+5. **Room and presence.** The room is the room or zone the shown position lies in, and it changes only after the hold time and well inside the new room. Presence is `home` while any scanner saw the tracker within `away_seconds`.
 
 ## WebSocket API
+
+The card uses these commands; they are open for scripts and tools as well. Commands marked *admins* need an administrator.
 
 | Command | Who | Description |
 |---|---|---|
 | `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. |
-| `ble_floorplan/subscribe` | everyone | Sends `floorplan` and `positions` now, then an event for every change of the positions (`positions`) or the plan (`floorplan`). |
-| `ble_floorplan/set_scanner` | admins | `key` and any of `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair): changes a scanner, what is left out stays. |
-| `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`, null removes a pair): changes a tracker. |
-| `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. Validated as a whole. |
-| `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan (validated; see above) and reloads the entry. |
-| `ble_floorplan/get_layout` | admins | Returns `yaml`: the rooms and openings as YAML, a commented template while the plan has none. |
+| `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions` and `calibration` now, then an event for every change. |
+| `ble_floorplan/get_layout` | admins | Returns `yaml`: the rooms and openings, a template while the plan has none. |
 | `ble_floorplan/set_layout` | admins | `yaml`: replaces the rooms and openings; scanners, trackers and settings stay. |
-| `ble_floorplan/candidates` | admins | Returns `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that Home Assistant knows and that are not on the plan yet. |
+| `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
+| `ble_floorplan/candidates` | admins | Returns the `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that are not on the plan yet. |
 | `ble_floorplan/add_scanner` | admins | `source`, optionally `name` and `z`: puts a scanner in the middle of the plan. |
-| `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker and reloads the entry for its sensors. |
-| `ble_floorplan/remove_scanner`, `ble_floorplan/remove_tracker` | admins | `key`: takes it off the plan, with its pair corrections. |
-
-| `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y` and optionally `height`: starts a calibration run (one at a time). Returns the run. |
-| `ble_floorplan/calibration/stop` | admins | Stops the run that is going. Returns the run. |
-| `ble_floorplan/calibration/list` | admins | Returns `active` (the id of the run going, or null) and `runs`: id, tracker, true position, height, start, duration, `counts` per scanner. With `samples: true` every run comes with its samples `[seconds since the start, RSSI]` per scanner. |
+| `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
+| `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |
+| `ble_floorplan/remove_tracker` | admins | `key`: takes a tracker off the plan, with its pair corrections. |
+| `ble_floorplan/set_scanner` | admins | `key` and any of `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair). |
+| `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`). |
+| `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
+| `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`: starts a run (one at a time). |
+| `ble_floorplan/calibration/stop` | admins | Stops the run that is going. |
+| `ble_floorplan/calibration/list` | admins | Returns the runs with their sample counts; `samples: true` adds every sample. |
 | `ble_floorplan/calibration/delete` | admins | `run_id`: deletes a run. |
-| `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent as well. Returns the proposal: `attenuation`, `trackers` (reference power), `scanners` (offset), `pairs`, each with `old`, `new` and the number of runs and samples behind it, plus `rms` before and after and the number of `observations`. Nothing is written. |
-| `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers` (`{key: ref_power}`), `scanners` (`{key: rssi_offset}`), `pairs` (`{scanner: {tracker: dB}}`), each optional: writes them into the plan (pairs are merged) and reloads the entry. |
+| `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent too. Returns the proposal; nothing is written. |
+| `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers`, `scanners`, `pairs`, each optional: writes them into the plan. |
 
-Example from the developer tools or a browser console: `await hass.callWS({type: "ble_floorplan/set_scanner", key: "living", x: 1.2, y: 0.9, z: 0.8})`.
-
-## Calibration
-
-The signal every scanner hears from a tracker at one metre differs with the scanner, and it differs with the tracker: a plug hears a tag as loud as an ESP32 does, and a phone 15 dB louder. Reference power per tracker and offset per scanner cannot express that; the integration therefore records runs with the tracker at a known place and fits all of it at once.
-
-1. In the card, tap the tracker and choose **Calibration run** (admins). Set its height for this run, tap the plan where the tracker is, **Start run**. Leave the tracker there for a minute or two, **Stop run**. While the run goes, the crosshair marks the true position and the panel counts the samples per scanner:
-
-   ![A calibration run](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/measure.png)
-
-   Every new advertisement of every scanner in the plan is a sample of the run; the runs are kept in `.storage/ble_floorplan.calibration`.
-2. Repeat at other places, and with the other trackers. A scanner needs at least three samples in a run for the run to count for it. The exponent needs runs at different distances from a scanner.
-3. In the gear panel, **Compute**. Per run and scanner the median RSSI is one observation; its true distance follows from the run's position and height and the scanner's position and height. Least squares over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(d)` gives the reference power of every tracker and the offset of every scanner; the offsets are made to average zero, because only the sum of a tracker's and a scanner's value is observable. With **Fit the exponent too** the exponent is fitted as well. What the fit leaves per pair scanner × tracker (the mean residual) becomes the pair's correction. The preview shows the current and the proposed value of every parameter, the runs and samples behind it, and the RMS error of the observations before and after.
-4. **Apply** writes the proposal into the plan and reloads the entry. Nothing is applied by itself; a proposal you do not like is simply not applied. The pair corrections of trackers without runs stay as they are.
-
-A single tracker cannot separate its reference power from the scanner offsets, so with runs of one tracker only the offsets carry the differences between the scanners, which then apply to every tracker. Calibrate every tracker you care about, then the offsets hold what the scanners have in common and the pairs the rest.
-
-## The card
-
-`custom:ble-floorplan-card` draws the plan, the scanners and the trackers. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan:
-
-- **Tracker**: room, position, every scanner's distance and RSSI, height, reference power and pair corrections. Admins edit those, show the distance circles and start a [calibration run](#calibration) from here: tap the plan where the tracker lies, start, stop.
-- **Scanner**: position, height, offset, what it hears from every tracker, its pair corrections. Admins drag it to its place and edit the values.
-- **Gear** (admins), in sections that fold: the floor plan as YAML, the scanners and the trackers (add and remove), rotation and labels (kept per browser), the settings of the engine, the motion rules, the room rules and the robust weights, and the calibration: the runs with their samples per scanner, compute, the proposal and apply.
-
-| Tracker panel with the distance circles | Scanner panel |
-|---|---|
-| ![Tracker panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![Scanner panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
-
-| Settings | Calibration proposal |
-|---|---|
-| ![Settings](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/settings.png) | ![Calibration](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/calibration.png) |
-
-Numbers are shown in the language of Home Assistant; a point and a comma are both taken as the decimal sign.
-
-```yaml
-type: custom:ble-floorplan-card
-title: Home            # optional
-rotation: 90           # optional default, 0/90/180/270
-show_room_labels: true
-show_scanner_labels: true
-show_tracker_labels: true
-```
-
-The visual editor offers the title; rotation and labels are set on the card itself. The integration serves the card at `/ble_floorplan/ble-floorplan-card.js` and adds it to the dashboard resources (storage mode) by itself.
+Example from a browser console on a dashboard: `await document.querySelector("home-assistant").hass.callWS({type: "ble_floorplan/get_floorplan"})`.
 
 ## Limitations
 
-- Indoor signal strength scatters by 10–20 dB with reflections, bodies and orientation; the positions are rough, the rooms are right most of the time when the scanners are spread out and calibrated. A corner of the home no scanner covers places trackers at the nearest wall.
-- The scanners' response is device specific: two trackers at the same place can differ by 10 dB at the same scanner. The calibration's pair corrections take care of that for calibrated trackers; an uncalibrated tracker gets the scanner offsets only.
+- Indoor signal strength scatters by 10–20 dB with reflections, bodies and orientation. Positions are rough; rooms are right most of the time when the scanners are spread out and the trackers calibrated.
+- A corner that no scanner covers places trackers at the nearest wall.
+- Uncalibrated trackers get the scanner offsets only, which fit the calibrated trackers best.
 - One floor only.
 
 ## Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids and the calibration runs (positions in the home, signal strengths) in Home Assistant's storage. It sends nothing anywhere else. The card talks to Home Assistant only.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids and the calibration runs (positions in the home and signal strengths) in Home Assistant's storage. It sends nothing anywhere else, and the card talks to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Development
 

@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+
+- README rewritten: features first, an animated overview of the card, a table of all settings, one table of the WebSocket commands; no references to other integrations it does not need. The privacy test checks GIF images as well.
+
 ## [0.8.0] - 2026-10-22
 
 ### Added

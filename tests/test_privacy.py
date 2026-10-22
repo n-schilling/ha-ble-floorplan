@@ -96,6 +96,57 @@ def test_no_diagnostics() -> None:
 
 # Images carry pixels only: no text chunks, no EXIF, no colour profile with a name
 IMAGE_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
+# A GIF may carry its frames, their timing and the loop count, nothing else
+GIF_LOOP = b"NETSCAPE2.0"
+
+
+def _png_problems(data: bytes) -> list[str]:
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return ["no PNG"]
+    problems = []
+    i = 8
+    while i < len(data):
+        length = struct.unpack(">I", data[i : i + 4])[0]
+        kind = data[i + 4 : i + 8]
+        if kind not in IMAGE_CHUNKS:
+            problems.append(f"chunk {kind!r}")
+        i += 12 + length
+    return problems
+
+
+def _skip_sub_blocks(data: bytes, i: int) -> int:
+    while data[i]:
+        i += data[i] + 1
+    return i + 1
+
+
+def _gif_problems(data: bytes) -> list[str]:
+    if data[:6] not in (b"GIF87a", b"GIF89a"):
+        return ["no GIF"]
+    problems = []
+    flags = data[10]
+    i = 13 + (3 * 2 ** ((flags & 7) + 1) if flags & 0x80 else 0)
+    while i < len(data):
+        block = data[i]
+        if block == 0x3B:  # trailer
+            break
+        if block == 0x2C:  # image: descriptor, local colour table, LZW data
+            local = data[i + 9]
+            i += 10 + (3 * 2 ** ((local & 7) + 1) if local & 0x80 else 0)
+            i = _skip_sub_blocks(data, i + 1)
+        elif block == 0x21:  # extension
+            label = data[i + 1]
+            if label == 0xFF:
+                ident = data[i + 3 : i + 3 + data[i + 2]]
+                if ident != GIF_LOOP:
+                    problems.append(f"application block {ident!r}")
+            elif label != 0xF9:  # anything but the graphic control (timing)
+                problems.append(f"extension 0x{label:02x}")
+            i = _skip_sub_blocks(data, i + 2)
+        else:
+            problems.append(f"block 0x{block:02x}")
+            break
+    return problems
 
 
 def test_images_carry_no_metadata() -> None:
@@ -107,14 +158,23 @@ def test_images_carry_no_metadata() -> None:
         and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
         and not SKIPPED_DIRS & set(path.relative_to(ROOT).parts)
     ]
-    assert any(p.parent.name == "images" for p in images), "the screenshots are checked"
+    assert any(p.suffix == ".gif" for p in images), "the animation is checked"
     for path in images:
         data = path.read_bytes()
-        assert path.suffix == ".png", f"{path}: only PNG, so the chunks can be checked"
-        assert data[:8] == b"\x89PNG\r\n\x1a\n", path
-        i = 8
-        while i < len(data):
-            length = struct.unpack(">I", data[i : i + 4])[0]
-            kind = data[i + 4 : i + 8]
-            assert kind in IMAGE_CHUNKS, f"{path}: chunk {kind!r}"
-            i += 12 + length
+        assert path.suffix in {".png", ".gif"}, f"{path}: only PNG and GIF, so they can be checked"
+        problems = _png_problems(data) if path.suffix == ".png" else _gif_problems(data)
+        assert not problems, f"{path}: {problems}"
+
+
+def test_metadata_checks_catch_metadata() -> None:
+    """The checks above find what they look for."""
+    png = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 0) + b"tEXt" + b"\0" * 4
+    assert _png_problems(png) == ["chunk b'tEXt'"]
+    assert _png_problems(b"nope") == ["no PNG"]
+    header = b"GIF89a" + b"\0" * 4 + b"\0" + b"\0\0"
+    comment = header + b"\x21\xfe\x03abc\x00" + b"\x3b"
+    assert _gif_problems(comment) == ["extension 0xfe"]
+    xmp = header + b"\x21\xff\x0bXMP DataXMP\x00" + b"\x3b"
+    assert _gif_problems(xmp) == ["application block b'XMP DataXMP'"]
+    assert _gif_problems(header + b"\x99") == ["block 0x99"]
+    assert _gif_problems(b"nope") == ["no GIF"]
