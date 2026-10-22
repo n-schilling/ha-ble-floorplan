@@ -30,6 +30,7 @@ from .catalog import (
     remove_scanner,
     remove_tracker,
     scanner_names,
+    with_areas,
     with_layout,
 )
 from .const import (
@@ -349,8 +350,8 @@ async def ws_set_floorplan(
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
     try:
-        plan = Floorplan.from_dict(msg["floorplan"])
-    except probatio.Invalid as err:
+        plan = with_areas(hass, Floorplan.from_dict(msg["floorplan"]))
+    except (probatio.Invalid, LayoutProblem) as err:
         connection.send_error(msg["id"], ERR_INVALID, str(err))
         return
     await _async_replace(hass, runtime, plan)
@@ -643,7 +644,7 @@ async def ws_set_layout(
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
     try:
-        plan = with_layout(runtime.store.plan, msg["yaml"])
+        plan = with_areas(hass, with_layout(runtime.store.plan, msg["yaml"]))
     except LayoutProblem as err:
         connection.send_error(msg["id"], ERR_INVALID, str(err))
         return

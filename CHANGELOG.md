@@ -4,6 +4,14 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-22
+
+### Added
+
+- Rooms link to areas of Home Assistant: `area` with the area's id or name; the *Room* sensor carries the area of its room as `area_id`. An unknown area is refused when the plan or the layout is saved.
+- *Presence* (`device_tracker`) per tracker: `home` while a scanner of the plan saw it within `away_seconds` (new setting, 120 s), `not_home` after that, unknown right after a start of Home Assistant until the tracker is seen or the time passed. It can be assigned to a person.
+- *Active scanners* (`sensor`) on the integration's own device: the scanners of the plan that received anything within the last minute, with the active and inactive ones as attributes.
+
 ## [0.7.0] - 2026-10-22
 
 ### Removed

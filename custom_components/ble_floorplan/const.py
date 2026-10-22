@@ -49,6 +49,10 @@ DEFAULT_ROOM_HOLD_SECONDS: Final = 5.0
 DEFAULT_ROOM_MARGIN: Final = 0.3
 # A scanner whose circle misses the position by more than this loses weight (0 = off)
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
+# A tracker counts as away once no scanner saw it this long (s)
+DEFAULT_AWAY_SECONDS: Final = 120.0
+# A scanner counts as active when it received anything this recently (s)
+SCANNER_ACTIVE_SECONDS: Final = 60.0
 # A wall is crossed only through an opening this close (m)
 DOOR_TOLERANCE: Final = 0.15
 # Going through a door, the position lands this far past it (m) …

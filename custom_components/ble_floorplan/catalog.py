@@ -15,7 +15,7 @@ import yaml
 
 from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.util import slugify
 
@@ -177,10 +177,30 @@ LAYOUT_TEMPLATE = """\
 rooms:
   - {name: Living room, x: 0, y: 0, w: 5, h: 4}
   - {name: Kitchen, x: 5, y: 0, w: 3, h: 4}
+# area: links a room to an area of Home Assistant, by id or name.
 # Doors and open passages: [x1, y1, x2, y2] on a wall
 openings:
   - [5, 1, 5, 2]
 """
+
+
+def with_areas(hass: HomeAssistant, plan: Floorplan) -> Floorplan:
+    """Return the plan with every room's area as an area id; raises LayoutProblem.
+
+    A room may name its area by id or by name; an area Home Assistant does not
+    know is refused.
+    """
+    registry = ar.async_get(hass)
+    rooms = []
+    for room in plan.rooms:
+        if room.area is None:
+            rooms.append(room)
+            continue
+        area = registry.async_get_area(room.area) or registry.async_get_area_by_name(room.area)
+        if area is None:
+            raise LayoutProblem(f"room {room.name or '(no name)'}: no area {room.area}")
+        rooms.append(replace(room, area=area.id))
+    return replace(plan, rooms=tuple(rooms))
 
 
 def layout_yaml(plan: Floorplan) -> str:

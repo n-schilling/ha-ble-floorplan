@@ -4,7 +4,7 @@
 // Tapping a tracker or a scanner opens its panel with the details and, for
 // admins, its actions: edit, move, calibration run. The gear opens the
 // settings, the calibration runs and the proposal.
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -29,13 +29,13 @@ if (!customElements.get("ble-floorplan-card")) {
       smoothing: "Smoothing (s)", minMove: "Dead zone (m)", clamp: "Keep trackers in the rooms",
       clampOutdoor: "Outdoor areas count as rooms", maxSpeed: "Top speed (m/s, 0 = none)",
       jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
-      walls: "Through walls only at doors", roomHold: "Hold time (s)", roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
+      walls: "Through walls only at doors", awaySeconds: "Away after (s) without a sighting", roomHold: "Hold time (s)", roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
       calibration: "Calibration", noRuns: "No runs yet. Start one from a tracker.", running: "running",
       samples: "samples", rotation: "Rotation", noPlan: "No floor plan yet: an administrator sets it up from the gear of this card.",
       notLoaded: "BLE Floorplan is not set up.", unknown: "–",
       hint: "Hover a scanner or a tracker for details, tap it for its panel.",
       plan: "Floor plan", add: "Add", name: "Name", allOnPlan: "Every one Home Assistant knows is on the plan.",
-      layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; see the README.",
+      layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant. See the README.",
       confirmRemove: "Take {name} off the plan?", startHere: "Open the gear to draw the floor plan and add scanners and trackers.",
       newScannerHint: "New scanners land in the middle; move them to their place from their panel.",
     },
@@ -56,13 +56,13 @@ if (!customElements.get("ble-floorplan-card")) {
       smoothing: "Glättung (s)", minMove: "Totzone (m)", clamp: "Tracker in den Räumen halten",
       clampOutdoor: "Außenflächen zählen als Räume", maxSpeed: "Höchstgeschwindigkeit (m/s, 0 = keine)",
       jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
-      walls: "Wände nur an Türen passieren", roomHold: "Haltezeit (s)", roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
+      walls: "Wände nur an Türen passieren", awaySeconds: "Abwesend nach (s) ohne Empfang", roomHold: "Haltezeit (s)", roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
       calibration: "Kalibrierung", noRuns: "Noch keine Messläufe. Start über einen Tracker.", running: "läuft",
       samples: "Samples", rotation: "Drehung", noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn über das Zahnrad dieser Karte ein.",
       notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
       hint: "Maus über Scanner oder Tracker zeigt Details, Antippen öffnet das Panel.",
       plan: "Grundriss", add: "Hinzufügen", name: "Name", allOnPlan: "Alle, die Home Assistant kennt, sind auf dem Plan.",
-      layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; siehe README.",
+      layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant. Siehe README.",
       confirmRemove: "{name} vom Plan nehmen?", startHere: "Über das Zahnrad den Grundriss eintragen und Scanner und Tracker hinzufügen.",
       newScannerHint: "Neue Scanner landen in der Mitte; über ihr Panel an den Platz schieben.",
     },
@@ -80,6 +80,7 @@ if (!customElements.get("ble-floorplan-card")) {
     ["motion", "jump_distance", "jumpDistance", 0.1],
     ["motion", "jump_confirm_seconds", "jumpConfirm", 0.5],
     ["motion", "walls", "walls", "bool"],
+    ["roomRules", "away_seconds", "awaySeconds", 10],
     ["roomRules", "room_hold_seconds", "roomHold", 0.5],
     ["roomRules", "room_margin", "roomMargin", 0.05],
     ["robust", "robust_residual", "robustResidual", 0.1],

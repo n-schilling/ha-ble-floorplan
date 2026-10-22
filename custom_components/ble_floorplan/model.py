@@ -17,6 +17,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DEFAULT_ATTENUATION,
+    DEFAULT_AWAY_SECONDS,
     DEFAULT_JUMP_CONFIRM_SECONDS,
     DEFAULT_JUMP_DISTANCE,
     DEFAULT_MAX_DISTANCE,
@@ -97,6 +98,8 @@ ROOM_SCHEMA = probatio.All(
             probatio.Optional("fs"): NUMBER,
             probatio.Optional("rot"): NUMBER,
             probatio.Optional("label", default=True): cv.boolean,
+            # The area of Home Assistant the room stands for
+            probatio.Optional("area"): cv.string,
         }
     ),
     _rect_or_polygon,
@@ -166,6 +169,9 @@ SETTINGS_SCHEMA = probatio.Schema(
             NUMBER, probatio.Range(min=0.0)
         ),
         probatio.Optional("walls", default=True): cv.boolean,
+        probatio.Optional("away_seconds", default=DEFAULT_AWAY_SECONDS): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
     }
 )
 
@@ -208,6 +214,8 @@ class Room:
     fs: float | None = None
     rot: float | None = None
     label: bool = True
+    # Area id of Home Assistant
+    area: str | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -227,6 +235,7 @@ class Room:
             fs=data.get("fs"),
             rot=data.get("rot"),
             label=data["label"],
+            area=data.get("area"),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -246,6 +255,7 @@ class Room:
                 "fs": self.fs,
                 "rot": self.rot,
                 "label": self.label,
+                "area": self.area,
             }
         )
 
@@ -365,6 +375,8 @@ class Settings:
     robust_residual: float = DEFAULT_ROBUST_RESIDUAL
     # The shown position passes walls only through openings
     walls: bool = True
+    # A tracker no scanner saw for this long is away
+    away_seconds: float = DEFAULT_AWAY_SECONDS
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -388,6 +400,7 @@ class Settings:
             "room_margin": self.room_margin,
             "robust_residual": self.robust_residual,
             "walls": self.walls,
+            "away_seconds": self.away_seconds,
         }
 
 
@@ -483,6 +496,12 @@ class Floorplan:
         """Return the room at the point, with the same precedence as room_at."""
         ordered = sorted(reversed(self.rooms), key=lambda r: not r.zone)
         return next((r for r in ordered if r.contains(x, y)), None)
+
+    def area_of(self, room_name: str | None) -> str | None:
+        """Return the area of Home Assistant of the room with that name."""
+        return next(
+            (r.area for r in self.rooms if r.name == room_name and r.area is not None), None
+        )
 
     def space_of(self, x: float, y: float) -> Room | None:
         """Return the room with walls (no zone) at the point; the one drawn last wins."""

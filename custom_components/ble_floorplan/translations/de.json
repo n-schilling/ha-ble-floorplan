@@ -20,6 +20,14 @@
       },
       "position_y": {
         "name": "Position Y"
+      },
+      "active_scanners": {
+        "name": "Aktive Scanner"
+      }
+    },
+    "device_tracker": {
+      "presence": {
+        "name": "Anwesenheit"
       }
     }
   }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 import logging
 from typing import Any
@@ -69,6 +69,9 @@ class TrackerPosition:
     # Number of scanners that went into the position
     scanner_count: int
     readings: dict[str, Reading] = field(default_factory=dict)
+    # Whether a scanner saw the tracker within away_seconds; None right after
+    # the start, before away_seconds passed without seeing it
+    present: bool | None = None
 
     @property
     def seen(self) -> bool:
@@ -87,6 +90,7 @@ class TrackerPosition:
             "nearest": self.nearest,
             "scanner_count": self.scanner_count,
             "readings": {key: r.as_dict() for key, r in self.readings.items()},
+            "present": self.present,
         }
 
 
@@ -118,6 +122,9 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
         self._rooms = RoomTracker()
+        # Monotonic time of the first computation and of the last sighting per tracker
+        self._started: float | None = None
+        self._last_seen: dict[str, float] = {}
         # device_id -> entity_id of the device tracker of a Private BLE Device
         self._tracker_entities: dict[str, str] = {}
 
@@ -133,13 +140,24 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     def compute(self, now: float) -> Positions:
         """Compute the position of every tracker at the monotonic time now."""
         plan = self.plan
+        if self._started is None:
+            self._started = now
         sources = {s.source: s.key for s in plan.scanners}
         positions: Positions = {}
         for tracker in plan.trackers:
             address = self._address_of(tracker)
             if address is not None:
                 self._collect(tracker.key, address, sources)
-            positions[tracker.key] = self._locate(tracker, address, now, plan)
+            position = self._locate(tracker, address, now, plan)
+            if position.seen:
+                self._last_seen[tracker.key] = now
+            last = self._last_seen.get(tracker.key)
+            away = plan.settings.away_seconds
+            if last is not None:
+                present: bool | None = now - last <= away
+            else:
+                present = None if now - self._started < away else False
+            positions[tracker.key] = replace(position, present=present)
         return positions
 
     async def async_start_calibration(

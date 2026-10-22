@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.bluetooth import async_current_scanners
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -12,14 +13,16 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, NAME, SCANNER_ACTIVE_SECONDS
 from .coordinator import FloorplanCoordinator, TrackerPosition
 from .model import Floorplan, Tracker
 
 if TYPE_CHECKING:
     from . import FloorplanConfigEntry
 
-KINDS = ("room", "position_x", "position_y")
+KINDS = ("room", "position_x", "position_y", "presence")
+HUB = "hub"
+ACTIVE_SCANNERS = "active_scanners"
 
 
 async def async_setup_entry(
@@ -31,7 +34,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     plan = coordinator.plan
     _async_remove_stale(hass, entry.entry_id, plan)
-    entities: list[SensorEntity] = []
+    entities: list[SensorEntity] = [ActiveScannersSensor(coordinator)]
     for tracker in plan.trackers:
         entities.append(RoomSensor(coordinator, tracker))
         entities.append(PositionSensor(coordinator, tracker, "position_x"))
@@ -42,12 +45,12 @@ async def async_setup_entry(
 @callback
 def _async_remove_stale(hass: HomeAssistant, entry_id: str, plan: Floorplan) -> None:
     """Remove the entities and devices of trackers that are no longer in the plan."""
-    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in KINDS}
+    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in KINDS} | {ACTIVE_SCANNERS}
     entities = er.async_get(hass)
     for entry in er.async_entries_for_config_entry(entities, entry_id):
         if entry.unique_id not in wanted_ids:
             entities.async_remove(entry.entity_id)
-    wanted_devices = {(DOMAIN, t.key) for t in plan.trackers}
+    wanted_devices = {(DOMAIN, t.key) for t in plan.trackers} | {(DOMAIN, HUB)}
     devices = dr.async_get(hass)
     for device in dr.async_entries_for_config_entry(devices, entry_id):
         if not device.identifiers & wanted_devices:
@@ -108,6 +111,7 @@ class RoomSensor(TrackerEntity, SensorEntity):
             "nearest_scanner": nearest.name if nearest is not None else None,
             "scanner_count": position.scanner_count,
             "distances": distances,
+            "area_id": plan.area_of(position.room),
         }
 
 
@@ -131,3 +135,46 @@ class PositionSensor(TrackerEntity, SensorEntity):
         if position is None or not position.seen:
             return None
         return position.x if self._axis == "x" else position.y
+
+
+class ActiveScannersSensor(SensorEntity):
+    """How many scanners of the plan received anything within the last minute.
+
+    Polled, because a scanner that falls silent changes no position.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = ACTIVE_SCANNERS
+    _attr_unique_id = ACTIVE_SCANNERS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_should_poll = True
+
+    def __init__(self, coordinator: FloorplanCoordinator) -> None:
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, HUB)}, name=NAME)
+
+    async def async_added_to_hass(self) -> None:
+        """Take the first value at once."""
+        self._update()
+
+    async def async_update(self) -> None:
+        """Count the scanners."""
+        self._update()
+
+    @callback
+    def _update(self) -> None:
+        plan = self.coordinator.plan
+        alive = {
+            scanner.source.upper()
+            for scanner in async_current_scanners(self.hass)
+            if scanner.time_since_last_detection() <= SCANNER_ACTIVE_SECONDS
+        }
+        active = [s.name for s in plan.scanners if s.source in alive]
+        inactive = [s.name for s in plan.scanners if s.source not in alive]
+        self._attr_native_value = len(active)
+        self._attr_extra_state_attributes = {
+            "total": len(plan.scanners),
+            "active": active,
+            "inactive": inactive,
+        }

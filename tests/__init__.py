@@ -80,6 +80,12 @@ class FakeScanner:
         self.source = source
         self.name = name
         self.discovered_device_timestamps: dict[str, float] = {}
+        # Seconds since the scanner last received anything
+        self.idle = 0.0
+
+    def time_since_last_detection(self) -> float:
+        """Return the seconds since the scanner last received anything."""
+        return self.idle
 
 
 def scanner_device(

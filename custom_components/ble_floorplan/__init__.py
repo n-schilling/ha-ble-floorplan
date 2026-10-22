@@ -21,7 +21,7 @@ from .frontend import async_register_frontend
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.DEVICE_TRACKER]
 
 
 @dataclass(slots=True)

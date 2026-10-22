@@ -54,6 +54,7 @@ Everything is in metres, the origin is the top left corner of the plan, y grows 
 ```yaml
 rooms:
   - name: Living room          # a rectangle
+    area: living_room          # optional: the area of Home Assistant (id or name)
     x: 0
     y: 0
     w: 6
@@ -107,6 +108,7 @@ settings:
   room_margin: 0.3            # m from the new room's walls; 0 for anywhere inside
   robust_residual: 1          # m; a scanner the others contradict by more loses weight, 0 off
   walls: true                 # pass walls only through openings
+  away_seconds: 120           # presence turns not_home after this long without a sighting
 pair_offsets:                  # correction per scanner and tracker in dB, from the calibration
   living:
     tag: -2.5
@@ -122,8 +124,34 @@ Each tracker is a device named after the tracker, with:
 
 | Entity | Description |
 |---|---|
-| Room (`sensor`) | The room the tracker is in; unknown while no scanner sees it. Attributes: `x`, `y` (m), `nearest_scanner`, `scanner_count`, `distances` (floor distance of every scanner in m, null when not seen). |
+| Room (`sensor`) | The room the tracker is in; unknown while no scanner sees it. Attributes: `x`, `y` (m), `nearest_scanner`, `scanner_count`, `distances` (floor distance of every scanner in m, null when not seen), `area_id` (the area of Home Assistant the room stands for, see below). |
 | Position X, Position Y (`sensor`, diagnostic) | The coordinates on the plan in metres. |
+| Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds` (120 s), `not_home` after that. Unknown right after a start of Home Assistant until the tracker is seen or `away_seconds` passed, so a restart does not look like leaving. Assign it to a person to replace another tracker. |
+
+The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): how many scanners of the plan received anything within the last minute, with the names of the active and the inactive ones as attributes. Useful for a notification when a scanner fails.
+
+### Rooms and areas
+
+A room of the plan can stand for an area of Home Assistant: give it `area` with the area's id or name. The *Room* sensor then carries the area as `area_id`, so automations can work with areas:
+
+```yaml
+rooms:
+  - {name: Kitchen, x: 6, y: 0, w: 4, h: 5, area: kitchen}
+```
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: sensor.phone_room
+actions:
+  - action: light.turn_on
+    target:
+      area_id: "{{ state_attr('sensor.phone_room', 'area_id') }}"
+```
+
+An area Home Assistant does not know is refused when the plan is saved.
+
+The *Room* sensor changes only after the room hold time, so it suits "who is where" better than switching lights the moment someone walks in; a motion sensor is quicker for that.
 
 ## WebSocket API
 

@@ -77,6 +77,7 @@ def test_round_trip() -> None:
         "room_margin": 0.3,
         "robust_residual": 1.0,
         "walls": True,
+        "away_seconds": 120.0,
     }
     assert Floorplan.from_dict(data) == plan
 
