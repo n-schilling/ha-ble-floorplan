@@ -7,4 +7,5 @@ aiousbwatcher==1.1.2
 serialx==1.11.0
 ruff==0.17.1
 mypy==2.4.0
+types-PyYAML==6.0.12.20260906
 pytest-cov==7.1.0

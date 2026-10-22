@@ -4,6 +4,18 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-22
+
+### Added
+
+- Setting up in the card, without the WebSocket API: the gear has sections for the floor plan (rooms and openings as YAML, with a commented template while the plan is empty), the scanners and the trackers. Scanners are chosen from those Home Assistant has, trackers from the Private BLE Devices and the devices with a fixed Bluetooth address; new scanners land in the middle of the plan. Both can be taken off the plan again.
+- WebSocket `ble_floorplan/candidates`, `add_scanner`, `add_tracker`, `remove_scanner`, `remove_tracker`, `get_layout`, `set_layout`.
+- README: *Getting started*, from the installation to the first position, with a screenshot of the setup.
+
+### Changed
+
+- An empty plan shows the way to the gear instead of a hint at the WebSocket API; the sections of the gear fold.
+
 ## [0.5.0] - 2026-10-22
 
 ### Added

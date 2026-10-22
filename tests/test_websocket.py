@@ -41,6 +41,16 @@ from . import (
 )
 from .conftest import ScannerDevices
 
+CATALOG_MESSAGES: list[dict[str, Any]] = [
+    {"type": "ble_floorplan/candidates"},
+    {"type": "ble_floorplan/add_scanner", "source": "AA:BB:CC:DD:EE:04"},
+    {"type": "ble_floorplan/add_tracker", "address": "AA:BB:CC:DD:EE:30", "name": "Keys"},
+    {"type": "ble_floorplan/remove_scanner", "key": "living"},
+    {"type": "ble_floorplan/remove_tracker", "key": "tag"},
+    {"type": "ble_floorplan/get_layout"},
+    {"type": "ble_floorplan/set_layout", "yaml": ""},
+]
+
 CALIBRATION_MESSAGES: list[dict[str, Any]] = [
     {"type": WS_CALIBRATION_START, "tracker": "tag", "x": 1, "y": 1},
     {"type": WS_CALIBRATION_STOP},
@@ -80,6 +90,7 @@ async def test_not_loaded(
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,
+        *CATALOG_MESSAGES,
     ):
         await client.send_json_auto_id(message)
         msg = await client.receive_json()
@@ -359,6 +370,7 @@ async def test_import(
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,
+        *CATALOG_MESSAGES,
     ],
 )
 async def test_admin_only(

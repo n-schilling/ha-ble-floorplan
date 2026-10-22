@@ -10,12 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.util import slugify
 
+from .catalog import device_name, scanner_names
 from .const import BERMUDA_REF_POWER_ENTITY
 from .coordinator import PRIVATE_BLE_DEVICE
 from .model import Floorplan
@@ -27,30 +27,13 @@ class ImportProblem(Exception):
     """Something of the card's configuration could not be mapped."""
 
 
-def _device_name(device: dr.DeviceEntry) -> str | None:
-    return device.name_by_user or device.name
-
-
 def _scanner_slugs(hass: HomeAssistant) -> dict[str, str]:
     """Return source -> slug of the name of every Bluetooth scanner Home Assistant has.
 
     Bermuda names its distance sensors after the scanner's device in Home
-    Assistant, so that device's name is slugged; the scanner's own name is the
-    fallback.
+    Assistant, so that device's name is slugged.
     """
-    registry = dr.async_get(hass)
-    by_connection: dict[str, dr.DeviceEntry] = {}
-    for device in registry.devices:
-        for kind, value in device.connections:
-            if kind == CONNECTION_BLUETOOTH:
-                by_connection[value.upper()] = device
-    slugs: dict[str, str] = {}
-    for scanner in async_current_scanners(hass):
-        source = scanner.source.upper()
-        known = by_connection.get(source)
-        name = (_device_name(known) if known is not None else None) or scanner.name
-        slugs[source] = slugify(name)
-    return slugs
+    return {source: slugify(name) for source, name in scanner_names(hass).items()}
 
 
 def _resolve_scanner(item: Mapping[str, Any], slugs: dict[str, str]) -> str:
@@ -87,7 +70,7 @@ def _resolve_tracker(hass: HomeAssistant, item: Mapping[str, Any]) -> dict[str, 
         if not isinstance(device := devices.async_get(device_id), dr.DeviceEntry):
             raise ImportProblem(f"tracker {key}: device {device_id} does not exist")
         result["device_id"] = device_id
-        result["name"] = _device_name(device) or result["name"]
+        result["name"] = device_name(device) or result["name"]
         return result
     entities = er.async_get(hass)
     entity_id = item.get("entity_id") or f"device_tracker.{key}"
@@ -95,11 +78,11 @@ def _resolve_tracker(hass: HomeAssistant, item: Mapping[str, Any]) -> dict[str, 
     if entry is not None and entry.platform == PRIVATE_BLE_DEVICE and entry.device_id is not None:
         device = devices.async_get(entry.device_id)
         result["device_id"] = entry.device_id
-        if isinstance(device, dr.DeviceEntry) and (name := _device_name(device)):
+        if isinstance(device, dr.DeviceEntry) and (name := device_name(device)):
             result["name"] = name
         return result
     for device in devices.devices:
-        name = _device_name(device)
+        name = device_name(device)
         if name is None or slugify(name) != key:
             continue
         for kind, value in device.connections:

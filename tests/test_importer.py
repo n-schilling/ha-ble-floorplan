@@ -42,7 +42,7 @@ def current_scanners(scanners: dict[str, FakeScanner]) -> list[FakeScanner]:
 @pytest.fixture(autouse=True)
 def _patch_scanners(current_scanners: list[FakeScanner]) -> Any:
     with patch(
-        "custom_components.ble_floorplan.importer.async_current_scanners",
+        "custom_components.ble_floorplan.catalog.async_current_scanners",
         return_value=current_scanners,
     ):
         yield
@@ -184,7 +184,7 @@ async def test_ambiguous_suffix_is_fine_when_unique(
     ]
     with (
         patch(
-            "custom_components.ble_floorplan.importer.async_current_scanners", return_value=current
+            "custom_components.ble_floorplan.catalog.async_current_scanners", return_value=current
         ),
         pytest.raises(ImportProblem) as err,
     ):

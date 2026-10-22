@@ -30,8 +30,22 @@ All screenshots show a made-up example flat with made-up devices, rendered from 
 
 1. In HACS: **⋮ → Custom repositories**, add `https://github.com/n-schilling/ha-ble-floorplan` as type **Integration**.
 2. Install **BLE Floorplan** and restart Home Assistant.
-3. **Settings → Devices & services → Add integration → BLE Floorplan**. There is nothing to fill in; the floor plan comes next.
-4. Set the floor plan over the WebSocket API (`ble_floorplan/set_floorplan`, see below), or import the configuration of an earlier card with `ble_floorplan/import`. The card registers itself as a dashboard resource; add `custom:ble-floorplan-card` to a dashboard.
+3. **Settings → Devices & services → Add integration → BLE Floorplan**. There is nothing to fill in.
+4. Add the card `custom:ble-floorplan-card` to a dashboard; it registers itself as a dashboard resource. Then go on with [Getting started](#getting-started).
+
+## Getting started
+
+Everything is done in the card, as an administrator, from the gear (⚙). It opens the floor plan, the scanners and the trackers right away while the plan is empty.
+
+![Setting up: the floor plan as YAML, adding scanners and trackers](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/setup.png)
+
+1. **Floor plan.** Measure your rooms, or take them from a floor plan drawing. The text field starts with a template of two rooms and a door: replace it with your rooms (rectangles with `x`, `y`, `w`, `h` or polygons with `points`, in metres, the origin top left), zones, outdoor areas and the doors as `openings`, then **Save**. A mistake comes back as a message and nothing is saved. See [The floor plan](#the-floor-plan) for every option.
+2. **Scanners.** The list offers every Bluetooth scanner Home Assistant has: its own adapter, ESPHome proxies, Shelly devices. Choose one, set the height it hangs at, **Add**. It lands in the middle of the plan; tap it, **Move**, drag it to its place, **Save**. Repeat for every scanner; three or more spread over the home give useful positions.
+3. **Trackers.** The list offers the phones and watches set up as [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) and the devices with a fixed Bluetooth address, such as tags. Choose one, give it a name and the height it is usually carried at, **Add**. Its *Room* and *Position* sensors appear right away.
+4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time; then compute and apply the proposal. Uncalibrated, the positions are rough.
+5. **Tune.** The motion rules, the room rules and the robust weights in the gear have defaults that suit a flat; see [How it works](#how-it-works).
+
+A scanner or a tracker is taken off the plan with the ✕ next to it in the same lists.
 
 ## The floor plan
 
@@ -121,6 +135,12 @@ Each tracker is a device named after the tracker, with:
 | `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`, null removes a pair): changes a tracker. |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. Validated as a whole. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan (validated; see above) and reloads the entry. |
+| `ble_floorplan/get_layout` | admins | Returns `yaml`: the rooms and openings as YAML, a commented template while the plan has none. |
+| `ble_floorplan/set_layout` | admins | `yaml`: replaces the rooms and openings; scanners, trackers and settings stay. |
+| `ble_floorplan/candidates` | admins | Returns `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that Home Assistant knows and that are not on the plan yet. |
+| `ble_floorplan/add_scanner` | admins | `source`, optionally `name` and `z`: puts a scanner in the middle of the plan. |
+| `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker and reloads the entry for its sensors. |
+| `ble_floorplan/remove_scanner`, `ble_floorplan/remove_tracker` | admins | `key`: takes it off the plan, with its pair corrections. |
 | `ble_floorplan/import` | admins | The configuration of the earlier card: `rooms`, `openings`, `scanners` (`key`, `name`, `suffix` of Bermuda's distance sensor or `source`, `default` position, `z`), `trackers` (`prefix` or `key`, `name`, optionally `address`, `device_id` or `entity_id`, `ref_power`, `height`), `positions` (`{key: [x, y]}`), `max_distance`, `smoothing_seconds`, `min_move`, `clamp`, `clamp_outdoor`. Scanners are matched by the name of their Bluetooth device, trackers by `device_tracker.<key>` of a Private BLE Device or a device of that name with a Bluetooth address; a missing `ref_power` takes Bermuda's calibration of the device when it is set. Nothing is written when something cannot be mapped. |
 
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y` and optionally `height`: starts a calibration run (one at a time). Returns the run. |
@@ -153,7 +173,7 @@ A single tracker cannot separate its reference power from the scanner offsets, s
 
 - **Tracker**: room, position, every scanner's distance and RSSI, height, reference power and pair corrections. Admins edit those, show the distance circles and start a [calibration run](#calibration) from here: tap the plan where the tracker lies, start, stop.
 - **Scanner**: position, height, offset, what it hears from every tracker, its pair corrections. Admins drag it to its place and edit the values.
-- **Gear** (admins): rotation and labels (kept per browser), the settings of the engine, the motion rules, the room rules and the robust weights, and the calibration: the runs with their samples per scanner, compute, the proposal and apply.
+- **Gear** (admins), in sections that fold: the floor plan as YAML, the scanners and the trackers (add and remove), rotation and labels (kept per browser), the settings of the engine, the motion rules, the room rules and the robust weights, and the calibration: the runs with their samples per scanner, compute, the proposal and apply.
 
 | Tracker panel with the distance circles | Scanner panel |
 |---|---|

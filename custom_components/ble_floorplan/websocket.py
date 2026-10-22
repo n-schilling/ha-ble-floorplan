@@ -21,17 +21,35 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util.hass_dict import HassKey
 
+from .catalog import (
+    LayoutProblem,
+    add_scanner,
+    add_tracker,
+    candidates,
+    layout_yaml,
+    remove_scanner,
+    remove_tracker,
+    scanner_names,
+    with_layout,
+)
 from .const import (
     DOMAIN,
+    WS_ADD_SCANNER,
+    WS_ADD_TRACKER,
     WS_CALIBRATION_APPLY,
     WS_CALIBRATION_DELETE,
     WS_CALIBRATION_LIST,
     WS_CALIBRATION_SOLVE,
     WS_CALIBRATION_START,
     WS_CALIBRATION_STOP,
+    WS_CANDIDATES,
     WS_GET_FLOORPLAN,
+    WS_GET_LAYOUT,
     WS_IMPORT,
+    WS_REMOVE_SCANNER,
+    WS_REMOVE_TRACKER,
     WS_SET_FLOORPLAN,
+    WS_SET_LAYOUT,
     WS_SET_SCANNER,
     WS_SET_SETTINGS,
     WS_SET_TRACKER,
@@ -96,6 +114,13 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_set_tracker)
     async_register_command(hass, ws_set_settings)
     async_register_command(hass, ws_set_floorplan)
+    async_register_command(hass, ws_candidates)
+    async_register_command(hass, ws_add_scanner)
+    async_register_command(hass, ws_add_tracker)
+    async_register_command(hass, ws_remove_scanner)
+    async_register_command(hass, ws_remove_tracker)
+    async_register_command(hass, ws_get_layout)
+    async_register_command(hass, ws_set_layout)
     async_register_command(hass, ws_import)
     async_register_command(hass, ws_calibration_start)
     async_register_command(hass, ws_calibration_stop)
@@ -528,3 +553,153 @@ async def ws_calibration_apply(
         return
     await _async_replace(hass, runtime, plan)
     connection.send_result(msg["id"], plan.as_dict())
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_CANDIDATES})
+@callback
+def ws_candidates(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
+    """Return the scanners and the trackable devices that are not on the plan yet."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    connection.send_result(msg["id"], candidates(hass, runtime.store.plan))
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_ADD_SCANNER,
+        probatio.Required("source"): cv.string,
+        probatio.Optional("name"): cv.string,
+        probatio.Optional("z", default=1.0): NUMBER,
+    }
+)
+@async_response
+async def ws_add_scanner(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Put a scanner of Home Assistant on the plan, in the middle; it is moved from there."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    source = msg["source"].upper()
+    plan = runtime.store.plan
+    if any(s.source == source for s in plan.scanners):
+        connection.send_error(msg["id"], ERR_INVALID, f"scanner {source} is on the plan")
+        return
+    name = msg.get("name") or scanner_names(hass).get(source)
+    if name is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {source}")
+        return
+    plan, scanner = add_scanner(plan, source, name, msg["z"])
+    await runtime.store.async_save(plan)
+    connection.send_result(msg["id"], scanner.as_dict())
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_ADD_TRACKER,
+        probatio.Exclusive("address", "tracker"): cv.string,
+        probatio.Exclusive("device_id", "tracker"): cv.string,
+        probatio.Required("name"): cv.string,
+        probatio.Optional("height", default=1.0): NUMBER,
+    }
+)
+@async_response
+async def ws_add_tracker(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Put a device on the plan as a tracker; the entry reloads for its sensors."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    address = msg.get("address")
+    device_id = msg.get("device_id")
+    plan = runtime.store.plan
+    if (address is None) == (device_id is None):
+        connection.send_error(msg["id"], ERR_INVALID, "give address or device_id")
+        return
+    if any(
+        (address and t.address == address.upper()) or (device_id and t.device_id == device_id)
+        for t in plan.trackers
+    ):
+        connection.send_error(msg["id"], ERR_INVALID, "the device is on the plan")
+        return
+    try:
+        plan, tracker = add_tracker(plan, msg["name"], address, device_id, msg["height"])
+        plan = Floorplan.from_dict(plan.as_dict())
+    except probatio.Invalid as err:
+        connection.send_error(msg["id"], ERR_INVALID, str(err))
+        return
+    await _async_replace(hass, runtime, plan)
+    connection.send_result(msg["id"], tracker.as_dict())
+
+
+@require_admin
+@websocket_command(
+    {probatio.Required("type"): WS_REMOVE_SCANNER, probatio.Required("key"): cv.string}
+)
+@async_response
+async def ws_remove_scanner(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Take a scanner off the plan, with its pair corrections."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    if runtime.store.plan.scanner(msg["key"]) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
+        return
+    await runtime.store.async_save(remove_scanner(runtime.store.plan, msg["key"]))
+    connection.send_result(msg["id"])
+
+
+@require_admin
+@websocket_command(
+    {probatio.Required("type"): WS_REMOVE_TRACKER, probatio.Required("key"): cv.string}
+)
+@async_response
+async def ws_remove_tracker(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Take a tracker off the plan; the entry reloads and removes its sensors."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    if runtime.store.plan.tracker(msg["key"]) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['key']}")
+        return
+    await _async_replace(hass, runtime, remove_tracker(runtime.store.plan, msg["key"]))
+    connection.send_result(msg["id"])
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_GET_LAYOUT})
+@callback
+def ws_get_layout(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
+    """Return the rooms and openings as YAML."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    connection.send_result(msg["id"], {"yaml": layout_yaml(runtime.store.plan)})
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_SET_LAYOUT, probatio.Required("yaml"): str})
+@async_response
+async def ws_set_layout(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Replace the rooms and openings from YAML; scanners, trackers and settings stay."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    try:
+        plan = with_layout(runtime.store.plan, msg["yaml"])
+    except LayoutProblem as err:
+        connection.send_error(msg["id"], ERR_INVALID, str(err))
+        return
+    await runtime.store.async_save(plan)
+    connection.send_result(msg["id"], {"yaml": layout_yaml(plan)})
