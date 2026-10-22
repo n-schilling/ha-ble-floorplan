@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .calibration import CalibrationRun, CalibrationStore
 from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
 from .engine import Measurement, Smoother, floor_distance, median, rssi_to_distance, trilaterate
 from .model import Floorplan, Tracker
@@ -88,7 +89,13 @@ type Sample = tuple[float, float]  # (monotonic time, rssi)
 class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     """Computes the positions of all trackers once a second."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, store: FloorplanStore) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        store: FloorplanStore,
+        calibration: CalibrationStore,
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
@@ -99,6 +106,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             always_update=False,
         )
         self.store = store
+        self.calibration = calibration
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
         # device_id -> entity_id of the device tracker of a Private BLE Device
@@ -116,13 +124,24 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     def compute(self, now: float) -> Positions:
         """Compute the position of every tracker at the monotonic time now."""
         plan = self.plan
+        sources = {s.source: s.key for s in plan.scanners}
         positions: Positions = {}
         for tracker in plan.trackers:
             address = self._address_of(tracker)
             if address is not None:
-                self._collect(tracker.key, address)
+                self._collect(tracker.key, address, sources)
             positions[tracker.key] = self._locate(tracker, address, now, plan)
         return positions
+
+    async def async_start_calibration(
+        self, tracker_key: str, x: float, y: float, height: float
+    ) -> CalibrationRun:
+        """Start recording the tracker's advertisements at its true position."""
+        return await self.calibration.async_start(tracker_key, x, y, height, MONOTONIC_TIME())
+
+    async def async_stop_calibration(self) -> CalibrationRun:
+        """Stop the recording."""
+        return await self.calibration.async_stop(MONOTONIC_TIME())
 
     def _address_of(self, tracker: Tracker) -> str | None:
         """Return the address to look for: fixed, or the current one of the Private BLE Device."""
@@ -142,25 +161,30 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             return None
         return str(address).upper()
 
-    def _collect(self, key: str, address: str) -> None:
-        """Take the newest advertisement of every scanner that sees the address."""
+    def _collect(self, key: str, address: str, sources: dict[str, str]) -> None:
+        """Take the newest advertisement of every scanner that sees the address.
+
+        A new advertisement also goes into the calibration run of the tracker,
+        when one is going and the scanner is in the plan.
+        """
+        run = self.calibration.active
         for device in async_scanner_devices_by_address(self.hass, address, connectable=False):
             scanner = device.scanner
             stamp = scanner.discovered_device_timestamps.get(address)
             samples = self._samples.setdefault((key, scanner.source), deque())
-            if stamp is None or not samples or stamp > samples[-1][0]:
-                samples.append(
-                    (stamp if stamp is not None else MONOTONIC_TIME(), device.advertisement.rssi)
-                )
+            if stamp is not None and samples and stamp <= samples[-1][0]:
+                continue
+            sample = (stamp if stamp is not None else MONOTONIC_TIME(), device.advertisement.rssi)
+            samples.append(sample)
+            if run is not None and run.tracker == key and scanner.source in sources:
+                self.calibration.add_sample(sources[scanner.source], sample[0], sample[1])
 
     def _locate(
         self, tracker: Tracker, address: str | None, now: float, plan: Floorplan
     ) -> TrackerPosition:
         """Turn the collected samples of a tracker into a position."""
         settings = plan.settings
-        ref_power = (
-            tracker.ref_power if tracker.ref_power is not None else settings.ref_power_default
-        )
+        ref_power = plan.ref_power(tracker)
         readings: dict[str, Reading] = {}
         measurements: list[Measurement] = []
         nearest: str | None = None
@@ -176,8 +200,9 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
                 readings[scanner.key] = Reading(None, None, False)
                 continue
             rssi = median([s[1] for s in samples])
+            offset = scanner.rssi_offset + plan.pair_offset(scanner.key, tracker.key)
             distance = floor_distance(
-                rssi_to_distance(rssi, ref_power, scanner.rssi_offset, settings.attenuation),
+                rssi_to_distance(rssi, ref_power, offset, settings.attenuation),
                 scanner.z,
                 tracker.height,
             )

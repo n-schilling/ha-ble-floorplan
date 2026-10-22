@@ -20,6 +20,7 @@ from . import (
     SCANNER_LIVING,
     TAG,
     FakeScanner,
+    make_plan,
     rssi_exact,
     scanner_device,
 )
@@ -270,3 +271,71 @@ async def test_private_ble_device_without_tracker(
     assert {SCANNER_LIVING, SCANNER_KITCHEN, SCANNER_BEDROOM} == {
         s.source for s in coordinator.plan.scanners
     }
+
+
+async def test_calibration_records_new_advertisements(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """While a run goes, every new advertisement of a plan scanner is a sample of the run."""
+    coordinator = entry.runtime_data.coordinator
+    calibration = entry.runtime_data.calibration
+    # Seen before the run: that advertisement is not part of it
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -50, 1000.0)]
+    clock(1001.0)
+    await coordinator.async_refresh()
+    run = await coordinator.async_start_calibration("tag", 2.0, 2.0, 0.4)
+    assert calibration.active is run
+    assert run.x == 2.0 and run.height == 0.4
+    other = FakeScanner("AA:BB:CC:DD:EE:99", "Somewhere")
+    scanner_devices[TAG] = [
+        scanner_device(scanners["living"], TAG, -60, 1002.0),
+        scanner_device(scanners["kitchen"], TAG, -70, 1002.5),
+        scanner_device(other, TAG, -40, 1002.0),
+    ]
+    # Read twice: the same advertisements count once
+    for t in (1003.0, 1004.0):
+        clock(t)
+        await coordinator.async_refresh()
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -62, 1005.0)]
+    clock(1006.0)
+    await coordinator.async_refresh()
+    assert run.samples == {"living": [(1.0, -60), (4.0, -62)], "kitchen": [(1.5, -70)]}
+    # The phone is not the run's tracker
+    hass.states.async_set("device_tracker.phone", "home", {"current_address": PHONE_ADDRESS})
+    stopped = await coordinator.async_stop_calibration()
+    assert stopped is run
+    assert run.duration == 5.0
+    assert calibration.active is None
+    # After the stop nothing is added
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -63, 1007.0)]
+    clock(1008.0)
+    await coordinator.async_refresh()
+    assert run.summary()["counts"] == {"living": 2, "kitchen": 1}
+
+
+async def test_pair_offset_shortens_a_scanner_distance(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """A pair correction adds to the scanner's offset for that tracker only."""
+    coordinator = entry.runtime_data.coordinator
+    await entry.runtime_data.store.async_save(
+        make_plan(pair_offsets={"living": {"tag": -30.0}, "kitchen": {"phone": 5.0}})
+    )
+    scanner_devices[TAG] = [
+        scanner_device(scanners["living"], TAG, rssi_exact(2.0, -60, 0.8, 0.3), 1000.0),  # type: ignore[arg-type]
+        scanner_device(scanners["kitchen"], TAG, rssi_exact(6.5, -60, 2.0, 0.3), 1000.0),  # type: ignore[arg-type]
+    ]
+    clock(1001.0)
+    await coordinator.async_refresh()
+    tag = coordinator.data["tag"]
+    # -30 dB at exponent 3 is a tenth of the line-of-sight distance, then projected
+    assert tag.readings["living"].distance == pytest.approx(0.0)
+    assert tag.readings["kitchen"].distance == pytest.approx(6.5)

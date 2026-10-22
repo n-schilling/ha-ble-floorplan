@@ -15,7 +15,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 
-from custom_components.ble_floorplan.const import DOMAIN, STORAGE_KEY
+from custom_components.ble_floorplan.const import CALIBRATION_STORAGE_KEY, DOMAIN, STORAGE_KEY
 from custom_components.ble_floorplan.frontend import (
     CARD_PATH,
     DATA_FRONTEND,
@@ -38,14 +38,28 @@ async def test_setup_and_unload(hass: HomeAssistant, entry: MockConfigEntry) -> 
     assert room is not None and room.state == STATE_UNAVAILABLE
 
 
+async def test_unload_stops_a_calibration_run(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """A run that is going when the entry unloads is stopped and saved."""
+    calibration = entry.runtime_data.calibration
+    run = await entry.runtime_data.coordinator.async_start_calibration("tag", 1.0, 1.0, 0.0)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not run.running
+    assert calibration.active is None
+
+
 async def test_remove_deletes_storage(
     hass: HomeAssistant, entry: MockConfigEntry, storage: dict[str, Any]
 ) -> None:
-    """Removing the entry removes the stored plan."""
+    """Removing the entry removes the stored plan and the calibration runs."""
+    await entry.runtime_data.calibration.async_start("tag", 1.0, 1.0, 0.0, 1000.0)
+    await entry.runtime_data.calibration.async_stop(1010.0)
     assert STORAGE_KEY in storage
+    assert CALIBRATION_STORAGE_KEY in storage
     assert await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert STORAGE_KEY not in storage
+    assert CALIBRATION_STORAGE_KEY not in storage
 
 
 async def test_card_url_carries_version(hass: HomeAssistant, bluetooth: None) -> None:

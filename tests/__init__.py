@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import math
 from typing import Any
 
@@ -10,6 +10,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from habluetooth import BluetoothScannerDevice
 
+from custom_components.ble_floorplan.calibration import CalibrationRun
 from custom_components.ble_floorplan.model import Floorplan
 
 # Addresses of the example only
@@ -128,3 +129,41 @@ def rssi_exact(
 def readings_of(position: Mapping[str, Any]) -> dict[str, float | None]:
     """Return scanner key -> distance of a position as the card gets it."""
     return {key: r["distance"] for key, r in position["readings"].items()}
+
+
+def synthetic_run(
+    plan: Floorplan,
+    run_id: str,
+    tracker_key: str,
+    x: float,
+    y: float,
+    ref_power: float,
+    offsets: Mapping[str, float],
+    attenuation: float = 3.0,
+    pairs: Mapping[str, float] | None = None,
+    height: float | None = None,
+    count: int = 5,
+    scanners: Sequence[str] | None = None,
+) -> CalibrationRun:
+    """Return a finished run whose samples follow the model with the parameters given.
+
+    The samples jitter by ±1 dB around the model value in a pattern whose
+    median is the model value itself, so the solver can get the parameters back
+    exactly. Scanners not named in `scanners` do not hear the tracker.
+    """
+    tracker = plan.tracker(tracker_key)
+    assert tracker is not None
+    h = tracker.height if height is None else height
+    samples: dict[str, list[tuple[float, float]]] = {}
+    for scanner in plan.scanners:
+        if scanners is not None and scanner.key not in scanners:
+            continue
+        line = math.sqrt((x - scanner.x) ** 2 + (y - scanner.y) ** 2 + (scanner.z - h) ** 2)
+        line = max(line, 0.05)
+        pair = pairs.get(scanner.key, 0.0) if pairs else 0.0
+        rssi = (
+            ref_power + offsets.get(scanner.key, 0.0) + pair - 10 * attenuation * math.log10(line)
+        )
+        jitter = [0.0, 1.0, -1.0, 1.0, -1.0]
+        samples[scanner.key] = [(float(i), rssi + jitter[i % len(jitter)]) for i in range(count)]
+    return CalibrationRun(run_id, tracker_key, x, y, h, "2026-01-01T00:00:00+00:00", 60.0, samples)

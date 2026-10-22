@@ -11,6 +11,16 @@ NAME: Final = "BLE Floorplan"
 # their own: they are too large for the options of the config entry
 STORAGE_KEY: Final = f"{DOMAIN}.floorplan"
 STORAGE_VERSION: Final = 1
+# The calibration runs: raw RSSI of every scanner while a tracker sits at a
+# known place; a store of their own, they are only read for the adjustment
+CALIBRATION_STORAGE_KEY: Final = f"{DOMAIN}.calibration"
+CALIBRATION_STORAGE_VERSION: Final = 1
+# A running calibration is written to storage this long after a new sample
+CALIBRATION_SAVE_DELAY_SECONDS: Final = 10.0
+# A scanner needs this many samples in a run for the run to count for it
+CALIBRATION_MIN_SAMPLES: Final = 3
+# A run closer than this to a scanner counts as this far, so the logarithm stays finite
+CALIBRATION_MIN_DISTANCE: Final = 0.05
 
 # How often the positions are recomputed from the advertisements Home
 # Assistant's Bluetooth scanners hold
@@ -38,6 +48,12 @@ WS_SUBSCRIBE: Final = f"{DOMAIN}/subscribe"
 WS_SET_SCANNER: Final = f"{DOMAIN}/set_scanner"
 WS_SET_FLOORPLAN: Final = f"{DOMAIN}/set_floorplan"
 WS_IMPORT: Final = f"{DOMAIN}/import"
+WS_CALIBRATION_START: Final = f"{DOMAIN}/calibration/start"
+WS_CALIBRATION_STOP: Final = f"{DOMAIN}/calibration/stop"
+WS_CALIBRATION_LIST: Final = f"{DOMAIN}/calibration/list"
+WS_CALIBRATION_DELETE: Final = f"{DOMAIN}/calibration/delete"
+WS_CALIBRATION_SOLVE: Final = f"{DOMAIN}/calibration/solve"
+WS_CALIBRATION_APPLY: Final = f"{DOMAIN}/calibration/apply"
 
 # Bermuda keeps a calibration number per device; 0 means "use the default"
 BERMUDA_REF_POWER_ENTITY: Final = "number.{prefix}_calibration_ref_power_at_1m_0_for_default"

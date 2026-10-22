@@ -1,8 +1,10 @@
 // BLE Floorplan card: shows the trackers of the BLE Floorplan integration on the
 // floor plan. The plan, the scanners and the live positions come from the
 // integration over the WebSocket API; the card only draws. Scanners can be
-// dragged to their place (admins), which the integration stores.
-const VERSION = "0.1.0";
+// dragged to their place (admins), which the integration stores. The
+// calibration mode (admins) records runs with the tracker at a known place
+// and shows the integration's proposal before it is applied.
+const VERSION = "0.2.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -19,6 +21,14 @@ if (!customElements.get("ble-floorplan-card")) {
       hint: "Hover a scanner or a tracker for details, tap a row for the distance circles.",
       noPlan: "No floor plan yet: import one or set it over the WebSocket API.",
       notLoaded: "BLE Floorplan is not set up.", unknown: "–",
+      calibrate: "Calibrate", close: "Close", start: "Start run", stop: "Stop run", compute: "Compute",
+      apply: "Apply", runs: "Runs", truePos: "True position", tapPlan: "Tap the plan where the tracker is.",
+      fitExponent: "Fit the exponent too", noRuns: "No runs yet.", running: "running", preview: "Proposal",
+      now: "now", proposed: "proposed", obs: "observations", refPower: "Reference power (dBm)",
+      offset: "Scanner offset (dB)", pairs: "Pair correction (dB)", exponent: "Exponent", rms: "RMS error (dB)",
+      duration: "Length", delete: "Delete", applied: "Applied.", samples: "samples",
+      hintCal: "Put the tracker at a known place, tap that place on the plan, start the run, wait a minute or two, stop it. " +
+        "Several places and trackers give a better fit. Compute shows a proposal; nothing changes until you apply it.",
     },
     de: {
       title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -29,6 +39,14 @@ if (!customElements.get("ble-floorplan-card")) {
       hint: "Maus über Scanner oder Tracker zeigt Details, Zeile antippen die Abstandskreise.",
       noPlan: "Noch kein Grundriss: per Import oder WebSocket-API anlegen.",
       notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
+      calibrate: "Kalibrieren", close: "Schließen", start: "Messlauf starten", stop: "Messlauf beenden", compute: "Berechnen",
+      apply: "Übernehmen", runs: "Messläufe", truePos: "Wahre Position", tapPlan: "Auf den Grundriss tippen, wo der Tracker liegt.",
+      fitExponent: "Exponent mitschätzen", noRuns: "Noch keine Messläufe.", running: "läuft", preview: "Vorschlag",
+      now: "jetzt", proposed: "neu", obs: "Beobachtungen", refPower: "Referenzleistung (dBm)",
+      offset: "Scanner-Offset (dB)", pairs: "Korrektur je Paar (dB)", exponent: "Exponent", rms: "RMS-Fehler (dB)",
+      duration: "Dauer", delete: "Löschen", applied: "Übernommen.", samples: "Samples",
+      hintCal: "Tracker an eine bekannte Stelle legen, die Stelle auf dem Grundriss antippen, Messlauf starten, ein, zwei Minuten warten, beenden. " +
+        "Mehrere Stellen und Tracker ergeben eine bessere Anpassung. Berechnen zeigt einen Vorschlag; nichts ändert sich, bis er übernommen wird.",
     },
   };
 
@@ -61,6 +79,9 @@ if (!customElements.get("ble-floorplan-card")) {
       this._info = { trackers: {}, scanners: {} };
       this._plan = this._plan || null;
       this._positions = this._positions || {};
+      this._calibration = this._calibration || { active: null, runs: [] };
+      this._calibrating = false;
+      this._cal = null;
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
       this._render();
     }
@@ -133,8 +154,15 @@ if (!customElements.get("ble-floorplan-card")) {
         this._bounds = this._computeBounds();
       }
       if (event.positions) this._positions = event.positions;
-      if (this._dragging) return;
+      if (event.calibration) this._calibration = event.calibration;
+      if (this._dragging || this._typing()) return;
       this._render();
+    }
+
+    // A redraw while a field of the calibration panel has the focus would lose the input
+    _typing() {
+      const el = this.shadowRoot?.activeElement;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT");
     }
 
     // Rotation: the choice of this browser, else the default of the configuration
@@ -348,6 +376,15 @@ if (!customElements.get("ble-floorplan-card")) {
         })
         .join("");
 
+      // The true position of the run that is going, else the place tapped for the next one
+      const active = this._calibration.runs.find((r) => r.id === this._calibration.active);
+      const mark = active ? [active.x, active.y] : this._cal && this._cal.x != null ? [this._cal.x, this._cal.y] : null;
+      const truePos = this._calibrating && mark
+        ? `<g class="truepos${active ? " live" : ""}"><circle cx="${mark[0]}" cy="${mark[1]}" r="0.3"/>` +
+          `<line x1="${mark[0] - 0.45}" y1="${mark[1]}" x2="${mark[0] + 0.45}" y2="${mark[1]}"/>` +
+          `<line x1="${mark[0]}" y1="${mark[1] - 0.45}" x2="${mark[0]}" y2="${mark[1] + 0.45}"/></g>`
+        : "";
+
       const legendHtml = legend
         .map(
           (l) =>
@@ -385,23 +422,98 @@ if (!customElements.get("ble-floorplan-card")) {
               <button id="rotate" title="${esc(t.rotate)}">⟳ ${rot}°</button>
               ${this._editing
                 ? `<button id="cancel">${t.cancel}</button><button id="save" class="primary">${t.save}</button>`
-                : canEdit ? `<button id="edit">${t.edit}</button>` : ""}
+                : this._calibrating
+                  ? `<button id="calClose">${t.close}</button>`
+                  : canEdit ? `<button id="edit">${t.edit}</button><button id="calibrate">${t.calibrate}</button>` : ""}
             </div>
           </div>
-          <div class="body${landscape ? " landscape" : ""}"><div class="map">
+          <div class="body${landscape ? " landscape" : ""}"><div class="map${this._calibrating && !active ? " aim" : ""}">
           <svg viewBox="${-pad} ${-pad} ${vbW + 2 * pad} ${vbH + 2 * pad}" preserveAspectRatio="xMidYMin meet">
-            <g id="plan" transform="${planTf}">${rooms}${openings}${circles}${scanners}${dots.join("")}</g>
+            <g id="plan" transform="${planTf}">${rooms}${openings}${circles}${truePos}${scanners}${dots.join("")}</g>
           </svg>${tip}</div><div class="side">
-          <table>
+          ${this._calibrating
+            ? this._calibrationHtml(active)
+            : `<table>
             <tr><th>${t.tracker}</th><th>${t.room}</th><th>${t.nearest}</th><th>${t.count}</th></tr>
             ${legendHtml}
           </table>
           ${heights}
-          <div class="hint">${this._editing ? t.hintEdit : t.hint}</div>
+          <div class="hint">${this._editing ? t.hintEdit : t.hint}</div>`}
           </div></div>
         </ha-card>`;
 
       this._bind();
+    }
+
+    // The calibration panel: tracker and true position, start/stop, the runs, the proposal
+    _calibrationHtml(active) {
+      const t = this._t;
+      const fmt = this._n;
+      const plan = this._plan;
+      const cal = this._cal;
+      const trackerName = (key) => plan.trackers.find((x) => x.key === key)?.name || key;
+      const scannerName = (key) => plan.scanners.find((x) => x.key === key)?.name || key;
+      const options = plan.trackers
+        .map((tr) => `<option value="${esc(tr.key)}"${cal.tracker === tr.key ? " selected" : ""}>${esc(tr.name)}</option>`)
+        .join("");
+      const ready = !active && cal.tracker && cal.x != null && !cal.busy;
+      const control = active
+        ? `<button id="calStop" class="primary"${cal.busy ? " disabled" : ""}>${t.stop}</button>`
+        : `<button id="calStart" class="primary"${ready ? "" : " disabled"}>${t.start}</button>`;
+      const posText = cal.x == null ? t.tapPlan : `${fmt(cal.x, 2)} / ${fmt(cal.y, 2)} m`;
+      const form = `<div class="cal-form">
+          <label>${t.tracker}<select id="calTracker"${active ? " disabled" : ""}><option value=""></option>${options}</select></label>
+          <label>${t.height} (m)<input id="calHeight" type="number" step="0.05" min="0" max="3" value="${esc(cal.height ?? "")}"${active ? " disabled" : ""}></label>
+          <div class="cal-pos"><span>${t.truePos}</span><b>${esc(posText)}</b></div>
+          ${control}
+        </div>`;
+
+      const scannerCols = plan.scanners.map((sc) => `<th class="num" title="${esc(sc.name)}">${esc(sc.name)}</th>`).join("");
+      const runRows = this._calibration.runs
+        .map((r) => {
+          const counts = plan.scanners.map((sc) => `<td class="num">${r.counts[sc.key] || 0}</td>`).join("");
+          const length = r.running ? t.running : `${Math.round(r.duration)} s`;
+          return `<tr class="${r.running ? "live" : ""}"><td>${esc(trackerName(r.tracker))}</td>` +
+            `<td class="num">${fmt(r.x)} / ${fmt(r.y)}</td><td class="num">${length}</td>${counts}` +
+            `<td><button class="small" data-delete="${esc(r.id)}" title="${esc(t.delete)}"${cal.busy ? " disabled" : ""}>✕</button></td></tr>`;
+        })
+        .join("");
+      const runs = this._calibration.runs.length
+        ? `<table class="runs"><tr><th>${t.tracker}</th><th class="num">x / y</th><th class="num">${t.duration}</th>${scannerCols}<th></th></tr>${runRows}</table>`
+        : `<div class="hint">${t.noRuns}</div>`;
+
+      const finished = this._calibration.runs.some((r) => !r.running);
+      const solveRow = `<div class="cal-solve">
+          <label class="check"><input id="calFitN" type="checkbox"${cal.fitN ? " checked" : ""}> ${t.fitExponent}</label>
+          <button id="calSolve"${finished && !cal.busy ? "" : " disabled"}>${t.compute}</button>
+        </div>`;
+
+      let preview = "";
+      const p = cal.proposal;
+      if (p) {
+        const row = (label, v, extra = "") => {
+          const changed = v.old !== v.new;
+          return `<tr class="${changed ? "changed" : ""}"><td>${label}</td><td class="num">${fmt(v.old, 1)}</td>` +
+            `<td class="num">${fmt(v.new, 1)}</td><td class="num">${extra}</td></tr>`;
+        };
+        const section = (label) => `<tr class="sec"><td colspan="4">${label}</td></tr>`;
+        const rows = [];
+        if (p.attenuation) rows.push(section(t.exponent), row("n", { old: p.attenuation.old, new: p.attenuation.new }));
+        rows.push(section(t.refPower));
+        for (const [k, v] of Object.entries(p.trackers)) rows.push(row(esc(trackerName(k)), v, `${v.runs} / ${v.samples}`));
+        rows.push(section(t.offset));
+        for (const [k, v] of Object.entries(p.scanners)) rows.push(row(esc(scannerName(k)), v, `${v.runs} / ${v.samples}`));
+        rows.push(section(t.pairs));
+        for (const [sk, trs] of Object.entries(p.pairs)) {
+          for (const [tk, v] of Object.entries(trs)) rows.push(row(`${esc(scannerName(sk))} · ${esc(trackerName(tk))}`, v, `${v.runs} / ${v.samples}`));
+        }
+        rows.push(section(t.rms), row("RMS", p.rms, `${p.observations} ${t.obs}`));
+        preview = `<div class="cal-preview"><h4>${t.preview}</h4>
+          <table class="diff"><tr><th></th><th class="num">${t.now}</th><th class="num">${t.proposed}</th><th class="num">${t.runs} / ${t.samples}</th></tr>${rows.join("")}</table>
+          <button id="calApply" class="primary"${cal.busy || active ? " disabled" : ""}>${t.apply}</button></div>`;
+      }
+      const note = cal.error ? `<div class="err">${esc(cal.error)}</div>` : cal.note ? `<div class="ok">${esc(cal.note)}</div>` : "";
+      return `<div class="cal">${form}<h4>${t.runs}</h4>${runs}${solveRow}${note}${preview}<div class="hint">${t.hintCal}</div></div>`;
     }
 
     _style() {
@@ -452,7 +564,31 @@ if (!customElements.get("ble-floorplan-card")) {
         .heights input { width: 5em; font: inherit; padding: 4px 6px; border-radius: 4px;
           border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
         .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
-        .hint { color: var(--secondary-text-color); font-size: 0.85em; margin-top: 6px; }`;
+        .hint { color: var(--secondary-text-color); font-size: 0.85em; margin-top: 6px; }
+        .map.aim svg { cursor: crosshair; }
+        .truepos circle { fill: none; stroke: var(--primary-color); stroke-width: 0.06; stroke-dasharray: 0.12 0.08; }
+        .truepos line { stroke: var(--primary-color); stroke-width: 0.05; }
+        .truepos.live circle { stroke-dasharray: none; stroke-width: 0.08; }
+        .cal h4 { margin: 14px 0 6px; font-weight: 500; }
+        .cal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: end; }
+        .cal-form label { display: flex; flex-direction: column; gap: 2px; font-size: 0.8em; color: var(--secondary-text-color); }
+        .cal-form select, .cal-form input, .cal-form button { font: inherit; padding: 6px 8px; border-radius: 6px;
+          border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+        .cal-form button.primary { background: var(--primary-color); color: var(--text-primary-color); border-color: transparent; }
+        .cal-form button:disabled, .cal-solve button:disabled, .cal-preview button:disabled { opacity: 0.5; cursor: default; }
+        .cal-pos { display: flex; flex-direction: column; font-size: 0.8em; color: var(--secondary-text-color); }
+        .cal-pos b { font-size: 1.15em; color: var(--primary-text-color); }
+        .runs td.num, .runs th.num, .diff td.num, .diff th.num { text-align: right; white-space: nowrap; }
+        .runs th { font-size: 0.85em; max-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .runs tr.live td { color: var(--primary-color); }
+        button.small { padding: 0 6px; line-height: 1.6; }
+        .cal-solve { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+        label.check { display: flex; align-items: center; gap: 6px; }
+        .diff tr.sec td { color: var(--secondary-text-color); font-size: 0.85em; padding-top: 8px; border: 0; }
+        .diff tr.changed td:nth-child(3) { font-weight: 600; color: var(--primary-color); }
+        .cal-preview button { margin-top: 10px; }
+        .err { color: var(--error-color, #c62828); margin-top: 8px; }
+        .ok { color: var(--success-color, #2e7d32); margin-top: 8px; }`;
     }
 
     _bind() {
@@ -495,7 +631,20 @@ if (!customElements.get("ble-floorplan-card")) {
           if (Number.isFinite(v)) this._heights[input.dataset.height] = v;
         })
       );
+      root.getElementById("calibrate")?.addEventListener("click", () => {
+        this._calibrating = true;
+        this._cal = { tracker: this._plan.trackers[0]?.key || "", height: this._plan.trackers[0]?.height ?? 0,
+          x: null, y: null, fitN: false, proposal: null, busy: false, error: null, note: null };
+        this._selected = null;
+        this._render();
+      });
+      root.getElementById("calClose")?.addEventListener("click", () => {
+        this._calibrating = false;
+        this._cal = null;
+        this._render();
+      });
       const plan = root.getElementById("plan");
+      if (this._calibrating) this._bindCalibration(root, plan);
       if (!this._editing) {
         this._bindHover(root.querySelector(".map"), root.querySelector(".tip"));
         return;
@@ -534,6 +683,81 @@ if (!customElements.get("ble-floorplan-card")) {
           window.addEventListener("pointerup", up);
         });
       });
+    }
+
+    _bindCalibration(root, plan) {
+      const cal = this._cal;
+      const active = !!this._calibration.active;
+      // A tap on the plan sets the true position of the next run
+      root.querySelector("svg")?.addEventListener("click", (e) => {
+        if (active || !plan) return;
+        const pt = plan.ownerSVGElement.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const p = pt.matrixTransform(plan.getScreenCTM().inverse());
+        const B = this._bounds;
+        cal.x = Math.round(Math.min(Math.max(p.x, 0), B.w) * 20) / 20;
+        cal.y = Math.round(Math.min(Math.max(p.y, 0), B.h) * 20) / 20;
+        cal.error = null;
+        this._render();
+      });
+      root.getElementById("calTracker")?.addEventListener("change", (e) => {
+        cal.tracker = e.target.value;
+        const tr = this._plan.trackers.find((x) => x.key === cal.tracker);
+        if (tr) cal.height = tr.height;
+        this._render();
+      });
+      root.getElementById("calHeight")?.addEventListener("input", (e) => {
+        const v = parseFloat(e.target.value);
+        if (Number.isFinite(v)) cal.height = v;
+      });
+      root.getElementById("calFitN")?.addEventListener("change", (e) => {
+        cal.fitN = e.target.checked;
+      });
+      root.getElementById("calStart")?.addEventListener("click", () =>
+        this._calCall({ type: "ble_floorplan/calibration/start", tracker: cal.tracker, x: cal.x, y: cal.y, height: cal.height })
+      );
+      root.getElementById("calStop")?.addEventListener("click", () => this._calCall({ type: "ble_floorplan/calibration/stop" }));
+      root.querySelectorAll("button[data-delete]").forEach((b) =>
+        b.addEventListener("click", () => this._calCall({ type: "ble_floorplan/calibration/delete", run_id: b.dataset.delete }))
+      );
+      root.getElementById("calSolve")?.addEventListener("click", () =>
+        this._calCall({ type: "ble_floorplan/calibration/solve", attenuation: cal.fitN }, (result) => {
+          cal.proposal = result;
+        })
+      );
+      root.getElementById("calApply")?.addEventListener("click", () => {
+        const p = cal.proposal;
+        const msg = { type: "ble_floorplan/calibration/apply", trackers: {}, scanners: {}, pairs: {} };
+        if (p.attenuation) msg.attenuation = p.attenuation.new;
+        for (const [k, v] of Object.entries(p.trackers)) msg.trackers[k] = v.new;
+        for (const [k, v] of Object.entries(p.scanners)) msg.scanners[k] = v.new;
+        for (const [sk, trs] of Object.entries(p.pairs)) {
+          msg.pairs[sk] = {};
+          for (const [tk, v] of Object.entries(trs)) msg.pairs[sk][tk] = v.new;
+        }
+        this._calCall(msg, () => {
+          cal.proposal = null;
+          cal.note = this._t.applied;
+        });
+      });
+    }
+
+    // One call of the calibration API; the result goes to `then`, an error to the panel
+    async _calCall(msg, then) {
+      const cal = this._cal;
+      cal.busy = true;
+      cal.error = null;
+      cal.note = null;
+      this._render();
+      try {
+        const result = await this._hass.callWS(msg);
+        if (then) then(result);
+      } catch (err) {
+        cal.error = String(err?.message || err?.code || err);
+      }
+      cal.busy = false;
+      if (this._cal === cal) this._render();
     }
 
     // Tooltip next to the pointer; content and place survive a redraw

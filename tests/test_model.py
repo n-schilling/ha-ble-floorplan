@@ -12,6 +12,7 @@ from custom_components.ble_floorplan.model import (
     Scanner,
     mac_address,
     replace_scanner,
+    with_calibration,
     with_scanner_position,
 )
 
@@ -162,3 +163,59 @@ def test_move_scanner() -> None:
     assert new_plan.scanner("kitchen") == plan.scanner("kitchen")
     assert new_plan.rooms == plan.rooms
     assert isinstance(lifted, Scanner)
+
+
+def test_pair_offsets_round_trip() -> None:
+    """The corrections per pair are stored as a table and looked up with a default of zero."""
+    plan = make_plan(pair_offsets={"living": {"tag": -2.5, "phone": 1}})
+    assert plan.pair_offset("living", "tag") == -2.5
+    assert plan.pair_offset("living", "phone") == 1.0
+    assert plan.pair_offset("kitchen", "tag") == 0.0
+    assert plan.pair_offset("nowhere", "tag") == 0.0
+    data = plan.as_dict()
+    assert data["pair_offsets"] == {"living": {"tag": -2.5, "phone": 1.0}}
+    assert Floorplan.from_dict(data) == plan
+    assert make_plan().as_dict()["pair_offsets"] == {}
+    with pytest.raises(probatio.Invalid):
+        make_plan(pair_offsets={"living": {"Bad Key": 1}})
+    with pytest.raises(probatio.Invalid):
+        make_plan(pair_offsets={"living": {"tag": "loud"}})
+
+
+def test_ref_power() -> None:
+    """A tracker's own reference power, else the default."""
+    plan = make_plan()
+    tag = plan.tracker("tag")
+    phone = plan.tracker("phone")
+    assert tag is not None and phone is not None
+    assert plan.ref_power(tag) == -60.0
+    assert plan.ref_power(phone) == -55.0
+
+
+def test_with_calibration() -> None:
+    """Values named are written, others kept, pairs merged; unknown keys are refused."""
+    plan = make_plan(pair_offsets={"living": {"tag": -2.0, "phone": 1.0}})
+    new = with_calibration(
+        plan,
+        2.7,
+        {"phone": -66.0},
+        {"kitchen": -3.0},
+        {"living": {"tag": 0.5}, "bedroom": {"phone": 2.0}},
+    )
+    assert new.settings.attenuation == 2.7
+    assert new.settings.max_distance == plan.settings.max_distance
+    assert [t.ref_power for t in new.trackers] == [-60.0, -66.0]
+    assert [s.rssi_offset for s in new.scanners] == [0.0, -3.0, 0.0]
+    assert new.pair_offsets == {"living": {"tag": 0.5, "phone": 1.0}, "bedroom": {"phone": 2.0}}
+    assert new.rooms == plan.rooms
+    # The plan given is untouched
+    assert plan.pair_offsets == {"living": {"tag": -2.0, "phone": 1.0}}
+    assert with_calibration(plan, None, {}, {}, {}) == plan
+    for args in (
+        ({"nope": -1.0}, {}, {}),
+        ({}, {"nope": 1.0}, {}),
+        ({}, {}, {"nope": {"tag": 1.0}}),
+        ({}, {}, {"living": {"nope": 1.0}}),
+    ):
+        with pytest.raises(LookupError, match="nope"):
+            with_calibration(plan, None, *args)

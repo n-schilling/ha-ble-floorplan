@@ -13,6 +13,12 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 from homeassistant.core import HomeAssistant
 
 from custom_components.ble_floorplan.const import (
+    WS_CALIBRATION_APPLY,
+    WS_CALIBRATION_DELETE,
+    WS_CALIBRATION_LIST,
+    WS_CALIBRATION_SOLVE,
+    WS_CALIBRATION_START,
+    WS_CALIBRATION_STOP,
     WS_GET_FLOORPLAN,
     WS_IMPORT,
     WS_SET_FLOORPLAN,
@@ -21,8 +27,26 @@ from custom_components.ble_floorplan.const import (
 )
 from custom_components.ble_floorplan.importer import ImportProblem
 
-from . import FLOORPLAN, SCANNER_LIVING, TAG, FakeScanner, make_plan, rssi_exact, scanner_device
+from . import (
+    FLOORPLAN,
+    SCANNER_LIVING,
+    TAG,
+    FakeScanner,
+    make_plan,
+    rssi_exact,
+    scanner_device,
+    synthetic_run,
+)
 from .conftest import ScannerDevices
+
+CALIBRATION_MESSAGES: list[dict[str, Any]] = [
+    {"type": WS_CALIBRATION_START, "tracker": "tag", "x": 1, "y": 1},
+    {"type": WS_CALIBRATION_STOP},
+    {"type": WS_CALIBRATION_LIST},
+    {"type": WS_CALIBRATION_DELETE, "run_id": "x"},
+    {"type": WS_CALIBRATION_SOLVE},
+    {"type": WS_CALIBRATION_APPLY, "trackers": {"tag": -50}},
+]
 
 
 async def test_get_floorplan(
@@ -51,6 +75,7 @@ async def test_not_loaded(
         {"type": WS_SET_SCANNER, "key": "living", "x": 1, "y": 1},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
+        *CALIBRATION_MESSAGES,
     ):
         await client.send_json_auto_id(message)
         msg = await client.receive_json()
@@ -214,6 +239,7 @@ async def test_import(
         {"type": WS_SET_SCANNER, "key": "living", "x": 1, "y": 1},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
+        *CALIBRATION_MESSAGES,
     ],
 )
 async def test_admin_only(
@@ -229,3 +255,257 @@ async def test_admin_only(
     msg = await client.receive_json()
     assert not msg["success"]
     assert msg["error"]["code"] == "unauthorized"
+
+
+async def test_calibration_start_and_stop(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    clock: Callable[[float], None],
+) -> None:
+    """One run at a time, at the tracker's height unless given; stop ends it."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_STOP})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "no_calibration"
+
+    await client.send_json_auto_id(
+        {"type": WS_CALIBRATION_START, "tracker": "nope", "x": 1, "y": 1}
+    )
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "not_found"
+
+    clock(1000.0)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_START, "tracker": "tag", "x": 2, "y": 3})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    run = msg["result"]
+    assert run["running"]
+    assert (run["tracker"], run["x"], run["y"], run["height"]) == ("tag", 2.0, 3.0, 0.3)
+    assert run["duration"] is None
+    assert run["counts"] == {}
+    assert entry.runtime_data.calibration.active is not None
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_START, "tracker": "tag", "x": 1, "y": 1})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "calibration_running"
+
+    clock(1090.0)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_STOP})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["id"] == run["id"]
+    assert msg["result"]["duration"] == 90.0
+    assert not msg["result"]["running"]
+
+    await client.send_json_auto_id(
+        {"type": WS_CALIBRATION_START, "tracker": "phone", "x": 1, "y": 1, "height": 1.4}
+    )
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["height"] == 1.4
+
+
+async def test_calibration_list_and_delete(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Summaries by default, the samples on request; delete needs an existing run."""
+    client = await hass_ws_client(hass)
+    calibration = entry.runtime_data.calibration
+    run = await calibration.async_start("tag", 2.0, 2.0, 0.3, 1000.0)
+    calibration.add_sample("living", 1001.0, -60)
+    await calibration.async_stop(1010.0)
+    active = await calibration.async_start("phone", 5.0, 5.0, 1.0, 1020.0)
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_LIST})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["active"] == active.id
+    assert [r["id"] for r in msg["result"]["runs"]] == [run.id, active.id]
+    assert msg["result"]["runs"][0]["counts"] == {"living": 1}
+    assert "samples" not in msg["result"]["runs"][0]
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_LIST, "samples": True})
+    msg = await client.receive_json()
+    assert msg["result"]["runs"][0]["samples"] == {"living": [[1.0, -60]]}
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": "nope"})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "not_found"
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": active.id})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"] == {"active": None, "runs": [run.summary()]}
+    assert calibration.active is None
+
+
+async def test_calibration_solve(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """The proposal from the finished runs; an error when they do not determine anything."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_SOLVE})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "calibration_failed"
+    assert "no finished run" in msg["error"]["message"]
+
+    plan = entry.runtime_data.store.plan
+    offsets = {"living": 1.0, "kitchen": -1.0, "bedroom": 0.0}
+    entry.runtime_data.calibration.runs.extend(
+        [
+            synthetic_run(plan, "r1", "tag", 2.0, 2.0, -58.0, offsets, 2.8),
+            synthetic_run(plan, "r2", "tag", 7.0, 3.0, -58.0, offsets, 2.8),
+        ]
+    )
+    await client.send_json_auto_id({"type": WS_CALIBRATION_SOLVE})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["attenuation"] is None
+    assert msg["result"]["trackers"]["tag"]["runs"] == 2
+    assert msg["result"]["rms"]["new"] > 0
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_SOLVE, "attenuation": True})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["attenuation"] == {"old": 3.0, "new": 2.8}
+    assert msg["result"]["trackers"]["tag"]["new"] == -58.0
+    assert msg["result"]["scanners"]["living"]["new"] == 1.0
+    assert msg["result"]["rms"]["new"] == 0.0
+    # Nothing was written
+    assert entry.runtime_data.store.plan == plan
+
+
+async def test_calibration_apply(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Apply writes the values into the plan and reloads; not while a run goes; known keys only."""
+    client = await hass_ws_client(hass)
+    calibration = entry.runtime_data.calibration
+    await calibration.async_start("tag", 2.0, 2.0, 0.3, 1000.0)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_APPLY, "trackers": {"tag": -58}})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "calibration_running"
+    await calibration.async_stop(1010.0)
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_APPLY, "scanners": {"nope": 1}})
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"] == {"code": "not_found", "message": "no scanner nope"}
+    assert entry.runtime_data.store.plan == make_plan()
+
+    await client.send_json_auto_id(
+        {
+            "type": WS_CALIBRATION_APPLY,
+            "attenuation": 2.8,
+            "trackers": {"tag": -58},
+            "scanners": {"living": 1, "kitchen": -1},
+            "pairs": {"kitchen": {"tag": 2.5}},
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["settings"]["attenuation"] == 2.8
+    assert msg["result"]["trackers"][0]["ref_power"] == -58.0
+    assert msg["result"]["scanners"][1]["rssi_offset"] == -1.0
+    assert msg["result"]["pair_offsets"] == {"kitchen": {"tag": 2.5}}
+    await hass.async_block_till_done()
+    plan = entry.runtime_data.store.plan
+    assert plan.pair_offset("kitchen", "tag") == 2.5
+    assert plan.settings.attenuation == 2.8
+    assert hass.states.get("sensor.tag_room") is not None
+    # The runs survived the reload
+    assert len(entry.runtime_data.calibration.runs) == 1
+
+
+async def test_subscribe_calibration(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """The runs are in the snapshot, sent on every change, and with the positions while one goes."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": WS_SUBSCRIBE})
+    msg = await client.receive_json()
+    assert msg["success"]
+    msg = await client.receive_json()
+    assert msg["event"]["calibration"] == {"active": None, "runs": []}
+
+    clock(1000.0)
+    run = await entry.runtime_data.coordinator.async_start_calibration("tag", 2.0, 2.0, 0.3)
+    msg = await client.receive_json()
+    assert msg["event"] == {"calibration": {"active": run.id, "runs": [run.summary()]}}
+
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -60, 1001.0)]
+    clock(1002.0)
+    await entry.runtime_data.coordinator.async_refresh()
+    msg = await client.receive_json()
+    assert msg["event"]["positions"]["tag"]["room"] == "Living room"
+    assert msg["event"]["calibration"]["runs"][0]["counts"] == {"living": 1}
+
+    await entry.runtime_data.coordinator.async_stop_calibration()
+    msg = await client.receive_json()
+    assert msg["event"]["calibration"]["active"] is None
+    assert msg["event"]["calibration"]["runs"][0]["duration"] == 2.0
+
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -61, 1003.0)]
+    clock(1004.0)
+    await entry.runtime_data.coordinator.async_refresh()
+    msg = await client.receive_json()
+    assert "calibration" not in msg["event"]
+    assert "positions" in msg["event"]
+
+
+async def test_subscribe_follows_a_reload(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """After a reload the subscription gets a snapshot of the new entry and its positions."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": WS_SUBSCRIBE})
+    msg = await client.receive_json()
+    subscription = msg["id"]
+    await client.receive_json()
+    old_coordinator = entry.runtime_data.coordinator
+
+    await client.send_json_auto_id(
+        {"type": WS_SET_FLOORPLAN, "floorplan": make_plan(settings={"max_distance": 9}).as_dict()}
+    )
+    # The save reaches the old listener, the reload sends a new snapshot
+    events = [await client.receive_json() for _ in range(3)]
+    kinds = [set(e["event"]) for e in events if e["type"] == "event"]
+    assert {"floorplan"} in kinds
+    assert {"floorplan", "positions", "calibration"} in kinds
+    await hass.async_block_till_done()
+    assert entry.runtime_data.coordinator is not old_coordinator
+
+    scanner_devices[TAG] = [
+        scanner_device(scanners["living"], TAG, rssi_exact(1.0, -60, 0.8, 0.3), 1000.0)  # type: ignore[arg-type]
+    ]
+    clock(1001.0)
+    await entry.runtime_data.coordinator.async_refresh()
+    msg = await client.receive_json()
+    assert msg["event"]["positions"]["tag"]["room"] == "Living room"
+
+    await client.send_json_auto_id({"type": "unsubscribe_events", "subscription": subscription})
+    msg = await client.receive_json()
+    assert msg["success"]
+    # Gone from the rebind list as well: a reload reaches nobody
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await client.send_json_auto_id({"type": WS_GET_FLOORPLAN})
+    msg = await client.receive_json()
+    assert msg["success"]

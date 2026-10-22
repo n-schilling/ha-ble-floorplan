@@ -19,3 +19,5 @@ def test_card_version_matches_manifest() -> None:
     assert 'customElements.define("ble-floorplan-card"' in card
     assert '"ble_floorplan/subscribe"' in card
     assert '"ble_floorplan/set_scanner"' in card
+    for command in ("start", "stop", "delete", "solve", "apply"):
+        assert f'"ble_floorplan/calibration/{command}"' in card, command

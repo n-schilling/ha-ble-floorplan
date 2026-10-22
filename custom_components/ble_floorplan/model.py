@@ -7,7 +7,7 @@ commands and the import alike, and kept as immutable dataclasses.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Self
 
 import probatio
@@ -133,6 +133,9 @@ SETTINGS_SCHEMA = probatio.Schema(
     }
 )
 
+# Correction per pair scanner x tracker in dB: {scanner key: {tracker key: dB}}
+PAIR_OFFSETS_SCHEMA = probatio.Schema({cv.slug: {cv.slug: NUMBER}})
+
 FLOORPLAN_SCHEMA = probatio.Schema(
     {
         probatio.Optional("rooms", default=list): [ROOM_SCHEMA],
@@ -140,8 +143,11 @@ FLOORPLAN_SCHEMA = probatio.Schema(
         probatio.Optional("scanners", default=list): probatio.All([SCANNER_SCHEMA], _unique_keys),
         probatio.Optional("trackers", default=list): probatio.All([TRACKER_SCHEMA], _unique_keys),
         probatio.Optional("settings", default=dict): SETTINGS_SCHEMA,
+        probatio.Optional("pair_offsets", default=dict): PAIR_OFFSETS_SCHEMA,
     }
 )
+
+type PairOffsets = Mapping[str, Mapping[str, float]]
 
 
 def _clean(data: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +343,9 @@ class Floorplan:
     scanners: tuple[Scanner, ...] = ()
     trackers: tuple[Tracker, ...] = ()
     settings: Settings = field(default_factory=Settings)
+    # Correction of the reference power per pair scanner x tracker in dB, from
+    # the calibration: the scanners' response differs from tracker to tracker
+    pair_offsets: PairOffsets = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -348,6 +357,9 @@ class Floorplan:
             scanners=tuple(Scanner.from_dict(s) for s in valid["scanners"]),
             trackers=tuple(Tracker.from_dict(t) for t in valid["trackers"]),
             settings=Settings.from_dict(valid["settings"]),
+            pair_offsets={
+                scanner: dict(trackers) for scanner, trackers in valid["pair_offsets"].items()
+            },
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -358,6 +370,9 @@ class Floorplan:
             "scanners": [s.as_dict() for s in self.scanners],
             "trackers": [t.as_dict() for t in self.trackers],
             "settings": self.settings.as_dict(),
+            "pair_offsets": {
+                scanner: dict(trackers) for scanner, trackers in self.pair_offsets.items()
+            },
         }
 
     @property
@@ -388,6 +403,16 @@ class Floorplan:
         """Return the tracker with the key."""
         return next((t for t in self.trackers if t.key == key), None)
 
+    def ref_power(self, tracker: Tracker) -> float:
+        """Return the reference power of the tracker: its own, or the default."""
+        if tracker.ref_power is not None:
+            return tracker.ref_power
+        return self.settings.ref_power_default
+
+    def pair_offset(self, scanner_key: str, tracker_key: str) -> float:
+        """Return the correction of the pair in dB, 0 without one."""
+        return self.pair_offsets.get(scanner_key, {}).get(tracker_key, 0.0)
+
     def room_at(self, x: float, y: float) -> str | None:
         """Return the name of the room at the point.
 
@@ -414,12 +439,52 @@ class Floorplan:
 
 def replace_scanner(plan: Floorplan, scanner: Scanner) -> Floorplan:
     """Return the plan with the scanner of the same key replaced."""
-    return Floorplan(
-        rooms=plan.rooms,
-        openings=plan.openings,
-        scanners=tuple(scanner if s.key == scanner.key else s for s in plan.scanners),
-        trackers=plan.trackers,
-        settings=plan.settings,
+    return replace(
+        plan, scanners=tuple(scanner if s.key == scanner.key else s for s in plan.scanners)
+    )
+
+
+def with_calibration(
+    plan: Floorplan,
+    attenuation: float | None,
+    ref_powers: Mapping[str, float],
+    rssi_offsets: Mapping[str, float],
+    pair_offsets: PairOffsets,
+) -> Floorplan:
+    """Return the plan with the calibration written in.
+
+    Trackers and scanners that are not named keep their values; the pairs given
+    are set, the other pairs stay. Raises LookupError for an unknown key.
+    """
+    for key in ref_powers:
+        if plan.tracker(key) is None:
+            raise LookupError(f"no tracker {key}")
+    for key in rssi_offsets:
+        if plan.scanner(key) is None:
+            raise LookupError(f"no scanner {key}")
+    for scanner_key, trackers in pair_offsets.items():
+        if plan.scanner(scanner_key) is None:
+            raise LookupError(f"no scanner {scanner_key}")
+        for tracker_key in trackers:
+            if plan.tracker(tracker_key) is None:
+                raise LookupError(f"no tracker {tracker_key}")
+    pairs = {scanner: dict(trackers) for scanner, trackers in plan.pair_offsets.items()}
+    for scanner_key, trackers in pair_offsets.items():
+        pairs.setdefault(scanner_key, {}).update(trackers)
+    return replace(
+        plan,
+        trackers=tuple(
+            replace(t, ref_power=ref_powers[t.key]) if t.key in ref_powers else t
+            for t in plan.trackers
+        ),
+        scanners=tuple(
+            replace(s, rssi_offset=rssi_offsets[s.key]) if s.key in rssi_offsets else s
+            for s in plan.scanners
+        ),
+        settings=plan.settings
+        if attenuation is None
+        else replace(plan.settings, attenuation=attenuation),
+        pair_offsets=pairs,
     )
 
 
