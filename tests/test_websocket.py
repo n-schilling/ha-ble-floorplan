@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -20,14 +19,12 @@ from custom_components.ble_floorplan.const import (
     WS_CALIBRATION_START,
     WS_CALIBRATION_STOP,
     WS_GET_FLOORPLAN,
-    WS_IMPORT,
     WS_SET_FLOORPLAN,
     WS_SET_SCANNER,
     WS_SET_SETTINGS,
     WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
-from custom_components.ble_floorplan.importer import ImportProblem
 
 from . import (
     FLOORPLAN,
@@ -88,7 +85,6 @@ async def test_not_loaded(
         {"type": WS_SET_TRACKER, "key": "tag", "height": 1},
         {"type": WS_SET_SETTINGS, "settings": {}},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
-        {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,
         *CATALOG_MESSAGES,
     ):
@@ -316,51 +312,6 @@ async def test_set_floorplan(
     assert "room" in msg["error"]["message"]
 
 
-async def test_import(
-    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
-) -> None:
-    """The card's configuration becomes the plan; problems leave the plan as it is."""
-    client = await hass_ws_client(hass)
-    message = {
-        "type": WS_IMPORT,
-        "title": "Card title",
-        "positions_entity": "input_text.x",
-        "rotation": 90,
-        "rooms": [{"name": "Living room", "x": 0, "y": 0, "w": 6, "h": 5}],
-        "scanners": [
-            {"key": "living", "name": "Living", "source": SCANNER_LIVING, "default": [1, 1]}
-        ],
-        "trackers": [{"prefix": "tag", "name": "Tag", "address": TAG}],
-        "positions": {"living": [2, 2]},
-        "max_distance": 12,
-    }
-    await client.send_json_auto_id(message)
-    msg = await client.receive_json()
-    assert msg["success"], msg
-    assert msg["result"]["scanners"][0]["x"] == 2.0
-    assert msg["result"]["settings"]["max_distance"] == 12.0
-    assert msg["result"]["trackers"] == [
-        {"key": "tag", "name": "Tag", "address": TAG, "height": 0.0}
-    ]
-    await hass.async_block_till_done()
-    assert hass.states.get("sensor.phone_room") is None
-
-    with patch(
-        "custom_components.ble_floorplan.websocket.build_floorplan",
-        side_effect=ImportProblem("scanner x: no"),
-    ):
-        await client.send_json_auto_id(message)
-        msg = await client.receive_json()
-    assert not msg["success"]
-    assert msg["error"] == {"code": "import_failed", "message": "scanner x: no"}
-
-    await client.send_json_auto_id({**message, "rooms": [{"name": "Broken"}]})
-    msg = await client.receive_json()
-    assert not msg["success"]
-    assert msg["error"]["code"] == "invalid_format"
-    assert entry.runtime_data.store.plan.settings.max_distance == 12.0
-
-
 @pytest.mark.parametrize(
     "message",
     [
@@ -368,7 +319,6 @@ async def test_import(
         {"type": WS_SET_TRACKER, "key": "tag", "height": 1},
         {"type": WS_SET_SETTINGS, "settings": {}},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
-        {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,
         *CATALOG_MESSAGES,
     ],

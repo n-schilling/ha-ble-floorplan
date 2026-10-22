@@ -45,7 +45,6 @@ from .const import (
     WS_CANDIDATES,
     WS_GET_FLOORPLAN,
     WS_GET_LAYOUT,
-    WS_IMPORT,
     WS_REMOVE_SCANNER,
     WS_REMOVE_TRACKER,
     WS_SET_FLOORPLAN,
@@ -55,7 +54,6 @@ from .const import (
     WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
-from .importer import ImportProblem, build_floorplan
 from .model import (
     NUMBER,
     Floorplan,
@@ -78,20 +76,9 @@ DATA_SUBSCRIPTIONS: HassKey[set[Callable[[RuntimeData], None]]] = HassKey(f"{DOM
 ERR_NOT_LOADED = "not_loaded"
 ERR_NOT_FOUND = "not_found"
 ERR_INVALID = "invalid_format"
-ERR_IMPORT = "import_failed"
 ERR_RUNNING = "calibration_running"
 ERR_NOT_RUNNING = "no_calibration"
 ERR_CALIBRATION = "calibration_failed"
-
-# Keys of the card's configuration that have no meaning on the server
-CARD_ONLY_KEYS = (
-    "title",
-    "positions_entity",
-    "rotation",
-    "show_room_labels",
-    "show_scanner_labels",
-    "show_tracker_labels",
-)
 
 
 @callback
@@ -121,7 +108,6 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_remove_tracker)
     async_register_command(hass, ws_get_layout)
     async_register_command(hass, ws_set_layout)
-    async_register_command(hass, ws_import)
     async_register_command(hass, ws_calibration_start)
     async_register_command(hass, ws_calibration_stop)
     async_register_command(hass, ws_calibration_list)
@@ -364,46 +350,6 @@ async def ws_set_floorplan(
         return
     try:
         plan = Floorplan.from_dict(msg["floorplan"])
-    except probatio.Invalid as err:
-        connection.send_error(msg["id"], ERR_INVALID, str(err))
-        return
-    await _async_replace(hass, runtime, plan)
-    connection.send_result(msg["id"], plan.as_dict())
-
-
-@require_admin
-@websocket_command(
-    {
-        probatio.Required("type"): WS_IMPORT,
-        probatio.Required("rooms"): [dict],
-        probatio.Optional("openings"): [list],
-        probatio.Required("scanners"): [dict],
-        probatio.Required("trackers"): [dict],
-        probatio.Optional("positions"): {cv.string: list},
-        probatio.Optional("settings"): dict,
-        probatio.Optional("max_distance"): NUMBER,
-        probatio.Optional("smoothing_seconds"): NUMBER,
-        probatio.Optional("min_move"): NUMBER,
-        probatio.Optional("clamp"): cv.boolean,
-        probatio.Optional("clamp_outdoor"): cv.boolean,
-        **{probatio.Optional(key): object for key in CARD_ONLY_KEYS},
-    }
-)
-@async_response
-async def ws_import(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
-    """Import the configuration of the earlier card plus the saved scanner positions.
-
-    Replaces the stored floor plan; nothing is written when something cannot
-    be mapped.
-    """
-    if (runtime := _runtime(hass)) is None:
-        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
-        return
-    try:
-        plan = build_floorplan(hass, msg)
-    except ImportProblem as err:
-        connection.send_error(msg["id"], ERR_IMPORT, str(err))
-        return
     except probatio.Invalid as err:
         connection.send_error(msg["id"], ERR_INVALID, str(err))
         return

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Sets up BLE Floorplan. The floor plan, the scanners and the trackers are imported or edited afterwards, through the card and the WebSocket API."
+        "description": "Sets up BLE Floorplan. Afterwards add the card custom:ble-floorplan-card to a dashboard and set up the floor plan, the scanners and the trackers from its gear."
       }
     },
     "abort": {

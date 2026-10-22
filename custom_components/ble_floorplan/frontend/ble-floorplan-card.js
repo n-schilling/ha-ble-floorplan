@@ -4,7 +4,7 @@
 // Tapping a tracker or a scanner opens its panel with the details and, for
 // admins, its actions: edit, move, calibration run. The gear opens the
 // settings, the calibration runs and the proposal.
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -31,7 +31,7 @@ if (!customElements.get("ble-floorplan-card")) {
       jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
       walls: "Through walls only at doors", roomHold: "Hold time (s)", roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
       calibration: "Calibration", noRuns: "No runs yet. Start one from a tracker.", running: "running",
-      samples: "samples", rotation: "Rotation", noPlan: "No floor plan yet: import one or set it over the WebSocket API.",
+      samples: "samples", rotation: "Rotation", noPlan: "No floor plan yet: an administrator sets it up from the gear of this card.",
       notLoaded: "BLE Floorplan is not set up.", unknown: "–",
       hint: "Hover a scanner or a tracker for details, tap it for its panel.",
       plan: "Floor plan", add: "Add", name: "Name", allOnPlan: "Every one Home Assistant knows is on the plan.",
@@ -58,7 +58,7 @@ if (!customElements.get("ble-floorplan-card")) {
       jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
       walls: "Wände nur an Türen passieren", roomHold: "Haltezeit (s)", roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
       calibration: "Kalibrierung", noRuns: "Noch keine Messläufe. Start über einen Tracker.", running: "läuft",
-      samples: "Samples", rotation: "Drehung", noPlan: "Noch kein Grundriss: per Import oder WebSocket-API anlegen.",
+      samples: "Samples", rotation: "Drehung", noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn über das Zahnrad dieser Karte ein.",
       notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
       hint: "Maus über Scanner oder Tracker zeigt Details, Antippen öffnet das Panel.",
       plan: "Grundriss", add: "Hinzufügen", name: "Name", allOnPlan: "Alle, die Home Assistant kennt, sind auf dem Plan.",

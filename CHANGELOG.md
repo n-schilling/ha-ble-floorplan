@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+
+### Removed
+
+- The WebSocket command `ble_floorplan/import` for the configuration of the earlier dashboard card, with its matching by Bermuda's sensor names. The floor plan, the scanners and the trackers are set up in the card since 0.6.0.
+
+### Changed
+
+- The setup dialog and the card without a plan point to the gear of the card instead of the import.
+
 ## [0.6.1] - 2026-10-22
 
 ### Fixed

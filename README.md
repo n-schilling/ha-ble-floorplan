@@ -141,7 +141,6 @@ Each tracker is a device named after the tracker, with:
 | `ble_floorplan/add_scanner` | admins | `source`, optionally `name` and `z`: puts a scanner in the middle of the plan. |
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker and reloads the entry for its sensors. |
 | `ble_floorplan/remove_scanner`, `ble_floorplan/remove_tracker` | admins | `key`: takes it off the plan, with its pair corrections. |
-| `ble_floorplan/import` | admins | The configuration of the earlier card: `rooms`, `openings`, `scanners` (`key`, `name`, `suffix` of Bermuda's distance sensor or `source`, `default` position, `z`), `trackers` (`prefix` or `key`, `name`, optionally `address`, `device_id` or `entity_id`, `ref_power`, `height`), `positions` (`{key: [x, y]}`), `max_distance`, `smoothing_seconds`, `min_move`, `clamp`, `clamp_outdoor`. Scanners are matched by the name of their Bluetooth device, trackers by `device_tracker.<key>` of a Private BLE Device or a device of that name with a Bluetooth address; a missing `ref_power` takes Bermuda's calibration of the device when it is set. Nothing is written when something cannot be mapped. |
 
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y` and optionally `height`: starts a calibration run (one at a time). Returns the run. |
 | `ble_floorplan/calibration/stop` | admins | Stops the run that is going. Returns the run. |

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Richtet BLE Floorplan ein. Grundriss, Scanner und Tracker werden danach importiert oder bearbeitet, über die Karte und die WebSocket-API."
+        "description": "Richtet BLE Floorplan ein. Danach die Karte custom:ble-floorplan-card in ein Dashboard einfügen und Grundriss, Scanner und Tracker über ihr Zahnrad einrichten."
       }
     },
     "abort": {
