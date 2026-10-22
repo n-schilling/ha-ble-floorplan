@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "BLE Floorplan",
+        "description": "Sets up BLE Floorplan. The floor plan, the scanners and the trackers are imported or edited afterwards, through the card and the WebSocket API."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "BLE Floorplan is already set up; one floor plan is supported."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "room": {
+        "name": "Room"
+      },
+      "position_x": {
+        "name": "Position X"
+      },
+      "position_y": {
+        "name": "Position Y"
+      }
+    }
+  }
+}

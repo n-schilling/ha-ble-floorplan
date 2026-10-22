@@ -1,0 +1,10 @@
+# Test harness pinned to the Home Assistant release the integration is tested against
+pytest-homeassistant-custom-component==0.13.373
+# Requirements of the core integrations this one uses (bluetooth, usb) that the
+# harness leaves out, at the versions this Home Assistant release pins
+dbus-fast==5.0.22
+aiousbwatcher==1.1.2
+serialx==1.11.0
+ruff==0.17.1
+mypy==2.4.0
+pytest-cov==7.1.0

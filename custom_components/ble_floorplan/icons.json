@@ -1,0 +1,15 @@
+{
+  "entity": {
+    "sensor": {
+      "room": {
+        "default": "mdi:floor-plan"
+      },
+      "position_x": {
+        "default": "mdi:axis-x-arrow"
+      },
+      "position_y": {
+        "default": "mdi:axis-y-arrow"
+      }
+    }
+  }
+}

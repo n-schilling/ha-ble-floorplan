@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+    ignore:
+      # Pinned to what the Home Assistant release of the test harness pins;
+      # they move with pytest-homeassistant-custom-component, not on their own
+      - dependency-name: dbus-fast
+      - dependency-name: aiousbwatcher
+      - dependency-name: serialx

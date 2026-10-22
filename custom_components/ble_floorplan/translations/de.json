@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "BLE Floorplan",
+        "description": "Richtet BLE Floorplan ein. Grundriss, Scanner und Tracker werden danach importiert oder bearbeitet, über die Karte und die WebSocket-API."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "BLE Floorplan ist bereits eingerichtet; ein Grundriss wird unterstützt."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "room": {
+        "name": "Raum"
+      },
+      "position_x": {
+        "name": "Position X"
+      },
+      "position_y": {
+        "name": "Position Y"
+      }
+    }
+  }
+}

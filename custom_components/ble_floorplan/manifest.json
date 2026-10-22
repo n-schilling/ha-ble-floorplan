@@ -1,0 +1,25 @@
+{
+  "domain": "ble_floorplan",
+  "name": "BLE Floorplan",
+  "after_dependencies": [
+    "frontend",
+    "lovelace",
+    "private_ble_device"
+  ],
+  "codeowners": [
+    "@n-schilling"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth",
+    "http",
+    "websocket_api"
+  ],
+  "documentation": "https://github.com/n-schilling/ha-ble-floorplan",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/n-schilling/ha-ble-floorplan/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: From Settings → About.
+      placeholder: e.g. 2026.10.0
+    validations:
+      required: true
+  - type: input
+    id: scanners
+    attributes:
+      label: Scanners
+      description: Which Bluetooth scanners feed Home Assistant (adapter, ESPHome proxies, Shelly devices).
+      placeholder: e.g. one USB adapter, two ESPHome proxies
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Copied log lines can contain Bluetooth addresses, please check them before posting.
+      render: text
