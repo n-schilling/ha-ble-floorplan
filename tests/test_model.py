@@ -67,6 +67,12 @@ def test_round_trip() -> None:
         "max_distance": 15.0,
         "clamp": True,
         "clamp_outdoor": False,
+        "max_speed": 1.5,
+        "jump_distance": 2.0,
+        "jump_confirm_seconds": 3.0,
+        "room_hold_seconds": 5.0,
+        "room_margin": 0.3,
+        "robust_residual": 1.0,
     }
     assert Floorplan.from_dict(data) == plan
 
@@ -132,6 +138,12 @@ def test_room_without_name_is_fine() -> None:
         {"settings": {"attenuation": 0.5}},
         {"settings": {"ref_power_default": 5}},
         {"settings": {"max_distance": 0}},
+        {"settings": {"max_speed": -1}},
+        {"settings": {"jump_distance": -0.5}},
+        {"settings": {"jump_confirm_seconds": -1}},
+        {"settings": {"room_hold_seconds": -1}},
+        {"settings": {"room_margin": -0.1}},
+        {"settings": {"robust_residual": -1}},
         {"settings": {"unknown": 1}},
         {"unknown": 1},
     ],

@@ -4,6 +4,18 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
+### Added
+
+- Motion rules for the shown position, all in the settings: `max_speed` (1.5 m/s) caps how fast it moves; a raw position farther than `jump_distance` (2 m) away is followed only once it stayed there for `jump_confirm_seconds` (3 s), meanwhile the position holds; the step after a confirmed jump is as large as if it had been followed all along.
+- Room hysteresis: the *Room* sensor changes only after the position lay in another room for `room_hold_seconds` (5 s) and at least `room_margin` (0.3 m) away from that room's walls the whole time.
+- Robust weights in the trilateration: with four or more scanners, a scanner whose distance the others contradict by more than `robust_residual` (1 m), while they agree with each other, loses weight in proportion to the square of the miss. Three scanners leave no way to tell which one is wrong and stay as they were.
+
+### Changed
+
+- All four rules are on by default; 0 switches each off (`jump_distance`, `max_speed`, `robust_residual`, `room_hold_seconds` and `room_margin`).
+
 ## [0.2.0] - 2026-10-22
 
 ### Added

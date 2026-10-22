@@ -16,9 +16,15 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DEFAULT_ATTENUATION,
+    DEFAULT_JUMP_CONFIRM_SECONDS,
+    DEFAULT_JUMP_DISTANCE,
     DEFAULT_MAX_DISTANCE,
+    DEFAULT_MAX_SPEED,
     DEFAULT_MIN_MOVE,
     DEFAULT_REF_POWER,
+    DEFAULT_ROBUST_RESIDUAL,
+    DEFAULT_ROOM_HOLD_SECONDS,
+    DEFAULT_ROOM_MARGIN,
     DEFAULT_SMOOTHING_SECONDS,
 )
 from .geometry import Point, closest_on_outline, point_in_polygon, point_in_rect
@@ -130,6 +136,24 @@ SETTINGS_SCHEMA = probatio.Schema(
         ),
         probatio.Optional("clamp", default=True): cv.boolean,
         probatio.Optional("clamp_outdoor", default=False): cv.boolean,
+        probatio.Optional("max_speed", default=DEFAULT_MAX_SPEED): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("jump_distance", default=DEFAULT_JUMP_DISTANCE): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional(
+            "jump_confirm_seconds", default=DEFAULT_JUMP_CONFIRM_SECONDS
+        ): probatio.All(NUMBER, probatio.Range(min=0.0)),
+        probatio.Optional("room_hold_seconds", default=DEFAULT_ROOM_HOLD_SECONDS): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("room_margin", default=DEFAULT_ROOM_MARGIN): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("robust_residual", default=DEFAULT_ROBUST_RESIDUAL): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
     }
 )
 
@@ -315,6 +339,18 @@ class Settings:
     max_distance: float = DEFAULT_MAX_DISTANCE
     clamp: bool = True
     clamp_outdoor: bool = False
+    # Motion: top speed of the shown position in m/s, 0 for none
+    max_speed: float = DEFAULT_MAX_SPEED
+    # A raw position this far from the shown one is followed only after it
+    # stayed there for jump_confirm_seconds; 0 follows at once
+    jump_distance: float = DEFAULT_JUMP_DISTANCE
+    jump_confirm_seconds: float = DEFAULT_JUMP_CONFIRM_SECONDS
+    # The room changes after the position lay in the new room this long and
+    # this far from its walls
+    room_hold_seconds: float = DEFAULT_ROOM_HOLD_SECONDS
+    room_margin: float = DEFAULT_ROOM_MARGIN
+    # Scanners whose circle misses the position by more than this lose weight; 0 is off
+    robust_residual: float = DEFAULT_ROBUST_RESIDUAL
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -331,6 +367,12 @@ class Settings:
             "max_distance": self.max_distance,
             "clamp": self.clamp,
             "clamp_outdoor": self.clamp_outdoor,
+            "max_speed": self.max_speed,
+            "jump_distance": self.jump_distance,
+            "jump_confirm_seconds": self.jump_confirm_seconds,
+            "room_hold_seconds": self.room_hold_seconds,
+            "room_margin": self.room_margin,
+            "robust_residual": self.robust_residual,
         }
 
 
@@ -419,8 +461,13 @@ class Floorplan:
         Zones win over the rooms they lie in, and of overlapping rooms the one
         drawn last wins, because it covers the others.
         """
+        room = self.room_of(x, y)
+        return room.name if room is not None else None
+
+    def room_of(self, x: float, y: float) -> Room | None:
+        """Return the room at the point, with the same precedence as room_at."""
         ordered = sorted(reversed(self.rooms), key=lambda r: not r.zone)
-        return next((r.name for r in ordered if r.contains(x, y)), None)
+        return next((r for r in ordered if r.contains(x, y)), None)
 
     def clamp(self, x: float, y: float) -> Point:
         """Move a point outside every room to the closest point of a wall."""

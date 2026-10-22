@@ -16,7 +16,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .calibration import CalibrationRun, CalibrationStore
 from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
-from .engine import Measurement, Smoother, floor_distance, median, rssi_to_distance, trilaterate
+from .engine import (
+    Measurement,
+    RoomTracker,
+    Smoother,
+    floor_distance,
+    median,
+    rssi_to_distance,
+    trilaterate,
+)
 from .model import Floorplan, Tracker
 from .store import FloorplanStore
 
@@ -109,6 +117,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self.calibration = calibration
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
+        self._rooms = RoomTracker()
         # device_id -> entity_id of the device tracker of a Private BLE Device
         self._tracker_entities: dict[str, str] = {}
 
@@ -216,6 +225,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         raw = trilaterate(measurements, plan)
         if raw is None:
             self._smoother.reset(tracker.key)
+            self._rooms.reset(tracker.key)
             return TrackerPosition(
                 tracker.key, address, None, None, None, None, None, None, 0, readings
             )
@@ -227,7 +237,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             y,
             raw[0],
             raw[1],
-            plan.room_at(x, y),
+            self._rooms.room(tracker.key, x, y, now, plan),
             nearest,
             len(measurements),
             readings,

@@ -37,6 +37,18 @@ DEFAULT_REF_POWER: Final = -55.0
 DEFAULT_SMOOTHING_SECONDS: Final = 20.0
 DEFAULT_MIN_MOVE: Final = 0.25
 DEFAULT_MAX_DISTANCE: Final = 15.0
+# Motion: the shown position moves at most this fast, in m/s (0 = no limit)
+DEFAULT_MAX_SPEED: Final = 1.5
+# A raw position farther than this from the shown one is a jump (0 = follow at once) …
+DEFAULT_JUMP_DISTANCE: Final = 2.0
+# … that is followed only after the raw position stayed there this long
+DEFAULT_JUMP_CONFIRM_SECONDS: Final = 3.0
+# The room changes only after the position lay in the new room this long …
+DEFAULT_ROOM_HOLD_SECONDS: Final = 5.0
+# … and at least this far from its walls (0 = anywhere inside)
+DEFAULT_ROOM_MARGIN: Final = 0.3
+# A scanner whose circle misses the position by more than this loses weight (0 = off)
+DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 
 # The card, served by the integration
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}"

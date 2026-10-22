@@ -13,8 +13,9 @@ It reads the raw advertisements from Home Assistant's Bluetooth stack, so it wor
 
 1. Every second, for each tracker, the newest advertisement of every scanner that sees it is read: its RSSI, the scanner's address and the time the scanner saw it. Advertisements older than 30 s count as not seen. Per scanner the RSSI is the median of the samples of the last 10 s.
 2. The RSSI becomes a distance with the log-distance path loss model: `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`. `ref_power` is the RSSI at one metre, per tracker or the global default (−55 dBm); `rssi_offset` is a correction per scanner, `pair_offset` one per scanner and tracker (see [Calibration](#calibration)); `attenuation` is the path loss exponent (3.0 by default). The distance is projected onto the floor with the scanner's height and the tracker's height.
-3. The distances of the scanners within `max_distance` go into a weighted Gauss-Newton least-squares solution: near scanners count more (weights 1/d²), and a residual that puts the tracker nearer than measured counts a quarter, because walls make measured distances rather too long. With clamping on, a point outside every room is moved to the closest wall.
-4. The position is smoothed with a time constant (`smoothing_seconds`), independent of how often it is computed; moves below `min_move` are ignored. The room is the zone or room the smoothed point lies in; of overlapping rooms the one drawn last wins.
+3. The distances of the scanners within `max_distance` go into a weighted Gauss-Newton least-squares solution: near scanners count more (weights 1/d²), and a residual that puts the tracker nearer than measured counts a quarter, because walls make measured distances rather too long. With four or more scanners, a scanner whose distance the others contradict by more than `robust_residual` while they agree with each other loses weight, so one scanner that swings cannot drag the position. With clamping on, a point outside every room is moved to the closest wall.
+4. The position is smoothed with a time constant (`smoothing_seconds`), independent of how often it is computed; moves below `min_move` are ignored. A raw position farther than `jump_distance` away is followed only once it stayed there for `jump_confirm_seconds`; until then the shown position holds, and afterwards it catches up as if it had followed all along. It never moves faster than `max_speed`.
+5. The room is the zone or room the smoothed point lies in; of overlapping rooms the one drawn last wins. The room changes only after the point lay in another room for `room_hold_seconds`, at least `room_margin` away from that room's walls, so a tracker that hovers around a wall keeps the room it came from.
 
 ## Requirements
 
@@ -81,6 +82,12 @@ settings:
   max_distance: 15
   clamp: true
   clamp_outdoor: false
+  max_speed: 1.5              # m/s; 0 for no limit
+  jump_distance: 2            # m; a raw position farther away is a jump, 0 follows at once
+  jump_confirm_seconds: 3     # a jump is followed after it stayed this long
+  room_hold_seconds: 5        # the room changes after this long in the new room
+  room_margin: 0.3            # m from the new room's walls; 0 for anywhere inside
+  robust_residual: 1          # m; a scanner the others contradict by more loses weight, 0 off
 pair_offsets:                  # correction per scanner and tracker in dB, from the calibration
   living:
     tag: -2.5

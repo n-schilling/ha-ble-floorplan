@@ -4,7 +4,7 @@
 // dragged to their place (admins), which the integration stores. The
 // calibration mode (admins) records runs with the tracker at a known place
 // and shows the integration's proposal before it is applied.
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
