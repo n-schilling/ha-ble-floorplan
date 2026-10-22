@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import re
+import struct
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "custom_components" / "ble_floorplan"
@@ -91,3 +92,29 @@ def test_card_talks_to_home_assistant_only() -> None:
 def test_no_diagnostics() -> None:
     """There is nothing to download: the integration offers no diagnostics."""
     assert not (PACKAGE / "diagnostics.py").exists()
+
+
+# Images carry pixels only: no text chunks, no EXIF, no colour profile with a name
+IMAGE_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
+
+
+def test_images_carry_no_metadata() -> None:
+    """The screenshots are rendered from the example flat and keep no metadata."""
+    images = [
+        path
+        for path in ROOT.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+        and not SKIPPED_DIRS & set(path.relative_to(ROOT).parts)
+    ]
+    assert any(p.parent.name == "images" for p in images), "the screenshots are checked"
+    for path in images:
+        data = path.read_bytes()
+        assert path.suffix == ".png", f"{path}: only PNG, so the chunks can be checked"
+        assert data[:8] == b"\x89PNG\r\n\x1a\n", path
+        i = 8
+        while i < len(data):
+            length = struct.unpack(">I", data[i : i + 4])[0]
+            kind = data[i + 4 : i + 8]
+            assert kind in IMAGE_CHUNKS, f"{path}: chunk {kind!r}"
+            i += 12 + length

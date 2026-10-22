@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import probatio
@@ -75,6 +76,7 @@ def test_round_trip() -> None:
         "room_hold_seconds": 5.0,
         "room_margin": 0.3,
         "robust_residual": 1.0,
+        "walls": True,
     }
     assert Floorplan.from_dict(data) == plan
 
@@ -250,3 +252,37 @@ def test_with_pair_offsets_and_settings() -> None:
     assert changed.pair_offsets == plan.pair_offsets
     with pytest.raises(probatio.Invalid):
         with_settings(plan, {"max_distance": 0})
+
+
+def test_move_through_walls_only_at_openings() -> None:
+    """A step stays in its room, leaves through a door, heads for a door, or stops at a wall."""
+    plan = make_plan()
+    # Inside the living room: as is
+    assert plan.move((1, 1), (2, 2), (2, 2)) == (2, 2)
+    # Through the living room/kitchen door (x 6, y 1-2.5): as is
+    assert plan.move((5.5, 1.5), (6.5, 1.5), (7, 1.5)) == (6.5, 1.5)
+    # Through the wall below the door: towards the door instead, as far as the step
+    x, y = plan.move((5.5, 4.0), (6.5, 4.0), (7.0, 4.0))
+    door = (6.0, 1.75)
+    assert math.dist((x, y), (5.5, 4.0)) == pytest.approx(1.0)
+    assert math.dist((x, y), door) < math.dist((5.5, 4.0), door)
+    # The door within reach: through it, a little past
+    x, y = plan.move((5.9, 2.7), (6.9, 3.5), (7.0, 4.0))
+    assert math.dist((x, y), door) == pytest.approx(0.2)
+    kitchen = plan.space_of(x, y)
+    assert x > 6 and kitchen is not None and kitchen.name == "Kitchen"
+    # Leaving from the door itself: the crossing is the door, so the step is taken
+    assert plan.move((6.0, 1.75), (7.0, 4.0), (7.0, 4.0)) == (7.0, 4.0)
+    # Of two doors the one on the way: living room to bedroom goes through (3.5, 5)
+    x, y = plan.move((1.0, 4.0), (1.0, 6.0), (1.0, 7.0))
+    assert math.dist((x, y), (1.0, 4.0)) == pytest.approx(2.0)
+    assert math.dist((x, y), (3.5, 5.0)) == pytest.approx(math.dist((1.0, 4.0), (3.5, 5.0)) - 2.0)
+    # No door at all: stopped 0.1 m before the wall
+    closed = make_plan(openings=[])
+    assert closed.move((5.0, 4.0), (7.0, 4.0), (7.0, 4.0)) == pytest.approx((5.9, 4.0))
+    assert closed.move((5.95, 4.0), (7.0, 4.0), (7.0, 4.0)) == pytest.approx((5.95, 4.0))
+    # Walls off, or a start outside every room: as is
+    assert make_plan(settings={"walls": False}).move((5.5, 4), (6.5, 4), (7, 4)) == (6.5, 4)
+    assert plan.move((12, 12), (5, 5), (5, 5)) == (5, 5)
+    # Zones are no walls: the dining zone is crossed freely
+    assert plan.move((2, 1), (4, 1), (4, 1)) == (4, 1)

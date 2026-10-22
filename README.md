@@ -9,12 +9,16 @@ A custom integration that places Bluetooth Low Energy trackers on a floor plan o
 
 It reads the raw advertisements from Home Assistant's Bluetooth stack, so it works with every scanner Home Assistant has: the adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices as proxies. It complements [Bermuda](https://github.com/agittins/bermuda), which assigns a tracker to the area of the nearest scanner; this integration computes a point on the plan, with the scanners' heights and a correction per scanner. [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) resolves the changing addresses of phones and watches; this integration tracks whatever address it currently resolves to.
 
+![The card: the floor plan with two trackers and four scanners](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.png)
+
+All screenshots show a made-up example flat with made-up devices, rendered from the test data.
+
 ## How it works
 
 1. Every second, for each tracker, the newest advertisement of every scanner that sees it is read: its RSSI, the scanner's address and the time the scanner saw it. Advertisements older than 30 s count as not seen. Per scanner the RSSI is the median of the samples of the last 10 s.
 2. The RSSI becomes a distance with the log-distance path loss model: `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`. `ref_power` is the RSSI at one metre, per tracker or the global default (−55 dBm); `rssi_offset` is a correction per scanner, `pair_offset` one per scanner and tracker (see [Calibration](#calibration)); `attenuation` is the path loss exponent (3.0 by default). The distance is projected onto the floor with the scanner's height and the tracker's height.
 3. The distances of the scanners within `max_distance` go into a weighted Gauss-Newton least-squares solution: near scanners count more (weights 1/d²), and a residual that puts the tracker nearer than measured counts a quarter, because walls make measured distances rather too long. With four or more scanners, a scanner whose distance the others contradict by more than `robust_residual` while they agree with each other loses weight, so one scanner that swings cannot drag the position. With clamping on, a point outside every room is moved to the closest wall.
-4. The position is smoothed with a time constant (`smoothing_seconds`), independent of how often it is computed; moves below `min_move` are ignored. A raw position farther than `jump_distance` away is followed only once it stayed there for `jump_confirm_seconds`; until then the shown position holds, and afterwards it catches up as if it had followed all along. It never moves faster than `max_speed`.
+4. The position is smoothed with a time constant (`smoothing_seconds`), independent of how often it is computed; moves below `min_move` are ignored. A raw position farther than `jump_distance` away is followed only once it stayed there for `jump_confirm_seconds`; until then the shown position holds, and afterwards it catches up as if it had followed all along. It never moves faster than `max_speed`. With `walls` on, the shown position passes a wall only through an opening: a step that would cross a wall heads for the door of its room that lies best on the way instead, and goes through it; a room without a door keeps the position before the wall.
 5. The room is the zone or room the smoothed point lies in; of overlapping rooms the one drawn last wins. The room changes only after the point lay in another room for `room_hold_seconds`, at least `room_margin` away from that room's walls, so a tracker that hovers around a wall keeps the room it came from.
 
 ## Requirements
@@ -88,6 +92,7 @@ settings:
   room_hold_seconds: 5        # the room changes after this long in the new room
   room_margin: 0.3            # m from the new room's walls; 0 for anywhere inside
   robust_residual: 1          # m; a scanner the others contradict by more loses weight, 0 off
+  walls: true                 # pass walls only through openings
 pair_offsets:                  # correction per scanner and tracker in dB, from the calibration
   living:
     tag: -2.5
@@ -131,7 +136,11 @@ Example from the developer tools or a browser console: `await hass.callWS({type:
 
 The signal every scanner hears from a tracker at one metre differs with the scanner, and it differs with the tracker: a plug hears a tag as loud as an ESP32 does, and a phone 15 dB louder. Reference power per tracker and offset per scanner cannot express that; the integration therefore records runs with the tracker at a known place and fits all of it at once.
 
-1. In the card, tap the tracker and choose **Calibration run** (admins). Set its height for this run, tap the plan where the tracker is, **Start run**. Leave the tracker there for a minute or two, **Stop run**. Every new advertisement of every scanner in the plan is a sample of the run; the runs are kept in `.storage/ble_floorplan.calibration`.
+1. In the card, tap the tracker and choose **Calibration run** (admins). Set its height for this run, tap the plan where the tracker is, **Start run**. Leave the tracker there for a minute or two, **Stop run**. While the run goes, the crosshair marks the true position and the panel counts the samples per scanner:
+
+   ![A calibration run](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/measure.png)
+
+   Every new advertisement of every scanner in the plan is a sample of the run; the runs are kept in `.storage/ble_floorplan.calibration`.
 2. Repeat at other places, and with the other trackers. A scanner needs at least three samples in a run for the run to count for it. The exponent needs runs at different distances from a scanner.
 3. In the gear panel, **Compute**. Per run and scanner the median RSSI is one observation; its true distance follows from the run's position and height and the scanner's position and height. Least squares over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(d)` gives the reference power of every tracker and the offset of every scanner; the offsets are made to average zero, because only the sum of a tracker's and a scanner's value is observable. With **Fit the exponent too** the exponent is fitted as well. What the fit leaves per pair scanner × tracker (the mean residual) becomes the pair's correction. The preview shows the current and the proposed value of every parameter, the runs and samples behind it, and the RMS error of the observations before and after.
 4. **Apply** writes the proposal into the plan and reloads the entry. Nothing is applied by itself; a proposal you do not like is simply not applied. The pair corrections of trackers without runs stay as they are.
@@ -145,6 +154,16 @@ A single tracker cannot separate its reference power from the scanner offsets, s
 - **Tracker**: room, position, every scanner's distance and RSSI, height, reference power and pair corrections. Admins edit those, show the distance circles and start a [calibration run](#calibration) from here: tap the plan where the tracker lies, start, stop.
 - **Scanner**: position, height, offset, what it hears from every tracker, its pair corrections. Admins drag it to its place and edit the values.
 - **Gear** (admins): rotation and labels (kept per browser), the settings of the engine, the motion rules, the room rules and the robust weights, and the calibration: the runs with their samples per scanner, compute, the proposal and apply.
+
+| Tracker panel with the distance circles | Scanner panel |
+|---|---|
+| ![Tracker panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![Scanner panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
+
+| Settings | Calibration proposal |
+|---|---|
+| ![Settings](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/settings.png) | ![Calibration](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/calibration.png) |
+
+Numbers are shown in the language of Home Assistant; a point and a comma are both taken as the decimal sign.
 
 ```yaml
 type: custom:ble-floorplan-card

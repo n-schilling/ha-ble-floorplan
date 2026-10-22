@@ -4,6 +4,18 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-22
+
+### Added
+
+- Walls: the shown position passes a wall only through an opening of the plan. A step that would cross a wall heads for the door of its room that lies best on the way to the measured position and goes through it; in a room without a door the position stops before the wall. Setting `walls` (on by default), switchable in the card.
+- Screenshots in the README, rendered from the example flat of the tests; a privacy test makes sure every image in the repository carries pixels only.
+
+### Changed
+
+- Number fields of the card show their values in the language of Home Assistant and take a point or a comma as the decimal sign.
+- The distance circles stay inside the map of the card.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added

@@ -20,7 +20,7 @@ from . import make_plan
 
 PLAN = make_plan()
 # The card's engine: no robust weights, no jump rule, no speed limit
-CARD_SETTINGS = {"robust_residual": 0, "jump_distance": 0, "max_speed": 0}
+CARD_SETTINGS = {"robust_residual": 0, "jump_distance": 0, "max_speed": 0, "walls": False}
 CARD = make_plan(settings=CARD_SETTINGS)
 NO_CLAMP = make_plan(settings={**CARD_SETTINGS, "clamp": False})
 
@@ -165,14 +165,16 @@ def test_smoother_jump_needs_confirmation() -> None:
 
 def test_smoother_speed_limit() -> None:
     """The shown position never moves faster than max_speed."""
-    fast = make_plan(settings={"smoothing_seconds": 0.1, "jump_distance": 0})
+    fast = make_plan(settings={"smoothing_seconds": 0.1, "jump_distance": 0, "walls": False})
     smoother = Smoother()
     smoother.smooth("t", (1, 1), 0.0, fast)
     # A time constant of 0.1 s would follow at once: 10 m in one second, capped at 1.5 m
     assert smoother.smooth("t", (9, 7), 1.0, fast) == pytest.approx((2.2, 1.9), abs=1e-9)
     # Two seconds later: 3 m more along the same line
     assert smoother.smooth("t", (9, 7), 3.0, fast) == pytest.approx((4.6, 3.7), abs=1e-6)
-    unlimited = make_plan(settings={"smoothing_seconds": 0.1, "jump_distance": 0, "max_speed": 0})
+    unlimited = make_plan(
+        settings={"smoothing_seconds": 0.1, "jump_distance": 0, "max_speed": 0, "walls": False}
+    )
     smoother.reset("t")
     smoother.smooth("t", (1, 1), 0.0, unlimited)
     assert smoother.smooth("t", (9, 7), 1.0, unlimited) == pytest.approx((9, 7), abs=1e-3)
@@ -238,3 +240,22 @@ def test_room_tracker_outside_and_zones() -> None:
 def test_room_at(x: float, y: float, room: str | None) -> None:
     """Zones first, then the room drawn last."""
     assert PLAN.room_at(x, y) == room
+
+
+def test_smoother_goes_round_through_the_door() -> None:
+    """A tracker that moves from the living room to the hall walks through the doors."""
+    plan = make_plan(settings={"jump_distance": 0, "smoothing_seconds": 0.1})
+    smoother = Smoother()
+    smoother.smooth("t", (5.5, 4.0), 0.0, plan)
+    visited = []
+    point = (5.5, 4.0)
+    for i in range(1, 40):
+        point = smoother.smooth("t", (8.0, 7.0), float(i), plan)
+        room = plan.space_of(*point)
+        visited.append(room.name if room else None)
+    # Never through a wall: living room, then the kitchen through its door, the hall last
+    order = [r for i, r in enumerate(visited) if i == 0 or visited[i - 1] != r]
+    assert order[0] == "Living room"
+    assert order[-1] == "Hall"
+    assert "Kitchen" in order or "Bedroom" in order
+    assert point == pytest.approx((8.0, 7.0), abs=0.3)

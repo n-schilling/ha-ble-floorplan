@@ -172,7 +172,9 @@ class Smoother:
     farther than jump_distance away is followed only once it stayed there for
     jump_confirm_seconds; meanwhile the shown position holds. Once followed,
     the step is as large as if the raw position had been followed all along,
-    but never faster than max_speed.
+    but never faster than max_speed. With walls on, a step passes a wall only
+    through an opening: otherwise it heads for the best door of the room, or
+    stops before the wall.
     """
 
     def __init__(self) -> None:
@@ -209,8 +211,7 @@ class Smoother:
                 scale = limit / math.hypot(sx, sy)
                 sx *= scale
                 sy *= scale
-            x += sx
-            y += sy
+            x, y = plan.move((prev.x, prev.y), (x + sx, y + sy), raw)
         x, y = plan.clamp(x, y)
         prev.x, prev.y, prev.time = x, y, now
         return (x, y)

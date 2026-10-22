@@ -4,7 +4,7 @@
 // Tapping a tracker or a scanner opens its panel with the details and, for
 // admins, its actions: edit, move, calibration run. The gear opens the
 // settings, the calibration runs and the proposal.
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -29,7 +29,7 @@ if (!customElements.get("ble-floorplan-card")) {
       smoothing: "Smoothing (s)", minMove: "Dead zone (m)", clamp: "Keep trackers in the rooms",
       clampOutdoor: "Outdoor areas count as rooms", maxSpeed: "Top speed (m/s, 0 = none)",
       jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
-      roomHold: "Hold time (s)", roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
+      walls: "Through walls only at doors", roomHold: "Hold time (s)", roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
       calibration: "Calibration", noRuns: "No runs yet. Start one from a tracker.", running: "running",
       samples: "samples", rotation: "Rotation", noPlan: "No floor plan yet: import one or set it over the WebSocket API.",
       notLoaded: "BLE Floorplan is not set up.", unknown: "–",
@@ -52,7 +52,7 @@ if (!customElements.get("ble-floorplan-card")) {
       smoothing: "Glättung (s)", minMove: "Totzone (m)", clamp: "Tracker in den Räumen halten",
       clampOutdoor: "Außenflächen zählen als Räume", maxSpeed: "Höchstgeschwindigkeit (m/s, 0 = keine)",
       jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
-      roomHold: "Haltezeit (s)", roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
+      walls: "Wände nur an Türen passieren", roomHold: "Haltezeit (s)", roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
       calibration: "Kalibrierung", noRuns: "Noch keine Messläufe. Start über einen Tracker.", running: "läuft",
       samples: "Samples", rotation: "Drehung", noPlan: "Noch kein Grundriss: per Import oder WebSocket-API anlegen.",
       notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
@@ -71,6 +71,7 @@ if (!customElements.get("ble-floorplan-card")) {
     ["motion", "max_speed", "maxSpeed", 0.1],
     ["motion", "jump_distance", "jumpDistance", 0.1],
     ["motion", "jump_confirm_seconds", "jumpConfirm", 0.5],
+    ["motion", "walls", "walls", "bool"],
     ["roomRules", "room_hold_seconds", "roomHold", 0.5],
     ["roomRules", "room_margin", "roomMargin", 0.05],
     ["robust", "robust_residual", "robustResidual", 0.1],
@@ -458,7 +459,9 @@ if (!customElements.get("ble-floorplan-card")) {
             .map(([k, l]) => `<label><input type="checkbox" data-toggle="${k}"${this._labels[k] ? " checked" : ""}> ${esc(l)}</label>`)
             .join("")}</div>`
         : "";
-      const panel = this._panel ? `<div class="panel">${this._panelHtml(active)}</div>` : "";
+      // Number fields format their values in the language of Home Assistant, not of the device
+      const lang = esc(this._hass?.language || "en");
+      const panel = this._panel ? `<div class="panel" lang="${lang}">${this._panelHtml(active)}</div>` : "";
 
       this.shadowRoot.innerHTML = `
         <style>${this._style()}</style>
@@ -497,8 +500,15 @@ if (!customElements.get("ble-floorplan-card")) {
       return `<div class="phead"><b>${dot}${esc(title)}</b><button id="close" class="icon" title="${esc(this._t.close)}">✕</button></div>`;
     }
 
-    _field(id, label, value, step, attrs = "") {
-      return `<label class="f">${esc(label)}<input type="number" step="${step}" data-field="${esc(id)}" value="${esc(value ?? "")}"${attrs}></label>`;
+    // Numbers in the language of Home Assistant; typing takes a point or a comma
+    _num(value) {
+      return Number.isFinite(value)
+        ? value.toLocaleString(this._hass?.language || "en", { useGrouping: false, maximumFractionDigits: 3 })
+        : "";
+    }
+
+    _field(id, label, value) {
+      return `<label class="f">${esc(label)}<input type="text" inputmode="decimal" data-field="${esc(id)}" value="${esc(this._num(value))}"></label>`;
     }
 
     _trackerHtml(tr, active) {
@@ -612,7 +622,7 @@ if (!customElements.get("ble-floorplan-card")) {
         const v = f.settings[key];
         sections[sec] = (sections[sec] || "") + (step === "bool"
           ? `<label class="check"><input type="checkbox" data-setting="${key}"${v ? " checked" : ""}> ${esc(t[label])}</label>`
-          : `<label class="f">${esc(t[label])}<input type="number" step="${step}" data-setting="${key}" value="${esc(v)}"></label>`);
+          : `<label class="f">${esc(t[label])}<input type="text" inputmode="decimal" data-setting="${key}" value="${esc(this._num(v))}"></label>`);
       }
       const rotation = [0, 90, 180, 270]
         .map((v) => `<option value="${v}"${this._rot === v ? " selected" : ""}>${v}°</option>`)
@@ -693,7 +703,7 @@ if (!customElements.get("ble-floorplan-card")) {
         .body.landscape .map { flex-basis: 100%; }
         .panel { flex: 1 1 280px; min-width: 0; max-width: 100%; font-size: 0.95em; }
         .body.withpanel:not(.landscape) .panel { flex: 0 1 300px; }
-        svg { width: 100%; max-height: 85vh; display: block; touch-action: none; }
+        svg { width: 100%; max-height: 85vh; display: block; touch-action: none; overflow: hidden; }
         .map.aim svg { cursor: crosshair; }
         .room { fill: var(--card-background-color); stroke: var(--primary-text-color); stroke-width: 0.08; stroke-linejoin: miter; }
         .room.outdoor { fill: none; stroke-width: 0.04; stroke-dasharray: 0.25 0.15; opacity: 0.6; }

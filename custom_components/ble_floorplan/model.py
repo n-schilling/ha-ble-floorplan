@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+import math
 from typing import Any, Self
 
 import probatio
@@ -26,8 +27,18 @@ from .const import (
     DEFAULT_ROOM_HOLD_SECONDS,
     DEFAULT_ROOM_MARGIN,
     DEFAULT_SMOOTHING_SECONDS,
+    DOOR_STEP,
+    DOOR_TOLERANCE,
+    WALL_STOP,
 )
-from .geometry import Point, closest_on_outline, point_in_polygon, point_in_rect
+from .geometry import (
+    Point,
+    closest_on_outline,
+    closest_on_segment,
+    point_in_polygon,
+    point_in_rect,
+    segment_intersection,
+)
 
 NUMBER = probatio.Coerce(float)
 POINT = probatio.ExactSequence([NUMBER, NUMBER])
@@ -154,6 +165,7 @@ SETTINGS_SCHEMA = probatio.Schema(
         probatio.Optional("robust_residual", default=DEFAULT_ROBUST_RESIDUAL): probatio.All(
             NUMBER, probatio.Range(min=0.0)
         ),
+        probatio.Optional("walls", default=True): cv.boolean,
     }
 )
 
@@ -351,6 +363,8 @@ class Settings:
     room_margin: float = DEFAULT_ROOM_MARGIN
     # Scanners whose circle misses the position by more than this lose weight; 0 is off
     robust_residual: float = DEFAULT_ROBUST_RESIDUAL
+    # The shown position passes walls only through openings
+    walls: bool = True
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -373,6 +387,7 @@ class Settings:
             "room_hold_seconds": self.room_hold_seconds,
             "room_margin": self.room_margin,
             "robust_residual": self.robust_residual,
+            "walls": self.walls,
         }
 
 
@@ -468,6 +483,59 @@ class Floorplan:
         """Return the room at the point, with the same precedence as room_at."""
         ordered = sorted(reversed(self.rooms), key=lambda r: not r.zone)
         return next((r for r in ordered if r.contains(x, y)), None)
+
+    def space_of(self, x: float, y: float) -> Room | None:
+        """Return the room with walls (no zone) at the point; the one drawn last wins."""
+        return next((r for r in reversed(self.rooms) if not r.zone and r.contains(x, y)), None)
+
+    def _on_opening(self, point: Point) -> bool:
+        return any(
+            math.dist(point, closest_on_segment(point, (o[0], o[1]), (o[2], o[3])))
+            <= DOOR_TOLERANCE
+            for o in self.openings
+        )
+
+    def move(self, start: Point, end: Point, target: Point) -> Point:
+        """Return where a step from start towards end may go, given the walls.
+
+        A step that stays in its room, or leaves it through an opening, is
+        taken. A step through a wall goes towards the opening of the room that
+        lies best on the way to the target instead, and through it once it is
+        reached; without an opening the position stops before the wall.
+        """
+        if not self.settings.walls or (room := self.space_of(*start)) is None:
+            return end
+        corners = room.corners
+        hits = [
+            hit
+            for i, a in enumerate(corners)
+            if (hit := segment_intersection(start, end, a, corners[(i + 1) % len(corners)]))
+            is not None
+        ]
+        if not hits:
+            return end
+        t, point = min(hits)
+        if self._on_opening(point):
+            return end
+        doors = [
+            ((o[0] + o[2]) / 2, (o[1] + o[3]) / 2)
+            for o in self.openings
+            if closest_on_outline(corners, (o[0] + o[2]) / 2, (o[1] + o[3]) / 2)[1]
+            <= DOOR_TOLERANCE
+        ]
+        if not doors:
+            back = max(t - WALL_STOP / max(math.dist(start, end), 1e-9), 0.0)
+            return (start[0] + back * (end[0] - start[0]), start[1] + back * (end[1] - start[1]))
+        door = min(doors, key=lambda d: math.dist(start, d) + math.dist(d, target))
+        step = math.dist(start, end)
+        to_door = math.dist(start, door)
+        if to_door <= step:
+            # Through: a little past the door, away from where it came from
+            dx, dy = door[0] - start[0], door[1] - start[1]
+            norm = to_door or 1.0
+            return (door[0] + DOOR_STEP * dx / norm, door[1] + DOOR_STEP * dy / norm)
+        f = step / to_door
+        return (start[0] + f * (door[0] - start[0]), start[1] + f * (door[1] - start[1]))
 
     def clamp(self, x: float, y: float) -> Point:
         """Move a point outside every room to the closest point of a wall."""

@@ -50,6 +50,20 @@ def closest_on_outline(corners: Sequence[Point], x: float, y: float) -> tuple[Po
     return best, best_d
 
 
+def segment_intersection(p: Point, q: Point, a: Point, b: Point) -> tuple[float, Point] | None:
+    """Return where the segment p-q crosses the segment a-b: (t along p-q, point), or None."""
+    rx, ry = q[0] - p[0], q[1] - p[1]
+    sx, sy = b[0] - a[0], b[1] - a[1]
+    den = rx * sy - ry * sx
+    if abs(den) < 1e-12:
+        return None
+    t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / den
+    u = ((a[0] - p[0]) * ry - (a[1] - p[1]) * rx) / den
+    if not (0.0 <= t <= 1.0 and 0.0 <= u <= 1.0):
+        return None
+    return t, (p[0] + t * rx, p[1] + t * ry)
+
+
 def bounds(outlines: Iterable[Sequence[Point]]) -> tuple[float, float]:
     """Return the extent (width, height) of the plan, from the origin."""
     max_x = 0.0

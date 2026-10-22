@@ -49,6 +49,12 @@ DEFAULT_ROOM_HOLD_SECONDS: Final = 5.0
 DEFAULT_ROOM_MARGIN: Final = 0.3
 # A scanner whose circle misses the position by more than this loses weight (0 = off)
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
+# A wall is crossed only through an opening this close (m)
+DOOR_TOLERANCE: Final = 0.15
+# Going through a door, the position lands this far past it (m) …
+DOOR_STEP: Final = 0.2
+# … and stopped by a wall, this far before it
+WALL_STOP: Final = 0.1
 
 # The card, served by the integration
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}"
