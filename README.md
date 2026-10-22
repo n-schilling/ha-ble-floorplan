@@ -112,7 +112,9 @@ Each tracker is a device named after the tracker, with:
 |---|---|---|
 | `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. |
 | `ble_floorplan/subscribe` | everyone | Sends `floorplan` and `positions` now, then an event for every change of the positions (`positions`) or the plan (`floorplan`). |
-| `ble_floorplan/set_scanner` | admins | `key`, `x`, `y` and optionally `z`: moves a scanner. |
+| `ble_floorplan/set_scanner` | admins | `key` and any of `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair): changes a scanner, what is left out stays. |
+| `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`, null removes a pair): changes a tracker. |
+| `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. Validated as a whole. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan (validated; see above) and reloads the entry. |
 | `ble_floorplan/import` | admins | The configuration of the earlier card: `rooms`, `openings`, `scanners` (`key`, `name`, `suffix` of Bermuda's distance sensor or `source`, `default` position, `z`), `trackers` (`prefix` or `key`, `name`, optionally `address`, `device_id` or `entity_id`, `ref_power`, `height`), `positions` (`{key: [x, y]}`), `max_distance`, `smoothing_seconds`, `min_move`, `clamp`, `clamp_outdoor`. Scanners are matched by the name of their Bluetooth device, trackers by `device_tracker.<key>` of a Private BLE Device or a device of that name with a Bluetooth address; a missing `ref_power` takes Bermuda's calibration of the device when it is set. Nothing is written when something cannot be mapped. |
 
@@ -129,16 +131,20 @@ Example from the developer tools or a browser console: `await hass.callWS({type:
 
 The signal every scanner hears from a tracker at one metre differs with the scanner, and it differs with the tracker: a plug hears a tag as loud as an ESP32 does, and a phone 15 dB louder. Reference power per tracker and offset per scanner cannot express that; the integration therefore records runs with the tracker at a known place and fits all of it at once.
 
-1. In the card, **Calibrate** (admins). Choose the tracker, set its height for this run, tap the plan where the tracker is, **Start run**. Leave the tracker there for a minute or two, **Stop run**. Every new advertisement of every scanner in the plan is a sample of the run; the runs are kept in `.storage/ble_floorplan.calibration`.
+1. In the card, tap the tracker and choose **Calibration run** (admins). Set its height for this run, tap the plan where the tracker is, **Start run**. Leave the tracker there for a minute or two, **Stop run**. Every new advertisement of every scanner in the plan is a sample of the run; the runs are kept in `.storage/ble_floorplan.calibration`.
 2. Repeat at other places, and with the other trackers. A scanner needs at least three samples in a run for the run to count for it. The exponent needs runs at different distances from a scanner.
-3. **Compute**. Per run and scanner the median RSSI is one observation; its true distance follows from the run's position and height and the scanner's position and height. Least squares over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(d)` gives the reference power of every tracker and the offset of every scanner; the offsets are made to average zero, because only the sum of a tracker's and a scanner's value is observable. With **Fit the exponent too** the exponent is fitted as well. What the fit leaves per pair scanner × tracker (the mean residual) becomes the pair's correction. The preview shows the current and the proposed value of every parameter, the runs and samples behind it, and the RMS error of the observations before and after.
+3. In the gear panel, **Compute**. Per run and scanner the median RSSI is one observation; its true distance follows from the run's position and height and the scanner's position and height. Least squares over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(d)` gives the reference power of every tracker and the offset of every scanner; the offsets are made to average zero, because only the sum of a tracker's and a scanner's value is observable. With **Fit the exponent too** the exponent is fitted as well. What the fit leaves per pair scanner × tracker (the mean residual) becomes the pair's correction. The preview shows the current and the proposed value of every parameter, the runs and samples behind it, and the RMS error of the observations before and after.
 4. **Apply** writes the proposal into the plan and reloads the entry. Nothing is applied by itself; a proposal you do not like is simply not applied. The pair corrections of trackers without runs stay as they are.
 
 A single tracker cannot separate its reference power from the scanner offsets, so with runs of one tracker only the offsets carry the differences between the scanners, which then apply to every tracker. Calibrate every tracker you care about, then the offsets hold what the scanners have in common and the pairs the rest.
 
 ## The card
 
-`custom:ble-floorplan-card` draws the plan, the scanners and the trackers, and lists each tracker's room, nearest scanner and the number of scanners that placed it. Hovering a scanner or a tracker shows the distances and signal strengths; tapping a row shows the distance circles of that tracker. The buttons switch the labels of rooms, scanners and trackers and rotate the plan; both choices are kept per browser. Admins can drag the scanners to their places and set their heights, which the integration stores, and run the [calibration](#calibration).
+`custom:ble-floorplan-card` draws the plan, the scanners and the trackers. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan:
+
+- **Tracker**: room, position, every scanner's distance and RSSI, height, reference power and pair corrections. Admins edit those, show the distance circles and start a [calibration run](#calibration) from here: tap the plan where the tracker lies, start, stop.
+- **Scanner**: position, height, offset, what it hears from every tracker, its pair corrections. Admins drag it to its place and edit the values.
+- **Gear** (admins): rotation and labels (kept per browser), the settings of the engine, the motion rules, the room rules and the robust weights, and the calibration: the runs with their samples per scanner, compute, the proposal and apply.
 
 ```yaml
 type: custom:ble-floorplan-card
@@ -149,7 +155,7 @@ show_scanner_labels: true
 show_tracker_labels: true
 ```
 
-The visual editor offers these options. The integration serves the card at `/ble_floorplan/ble-floorplan-card.js` and adds it to the dashboard resources (storage mode) by itself.
+The visual editor offers the title; rotation and labels are set on the card itself. The integration serves the card at `/ble_floorplan/ble-floorplan-card.js` and adds it to the dashboard resources (storage mode) by itself.
 
 ## Limitations
 

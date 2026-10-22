@@ -4,6 +4,18 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
+### Added
+
+- WebSocket `ble_floorplan/set_tracker` (`key`, `height`, `ref_power` or null for the default, `pair_offsets` per scanner, null removes a pair) and `ble_floorplan/set_settings` (`settings`: the values to change; the rest stays). Neither reloads the entry.
+- `ble_floorplan/set_scanner` takes `rssi_offset` and `pair_offsets` per tracker as well; `x` and `y` are optional now and stay as they are when left out.
+
+### Changed
+
+- The card is the plan: tapping a tracker or a scanner opens its panel with the details and, for admins, the actions. The tracker panel edits height, reference power and pair corrections and starts a calibration run (tap the plan for the true position); the scanner panel moves the scanner and edits position, height, offset and pair corrections. The gear opens the settings in sections (display, engine, motion, rooms, robust weights) and the calibration with the runs, the proposal and apply. The table under the plan and the header buttons are gone; rotation and labels are set on the card.
+- The visual editor of the card offers the title only. `rotation` and `show_*` in the card configuration still work as defaults.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added

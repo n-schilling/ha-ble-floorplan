@@ -23,6 +23,8 @@ from custom_components.ble_floorplan.const import (
     WS_IMPORT,
     WS_SET_FLOORPLAN,
     WS_SET_SCANNER,
+    WS_SET_SETTINGS,
+    WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
 from custom_components.ble_floorplan.importer import ImportProblem
@@ -73,6 +75,8 @@ async def test_not_loaded(
         {"type": WS_GET_FLOORPLAN},
         {"type": WS_SUBSCRIBE},
         {"type": WS_SET_SCANNER, "key": "living", "x": 1, "y": 1},
+        {"type": WS_SET_TRACKER, "key": "tag", "height": 1},
+        {"type": WS_SET_SETTINGS, "settings": {}},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,
@@ -143,6 +147,7 @@ async def test_set_scanner(
         "y": 3.0,
         "z": 0.8,
         "rssi_offset": 0.0,
+        "pair_offsets": {},
     }
     living = entry.runtime_data.store.plan.scanner("living")
     assert living is not None and (living.x, living.y, living.z) == (2.5, 3.0, 0.8)
@@ -158,6 +163,118 @@ async def test_set_scanner(
     msg = await client.receive_json()
     assert not msg["success"]
     assert msg["error"]["code"] == "not_found"
+
+    # Offset and pairs alone: the position stays
+    await client.send_json_auto_id(
+        {
+            "type": WS_SET_SCANNER,
+            "key": "living",
+            "rssi_offset": -2.5,
+            "pair_offsets": {"tag": 1.5, "phone": -1},
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["x"] == 2.5
+    assert msg["result"]["rssi_offset"] == -2.5
+    assert msg["result"]["pair_offsets"] == {"tag": 1.5, "phone": -1.0}
+    plan = entry.runtime_data.store.plan
+    assert plan.pair_offset("living", "tag") == 1.5
+    # A pair set to null is removed; an unknown tracker is refused
+    await client.send_json_auto_id(
+        {"type": WS_SET_SCANNER, "key": "living", "pair_offsets": {"tag": None}}
+    )
+    msg = await client.receive_json()
+    assert msg["result"]["pair_offsets"] == {"phone": -1.0}
+    await client.send_json_auto_id(
+        {"type": WS_SET_SCANNER, "key": "living", "pair_offsets": {"nope": 1}}
+    )
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"] == {"code": "not_found", "message": "no tracker nope"}
+    assert entry.runtime_data.store.plan.pair_offsets == {"living": {"phone": -1.0}}
+
+
+async def test_set_tracker(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Height, reference power (null for the default) and the pairs of a tracker; no reload."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": WS_SET_TRACKER,
+            "key": "tag",
+            "height": 0.9,
+            "ref_power": -58,
+            "pair_offsets": {"living": 2, "kitchen": -3},
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"] == {
+        "key": "tag",
+        "name": "Tag",
+        "address": TAG,
+        "height": 0.9,
+        "ref_power": -58.0,
+        "pair_offsets": {"living": 2.0, "kitchen": -3.0},
+    }
+    plan = entry.runtime_data.store.plan
+    tag = plan.tracker("tag")
+    assert tag is not None and tag.height == 0.9 and tag.ref_power == -58.0
+    assert plan.pair_offsets == {"living": {"tag": 2.0}, "kitchen": {"tag": -3.0}}
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.tag_room") is not None
+
+    await client.send_json_auto_id(
+        {"type": WS_SET_TRACKER, "key": "tag", "ref_power": None, "pair_offsets": {"kitchen": None}}
+    )
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert "ref_power" not in msg["result"]
+    assert msg["result"]["pair_offsets"] == {"living": 2.0}
+    assert entry.runtime_data.store.plan.pair_offsets == {"living": {"tag": 2.0}}
+
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "nope", "height": 1})
+    msg = await client.receive_json()
+    assert msg["error"]["code"] == "not_found"
+    await client.send_json_auto_id(
+        {"type": WS_SET_TRACKER, "key": "tag", "pair_offsets": {"nope": 1}}
+    )
+    msg = await client.receive_json()
+    assert msg["error"] == {"code": "not_found", "message": "no scanner nope"}
+
+
+async def test_set_settings(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Part of the settings changes, the rest stays; bad values are refused as a whole."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": WS_SET_SETTINGS, "settings": {"room_margin": 0.6, "max_speed": 0}}
+    )
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["room_margin"] == 0.6
+    assert msg["result"]["max_speed"] == 0.0
+    assert msg["result"]["attenuation"] == 3.0
+    settings = entry.runtime_data.store.plan.settings
+    assert (settings.room_margin, settings.max_speed, settings.smoothing_seconds) == (
+        0.6,
+        0.0,
+        20.0,
+    )
+
+    await client.send_json_auto_id(
+        {"type": WS_SET_SETTINGS, "settings": {"attenuation": 9, "room_margin": 1}}
+    )
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "invalid_format"
+    assert entry.runtime_data.store.plan.settings.room_margin == 0.6
+    await client.send_json_auto_id({"type": WS_SET_SETTINGS, "settings": {"nope": 1}})
+    msg = await client.receive_json()
+    assert msg["error"]["code"] == "invalid_format"
 
 
 async def test_set_floorplan(
@@ -237,6 +354,8 @@ async def test_import(
     "message",
     [
         {"type": WS_SET_SCANNER, "key": "living", "x": 1, "y": 1},
+        {"type": WS_SET_TRACKER, "key": "tag", "height": 1},
+        {"type": WS_SET_SETTINGS, "settings": {}},
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         {"type": WS_IMPORT, "rooms": [], "scanners": [], "trackers": []},
         *CALIBRATION_MESSAGES,

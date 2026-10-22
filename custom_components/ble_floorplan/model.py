@@ -537,12 +537,26 @@ def with_calibration(
 
 def with_scanner_position(scanner: Scanner, x: float, y: float, z: float | None = None) -> Scanner:
     """Return the scanner moved to x, y and, when given, the height z."""
-    return Scanner(
-        key=scanner.key,
-        name=scanner.name,
-        source=scanner.source,
-        x=x,
-        y=y,
-        z=scanner.z if z is None else z,
-        rssi_offset=scanner.rssi_offset,
-    )
+    return replace(scanner, x=x, y=y, z=scanner.z if z is None else z)
+
+
+def with_pair_offsets(
+    plan: Floorplan, scanner_key: str, trackers: Mapping[str, float | None]
+) -> Floorplan:
+    """Return the plan with the pairs of the scanner set; None removes a pair."""
+    pairs = {scanner: dict(ts) for scanner, ts in plan.pair_offsets.items()}
+    mine = pairs.setdefault(scanner_key, {})
+    for tracker_key, value in trackers.items():
+        if value is None:
+            mine.pop(tracker_key, None)
+        else:
+            mine[tracker_key] = value
+    if not mine:
+        del pairs[scanner_key]
+    return replace(plan, pair_offsets=pairs)
+
+
+def with_settings(plan: Floorplan, changes: Mapping[str, Any]) -> Floorplan:
+    """Return the plan with the settings given changed; raises probatio.Invalid on bad values."""
+    merged = {**plan.settings.as_dict(), **changes}
+    return replace(plan, settings=Settings.from_dict(SETTINGS_SCHEMA(merged)))

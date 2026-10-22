@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import probatio
@@ -32,10 +33,20 @@ from .const import (
     WS_IMPORT,
     WS_SET_FLOORPLAN,
     WS_SET_SCANNER,
+    WS_SET_SETTINGS,
+    WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
 from .importer import ImportProblem, build_floorplan
-from .model import NUMBER, Floorplan, replace_scanner, with_calibration, with_scanner_position
+from .model import (
+    NUMBER,
+    Floorplan,
+    replace_scanner,
+    with_calibration,
+    with_pair_offsets,
+    with_scanner_position,
+    with_settings,
+)
 from .solver import CalibrationError, solve
 
 if TYPE_CHECKING:
@@ -82,6 +93,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_get_floorplan)
     async_register_command(hass, ws_subscribe)
     async_register_command(hass, ws_set_scanner)
+    async_register_command(hass, ws_set_tracker)
+    async_register_command(hass, ws_set_settings)
     async_register_command(hass, ws_set_floorplan)
     async_register_command(hass, ws_import)
     async_register_command(hass, ws_calibration_start)
@@ -183,30 +196,126 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
     _bind(runtime)
 
 
+PAIRS = {cv.string: probatio.Any(None, NUMBER)}
+
+
+def _check_pairs(plan: Floorplan, keys: Any, lookup: Any, what: str) -> str | None:
+    """Return the first unknown key of a pair table, or None."""
+    return next((f"no {what} {key}" for key in keys if lookup(key) is None), None)
+
+
 @require_admin
 @websocket_command(
     {
         probatio.Required("type"): WS_SET_SCANNER,
         probatio.Required("key"): cv.string,
-        probatio.Required("x"): NUMBER,
-        probatio.Required("y"): NUMBER,
+        probatio.Optional("x"): NUMBER,
+        probatio.Optional("y"): NUMBER,
         probatio.Optional("z"): NUMBER,
+        probatio.Optional("rssi_offset"): NUMBER,
+        probatio.Optional("pair_offsets"): PAIRS,
     }
 )
 @async_response
 async def ws_set_scanner(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Move a scanner, and set its height when given."""
+    """Change a scanner: position, height, offset, its pairs; what is not given stays."""
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
-    if (scanner := runtime.store.plan.scanner(msg["key"])) is None:
+    plan = runtime.store.plan
+    if (scanner := plan.scanner(msg["key"])) is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
         return
-    moved = with_scanner_position(scanner, msg["x"], msg["y"], msg.get("z"))
-    await runtime.store.async_save(replace_scanner(runtime.store.plan, moved))
-    connection.send_result(msg["id"], moved.as_dict())
+    pairs = msg.get("pair_offsets", {})
+    if (problem := _check_pairs(plan, pairs, plan.tracker, "tracker")) is not None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, problem)
+        return
+    changed = with_scanner_position(
+        scanner, msg.get("x", scanner.x), msg.get("y", scanner.y), msg.get("z")
+    )
+    if "rssi_offset" in msg:
+        changed = replace(changed, rssi_offset=msg["rssi_offset"])
+    plan = replace_scanner(plan, changed)
+    if pairs:
+        plan = with_pair_offsets(plan, scanner.key, pairs)
+    await runtime.store.async_save(plan)
+    connection.send_result(
+        msg["id"],
+        {**changed.as_dict(), "pair_offsets": dict(plan.pair_offsets.get(scanner.key, {}))},
+    )
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_SET_TRACKER,
+        probatio.Required("key"): cv.string,
+        probatio.Optional("height"): NUMBER,
+        probatio.Optional("ref_power"): probatio.Any(None, NUMBER),
+        probatio.Optional("pair_offsets"): PAIRS,
+    }
+)
+@async_response
+async def ws_set_tracker(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Change a tracker: height, reference power (null for the default), its pairs per scanner."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    plan = runtime.store.plan
+    if (tracker := plan.tracker(msg["key"])) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['key']}")
+        return
+    pairs = msg.get("pair_offsets", {})
+    if (problem := _check_pairs(plan, pairs, plan.scanner, "scanner")) is not None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, problem)
+        return
+    changed = tracker
+    if "height" in msg:
+        changed = replace(changed, height=msg["height"])
+    if "ref_power" in msg:
+        changed = replace(changed, ref_power=msg["ref_power"])
+    plan = replace(
+        plan, trackers=tuple(changed if t.key == tracker.key else t for t in plan.trackers)
+    )
+    for scanner_key, value in pairs.items():
+        plan = with_pair_offsets(plan, scanner_key, {tracker.key: value})
+    await runtime.store.async_save(plan)
+    connection.send_result(
+        msg["id"],
+        {
+            **changed.as_dict(),
+            "pair_offsets": {
+                scanner_key: ts[tracker.key]
+                for scanner_key, ts in plan.pair_offsets.items()
+                if tracker.key in ts
+            },
+        },
+    )
+
+
+@require_admin
+@websocket_command(
+    {probatio.Required("type"): WS_SET_SETTINGS, probatio.Required("settings"): dict}
+)
+@async_response
+async def ws_set_settings(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Change some of the settings; the others stay. No reload."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    try:
+        plan = with_settings(runtime.store.plan, msg["settings"])
+    except probatio.Invalid as err:
+        connection.send_error(msg["id"], ERR_INVALID, str(err))
+        return
+    await runtime.store.async_save(plan)
+    connection.send_result(msg["id"], plan.settings.as_dict())
 
 
 async def _async_replace(hass: HomeAssistant, runtime: RuntimeData, plan: Floorplan) -> None:

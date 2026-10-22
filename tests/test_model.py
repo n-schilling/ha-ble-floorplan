@@ -13,7 +13,9 @@ from custom_components.ble_floorplan.model import (
     mac_address,
     replace_scanner,
     with_calibration,
+    with_pair_offsets,
     with_scanner_position,
+    with_settings,
 )
 
 from . import FLOORPLAN, SCANNER_LIVING, TAG, make_plan
@@ -231,3 +233,20 @@ def test_with_calibration() -> None:
     ):
         with pytest.raises(LookupError, match="nope"):
             with_calibration(plan, None, *args)
+
+
+def test_with_pair_offsets_and_settings() -> None:
+    """Pairs of one scanner are set or removed; settings change in part."""
+    plan = make_plan(pair_offsets={"living": {"tag": 1.0}})
+    plan = with_pair_offsets(plan, "living", {"phone": 2.0, "tag": None})
+    assert plan.pair_offsets == {"living": {"phone": 2.0}}
+    plan = with_pair_offsets(plan, "living", {"phone": None})
+    assert plan.pair_offsets == {}
+    plan = with_pair_offsets(plan, "kitchen", {"tag": -1.0})
+    assert plan.pair_offsets == {"kitchen": {"tag": -1.0}}
+    changed = with_settings(plan, {"max_distance": 9})
+    assert changed.settings.max_distance == 9.0
+    assert changed.settings.attenuation == 3.0
+    assert changed.pair_offsets == plan.pair_offsets
+    with pytest.raises(probatio.Invalid):
+        with_settings(plan, {"max_distance": 0})
