@@ -96,7 +96,7 @@ def candidates(hass: HomeAssistant, plan: Floorplan) -> dict[str, list[dict[str,
             address in sources
             or address in on_plan_addresses
             or device.id in private
-            or device.config_entries <= own
+            or device.config_entry_id in own
         ):
             continue
         trackers.append({"address": address, "name": device_name(device) or address})
@@ -188,8 +188,11 @@ def layout_yaml(plan: Floorplan) -> str:
     if not plan.rooms and not plan.openings:
         return LAYOUT_TEMPLATE
     data = plan.as_dict()
+    # Defaults are left out, so the text stays short
+    defaults = {"zone": False, "outdoor": False, "label": True}
+    rooms = [{k: v for k, v in r.items() if defaults.get(k, object()) != v} for r in data["rooms"]]
     return yaml.safe_dump(
-        {"rooms": data["rooms"], "openings": data["openings"]},
+        {"rooms": rooms, "openings": data["openings"]},
         sort_keys=False,
         allow_unicode=True,
         default_flow_style=None,

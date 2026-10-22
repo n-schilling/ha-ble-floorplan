@@ -4,6 +4,16 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-22
+
+### Fixed
+
+- The list of trackers to add read `DeviceEntry.config_entries`, which Home Assistant 2026.10 deprecates (a device belongs to one entry); it reads `config_entry_id` now.
+
+### Changed
+
+- The floor plan as YAML leaves out the defaults (`zone: false`, `outdoor: false`, `label: true`).
+
 ## [0.6.0] - 2026-10-22
 
 ### Added

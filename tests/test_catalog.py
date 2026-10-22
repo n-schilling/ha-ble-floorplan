@@ -112,6 +112,11 @@ def test_layout_round_trip() -> None:
     text = layout_yaml(plan)
     assert "Living room" in text
     assert "openings:" in text
+    # Defaults are left out, set values stay
+    assert "outdoor: false" not in text
+    assert "label: true" not in text
+    assert "zone: true" in text
+    assert "label: false" in text
     assert with_layout(plan, text) == plan
     small = with_layout(plan, "rooms:\n  - {name: Studio, x: 0, y: 0, w: 4, h: 3}\n")
     assert [r.name for r in small.rooms] == ["Studio"]
