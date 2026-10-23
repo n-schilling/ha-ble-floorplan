@@ -163,15 +163,22 @@ async def test_timestamp_missing(
     scanners: dict[str, FakeScanner],
     clock: Callable[[float], None],
 ) -> None:
-    """A scanner without timestamps: every read counts as a fresh sample at the current time."""
+    """A device without a timestamp is only remembered by the scanner and counts as not seen.
+
+    A local adapter keeps a bonded device in its cache after the advertisement
+    expired; reading it each second must not keep the tracker present.
+    """
     coordinator = entry.runtime_data.coordinator
-    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -60, None)]
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -60, 1000.0)]
     clock(1001.0)
     await coordinator.async_refresh()
     assert coordinator.data["tag"].seen
+    # The advertisement expired: the timestamp is gone, the cached device stays
+    del scanners["living"].discovered_device_timestamps[TAG]
+    scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -60, None)]
     clock(1050.0)
     await coordinator.async_refresh()
-    assert coordinator.data["tag"].seen
+    assert not coordinator.data["tag"].seen
 
 
 async def test_unknown_scanner_ignored(

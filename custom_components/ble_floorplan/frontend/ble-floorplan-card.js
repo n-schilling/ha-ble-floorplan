@@ -4,7 +4,7 @@
 // Tapping a tracker or a scanner opens its panel with the details and, for
 // admins, its actions: edit, move, calibration run. The gear opens the
 // settings, the calibration runs and the proposal.
-const VERSION = "0.8.0";
+const VERSION = "0.8.1";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>

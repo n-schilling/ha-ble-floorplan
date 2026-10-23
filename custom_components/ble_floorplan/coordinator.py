@@ -191,6 +191,10 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     def _collect(self, key: str, address: str, sources: dict[str, str]) -> None:
         """Take the newest advertisement of every scanner that sees the address.
 
+        A device without a timestamp is skipped: the scanner only remembers it.
+        A local adapter keeps a bonded device in its cache with the last RSSI
+        long after the advertisement expired, and only the timestamp is gone.
+
         A new advertisement also goes into the calibration run of the tracker,
         when one is going and the scanner is in the plan.
         """
@@ -198,10 +202,12 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         for device in async_scanner_devices_by_address(self.hass, address, connectable=False):
             scanner = device.scanner
             stamp = scanner.discovered_device_timestamps.get(address)
-            samples = self._samples.setdefault((key, scanner.source), deque())
-            if stamp is not None and samples and stamp <= samples[-1][0]:
+            if stamp is None:
                 continue
-            sample = (stamp if stamp is not None else MONOTONIC_TIME(), device.advertisement.rssi)
+            samples = self._samples.setdefault((key, scanner.source), deque())
+            if samples and stamp <= samples[-1][0]:
+                continue
+            sample = (stamp, device.advertisement.rssi)
             samples.append(sample)
             if run is not None and run.tracker == key and scanner.source in sources:
                 self.calibration.add_sample(sources[scanner.source], sample[0], sample[1])

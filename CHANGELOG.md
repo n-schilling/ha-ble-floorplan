@@ -2,7 +2,11 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.1] - 2026-10-23
+
+### Fixed
+
+- *Presence* stayed `home` after the tracker left when the local Bluetooth adapter of the host is bonded with it: the adapter keeps the device in its cache with the last RSSI after the advertisement expired, and the coordinator took each read of it as a new sample at the current time. A device without an advertisement timestamp is skipped now.
 
 ### Changed
 
