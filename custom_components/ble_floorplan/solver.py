@@ -253,3 +253,57 @@ def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool
         "rms": {"old": round(_rms(old_residuals), 2), "new": round(_rms(new_residuals), 2)},
         "observations": len(obs),
     }
+
+
+def fit_tracker(
+    plan: Floorplan, runs: Sequence[CalibrationRun], tracker_key: str
+) -> dict[str, Any]:
+    """Return the tracker's own values from all of its runs, with the scanners as they are.
+
+    The offsets of the scanners and the exponent stay: they hold for every
+    tracker. Per scanner the runs give the tracker's reference power plus the
+    pair's correction; the reference power is their mean over the scanners,
+    each scanner counting once, and what a scanner differs from it is the
+    pair's correction. Pairs of scanners without an observation stay.
+
+    Raises CalibrationError when no finished run of the tracker has enough
+    samples of a scanner.
+    """
+    tracker = plan.tracker(tracker_key)
+    obs = [o for o in observations(plan, runs) if o.tracker == tracker_key]
+    if tracker is None or not obs:
+        raise CalibrationError(
+            f"no finished run of {tracker_key} with at least {CALIBRATION_MIN_SAMPLES} samples of a scanner"
+        )
+    n = plan.settings.attenuation
+    per_scanner: dict[str, list[float]] = {}
+    for o in obs:
+        scanner = plan.scanner(o.scanner)
+        assert scanner is not None
+        per_scanner.setdefault(o.scanner, []).append(o.rssi - scanner.rssi_offset + n * o.path)
+    level = {key: sum(values) / len(values) for key, values in per_scanner.items()}
+    ref = round(sum(level.values()) / len(level), 1)
+    pairs = {key: round(value - ref, 1) for key, value in level.items()}
+
+    def _rms_with(ref_power: float, pair: Any) -> float:
+        residuals = []
+        for o in obs:
+            scanner = plan.scanner(o.scanner)
+            assert scanner is not None
+            residuals.append(_residual(o, ref_power, scanner.rssi_offset, pair(o.scanner), n))
+        return round(_rms(residuals), 2)
+
+    return {
+        "tracker": tracker_key,
+        "ref_power": {"old": plan.ref_power(tracker), "new": ref},
+        "pairs": {
+            key: {"old": plan.pair_offset(key, tracker_key), "new": value}
+            for key, value in pairs.items()
+        },
+        "rms": {
+            "old": _rms_with(plan.ref_power(tracker), lambda s: plan.pair_offset(s, tracker_key)),
+            "new": _rms_with(ref, lambda s: pairs[s]),
+        },
+        "runs": len({o.run_id for o in obs}),
+        "samples": sum(o.samples for o in obs),
+    }

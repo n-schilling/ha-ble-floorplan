@@ -2,6 +2,17 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-10-26
+
+### Changed
+
+- A calibration run saves its results: stopping it fits the tracker's reference power and its correction per scanner from all of its runs, with the scanner offsets and the exponent as they are, and saves them at once; the tracking uses them from the next second. The tracker panel shows what was saved and the error before and after. Deleting a run fits the tracker from the runs that are left. Until now a run only went into the proposal in the gear, which stayed unapplied unless *Apply* was pressed.
+- The proposal in the gear (*Compute*, *Apply*) stays for the offsets of the scanners and the exponent, which hold for every tracker.
+
+### Added
+
+- `ble_floorplan/calibration/fit` saves a tracker's values from its runs on request; `calibration/stop` and `calibration/delete` return the `fit`.
+
 ## [0.9.0] - 2026-10-26
 
 ### Added

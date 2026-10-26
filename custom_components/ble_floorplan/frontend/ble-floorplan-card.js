@@ -6,7 +6,7 @@
 // settings, the calibration runs and the proposal. The clock opens the
 // timeline: drag it to a moment or let it play, and the trackers move on the
 // plan as they did.
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -43,6 +43,9 @@ if (!customElements.get("ble-floorplan-card")) {
       timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
       speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", historyDays: "Days kept (0 = off)",
       timelineHint: "Keeps where the trackers were in Home Assistant's storage, at most 30 days. Only administrators see it.",
+      runOne: "1 run", runMany: "{n} runs", fitSaved: "Saved from {runs}: reference power {ref} dBm (was {old}), corrections {pairs}. Error {rmsOld} → {rmsNew} dB.",
+      fitNone: "Nothing saved: no scanner heard the tracker at least 3 times. Let the run go on longer.",
+      calHint: "A stopped or deleted run saves the tracker's reference power and its correction per scanner at once. Compute and Apply here also fit the offsets of the scanners and the exponent, for all trackers.",
     },
     de: {
       title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -73,6 +76,9 @@ if (!customElements.get("ble-floorplan-card")) {
       timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",
       speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", historyDays: "Tage aufbewahren (0 = aus)",
       timelineHint: "Speichert, wo die Tracker waren, im Speicher von Home Assistant, höchstens 30 Tage. Nur Administratoren sehen ihn.",
+      runOne: "1 Messlauf", runMany: "{n} Messläufen", fitSaved: "Gespeichert aus {runs}: Referenzleistung {ref} dBm (vorher {old}), Korrekturen {pairs}. Fehler {rmsOld} → {rmsNew} dB.",
+      fitNone: "Nichts gespeichert: Kein Scanner hat den Tracker mindestens 3-mal gehört. Den Messlauf länger laufen lassen.",
+      calHint: "Ein beendeter oder gelöschter Messlauf speichert sofort die Referenzleistung des Trackers und seine Korrektur je Scanner. Berechnen und Übernehmen hier passen zusätzlich die Offsets der Scanner und den Exponenten an, für alle Tracker.",
     },
   };
 
@@ -1113,7 +1119,7 @@ if (!customElements.get("ble-floorplan-card")) {
         sec("trackers", t.trackers, trackersBody) +
         sec("display", t.display, display) +
         settings +
-        sec("calibration", t.calibration, runs + solve + preview);
+        sec("calibration", t.calibration, `<div class="hint">${esc(t.calHint)}</div>` + runs + solve + preview);
     }
 
     _style() {
@@ -1377,7 +1383,11 @@ if (!customElements.get("ble-floorplan-card")) {
             this._measure = null;
           });
         });
-        root.getElementById("calStop")?.addEventListener("click", () => this._call({ type: "ble_floorplan/calibration/stop" }));
+        root.getElementById("calStop")?.addEventListener("click", () =>
+          this._call({ type: "ble_floorplan/calibration/stop" }, (result) => {
+            this._note = this._fitNote(result.fit);
+          })
+        );
       } else if (p.kind === "scanner") {
         const s = plan.scanners.find((x) => x.key === p.key);
         root.getElementById("move")?.addEventListener("click", () => {
@@ -1476,7 +1486,11 @@ if (!customElements.get("ble-floorplan-card")) {
           this._cal.fitN = e.target.checked;
         });
         root.querySelectorAll("button[data-delete]").forEach((b) =>
-          b.addEventListener("click", () => this._call({ type: "ble_floorplan/calibration/delete", run_id: b.dataset.delete }))
+          b.addEventListener("click", () =>
+            this._call({ type: "ble_floorplan/calibration/delete", run_id: b.dataset.delete }, (result) => {
+              if (result.fit) this._note = this._fitNote(result.fit);
+            })
+          )
         );
         root.getElementById("calSolve")?.addEventListener("click", () =>
           this._call({ type: "ble_floorplan/calibration/solve", attenuation: this._cal.fitN }, (result) => {
@@ -1499,6 +1513,25 @@ if (!customElements.get("ble-floorplan-card")) {
           });
         });
       }
+    }
+
+    // What a stop or a delete saved for the tracker, for the panel
+    _fitNote(fit) {
+      const t = this._t;
+      const fmt = this._n;
+      if (!fit) return { kind: "err", text: t.fitNone };
+      const sname = (key) => this._plan.scanners.find((x) => x.key === key)?.name || key;
+      const pairs = Object.entries(fit.pairs)
+        .map(([k, v]) => `${sname(k)} ${v.new > 0 ? "+" : ""}${fmt(v.new)}`)
+        .join(" · ");
+      const text = t.fitSaved
+        .replace("{runs}", fit.runs === 1 ? t.runOne : t.runMany.replace("{n}", fit.runs))
+        .replace("{ref}", fmt(fit.ref_power.new))
+        .replace("{old}", fmt(fit.ref_power.old))
+        .replace("{pairs}", pairs || t.none)
+        .replace("{rmsOld}", fmt(fit.rms.old))
+        .replace("{rmsNew}", fmt(fit.rms.new));
+      return { kind: "ok", text };
     }
 
     // Loads what an opened section of the settings shows, once

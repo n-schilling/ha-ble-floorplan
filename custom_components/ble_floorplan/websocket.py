@@ -39,6 +39,7 @@ from .const import (
     WS_ADD_TRACKER,
     WS_CALIBRATION_APPLY,
     WS_CALIBRATION_DELETE,
+    WS_CALIBRATION_FIT,
     WS_CALIBRATION_LIST,
     WS_CALIBRATION_SOLVE,
     WS_CALIBRATION_START,
@@ -66,7 +67,7 @@ from .model import (
     with_scanner_position,
     with_settings,
 )
-from .solver import CalibrationError, solve
+from .solver import CalibrationError, fit_tracker, solve
 
 if TYPE_CHECKING:
     from . import RuntimeData
@@ -117,6 +118,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_calibration_delete)
     async_register_command(hass, ws_calibration_solve)
     async_register_command(hass, ws_calibration_apply)
+    async_register_command(hass, ws_calibration_fit)
     async_register_command(hass, ws_history)
 
 
@@ -396,7 +398,7 @@ async def ws_calibration_start(
 async def ws_calibration_stop(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Stop the calibration run that is going."""
+    """Stop the calibration run that is going and save the tracker's values from its runs."""
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -404,7 +406,8 @@ async def ws_calibration_stop(
         connection.send_error(msg["id"], ERR_NOT_RUNNING, "no calibration run is going")
         return
     run = await runtime.coordinator.async_stop_calibration()
-    connection.send_result(msg["id"], run.summary())
+    fit = await _async_fit_tracker(runtime, run.tracker)
+    connection.send_result(msg["id"], {**run.summary(), "fit": fit})
 
 
 @require_admin
@@ -436,14 +439,19 @@ def ws_calibration_list(
 async def ws_calibration_delete(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Delete a run."""
+    """Delete a run; the tracker's values follow from the runs that are left.
+
+    Without a run left the tracker keeps its values.
+    """
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
-    if not await runtime.calibration.async_delete(msg["run_id"]):
+    if (run := runtime.calibration.get(msg["run_id"])) is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no run {msg['run_id']}")
         return
-    connection.send_result(msg["id"], runtime.calibration.as_event())
+    await runtime.calibration.async_delete(run.id)
+    fit = None if run.running else await _async_fit_tracker(runtime, run.tracker)
+    connection.send_result(msg["id"], {**runtime.calibration.as_event(), "fit": fit})
 
 
 @require_admin
@@ -503,6 +511,45 @@ async def ws_calibration_apply(
         return
     await _async_replace(hass, runtime, plan)
     connection.send_result(msg["id"], plan.as_dict())
+
+
+async def _async_fit_tracker(runtime: RuntimeData, tracker_key: str) -> dict[str, Any] | None:
+    """Save the tracker's reference power and pair corrections from all of its runs.
+
+    Returns the fit (old and new values), None when the runs give nothing,
+    for a tracker without a usable run or no longer on the plan.
+    """
+    plan = runtime.store.plan
+    try:
+        fit = fit_tracker(plan, runtime.calibration.finished, tracker_key)
+    except CalibrationError:
+        return None
+    pairs = {scanner: {tracker_key: value["new"]} for scanner, value in fit["pairs"].items()}
+    await runtime.store.async_save(
+        with_calibration(plan, None, {tracker_key: fit["ref_power"]["new"]}, {}, pairs)
+    )
+    return fit
+
+
+@require_admin
+@websocket_command(
+    {probatio.Required("type"): WS_CALIBRATION_FIT, probatio.Required("tracker"): cv.string}
+)
+@async_response
+async def ws_calibration_fit(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Save the tracker's values from its runs again, as a stop does."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    if runtime.store.plan.tracker(msg["tracker"]) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['tracker']}")
+        return
+    if (fit := await _async_fit_tracker(runtime, msg["tracker"])) is None:
+        connection.send_error(msg["id"], ERR_CALIBRATION, f"no usable run of {msg['tracker']}")
+        return
+    connection.send_result(msg["id"], fit)
 
 
 @require_admin

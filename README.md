@@ -17,7 +17,7 @@ BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home.
 - **Phones and watches included:** devices set up with [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) change their address every few minutes; BLE Floorplan follows whatever address they currently use. Tags and beacons with a fixed address work as they are.
 - **A position, not only the nearest scanner:** distances from all scanners go into a weighted least-squares fit, with the heights of scanners and trackers taken into account.
 - **Calm, plausible movement:** smoothing, a speed limit, a confirmation for jumps and walls that can only be passed through doors keep trackers from hopping across the plan. Rooms change only after a hold time.
-- **Calibration on your own data:** record a tracker at a few known places, and a least-squares fit proposes the reference power of every tracker, the offset of every scanner and a correction per pair of scanner and tracker. Nothing is applied until you say so.
+- **Calibration on your own data:** put a tracker where it really is, and every run saves its reference power and a correction per scanner right away. A least-squares fit over all runs proposes the offsets of the scanners as well, applied when you say so.
 - **Timeline:** drag back to any moment of the last days, or let it play, and the trackers move on the plan as they did, with the way behind them. Off until you set how many days to keep.
 - **Everything in the card:** draw the floor plan, add scanners and trackers, move scanners, tune the settings and run the calibration from the dashboard, without YAML files or developer tools.
 - **Home Assistant native:** rooms link to areas, presence works with persons, and an *Active scanners* sensor tells you when a scanner goes quiet.
@@ -104,20 +104,22 @@ The *Room* sensor changes only after the room hold time, so it suits "who is whe
 
 ## Calibration
 
-Every scanner hears every tracker a little differently: an adapter may hear a tag as loud as a proxy does, and a phone 15 dB louder. One reference power per tracker and one offset per scanner cannot express that. The calibration therefore records each tracker at known places and fits all of it at once.
+Every scanner hears every tracker a little differently: an adapter may hear a tag as loud as a proxy does, and a phone 15 dB louder. One reference power per tracker and one offset per scanner cannot express that. The calibration therefore records each tracker at known places. Each run improves that tracker at once; a fit over all runs adjusts the scanners as well.
 
-1. In the card, tap the tracker and choose **Calibration run**. Set the tracker's height for this run, tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. While the run goes, a crosshair marks the true position and the panel counts the samples per scanner.
+1. In the card, tap the tracker and choose **Calibration run**. Set the tracker's height for this run, tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. While the run goes, a crosshair marks the true position and the panel counts the samples per scanner. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the panel shows what was saved and the error before and after.
 
    ![A calibration run](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/measure.png)
 
-2. Repeat at other places and with the other trackers. A scanner needs at least three samples in a run to count. Fitting the exponent needs runs at different distances from a scanner.
-3. In the gear, open **Calibration** and **Compute**. The proposal lists the current and the proposed value of every parameter, the runs and samples behind it, and the error before and after.
+2. Repeat at other places and with the other trackers. A scanner needs at least three samples in a run to count. More places average out the walls between one spot and the scanners. Deleting a run saves the tracker's values from the runs that are left; without a run left, they stay.
+3. To adjust the scanners too, open **Calibration** in the gear and **Compute**. Fitting the exponent needs runs at different distances from a scanner. The proposal lists the current and the proposed value of every parameter, the runs and samples behind it, and the error before and after.
 
    ![The calibration proposal](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/calibration.png)
 
-4. **Apply** writes the proposal into the plan. Nothing is applied by itself; a proposal you do not like is simply not applied.
+4. **Apply** writes the proposal into the plan. The offsets of the scanners and the exponent hold for every tracker, so they change only here; a proposal you do not like is simply not applied.
 
-How the fit works: for each run and scanner, the median signal strength is one observation, and its true distance follows from the positions and heights of the run and the scanner. A least-squares fit over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(distance)` gives the reference power of every tracker and the offset of every scanner. The offsets are made to average zero, because only the sum of a tracker's and a scanner's value can be observed. What the fit leaves per pair of scanner and tracker becomes the pair's correction. With runs of one tracker only, the differences between the scanners all land in the offsets and then apply to every tracker, so calibrate every tracker you care about.
+How a tracker's values follow from its runs: the scanner offsets and the exponent stay as they are. Per scanner, the runs give the tracker's reference power plus the pair's correction; the reference power is the mean of that over the scanners, each scanner counting once, and what a scanner differs from it becomes the pair's correction. Pairs with a scanner that heard none of the runs stay.
+
+How the fit over all runs works: for each run and scanner, the median signal strength is one observation, and its true distance follows from the positions and heights of the run and the scanner. A least-squares fit over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(distance)` gives the reference power of every tracker and the offset of every scanner. The offsets are made to average zero, because only the sum of a tracker's and a scanner's value can be observed. What the fit leaves per pair of scanner and tracker becomes the pair's correction. With runs of one tracker only, the differences between the scanners all land in the offsets and then apply to every tracker, so calibrate every tracker you care about.
 
 The runs are kept in `.storage/ble_floorplan.calibration`.
 
@@ -205,9 +207,10 @@ The card uses these commands; they are open for scripts and tools as well. Comma
 | `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`). |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`: starts a run (one at a time). |
-| `ble_floorplan/calibration/stop` | admins | Stops the run that is going. |
+| `ble_floorplan/calibration/stop` | admins | Stops the run that is going and saves the tracker's values; returns the run and `fit` (old and new reference power and pairs, error before and after; null when no scanner has three samples). |
 | `ble_floorplan/calibration/list` | admins | Returns the runs with their sample counts; `samples: true` adds every sample. |
-| `ble_floorplan/calibration/delete` | admins | `run_id`: deletes a run. |
+| `ble_floorplan/calibration/delete` | admins | `run_id`: deletes a run and saves the tracker's values from the runs left; returns the runs and `fit`. |
+| `ble_floorplan/calibration/fit` | admins | `tracker`: saves the tracker's values from its runs again and returns the `fit`. |
 | `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent too. Returns the proposal; nothing is written. |
 | `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers`, `scanners`, `pairs`, each optional: writes them into the plan. |
 | `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room], …]}`, x and y null while not seen; the first point is where the tracker was at midnight) and the stored `days`. |

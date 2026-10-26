@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from custom_components.ble_floorplan.const import (
     WS_CALIBRATION_APPLY,
     WS_CALIBRATION_DELETE,
+    WS_CALIBRATION_FIT,
     WS_CALIBRATION_LIST,
     WS_CALIBRATION_SOLVE,
     WS_CALIBRATION_START,
@@ -56,6 +58,7 @@ CALIBRATION_MESSAGES: list[dict[str, Any]] = [
     {"type": WS_CALIBRATION_DELETE, "run_id": "x"},
     {"type": WS_CALIBRATION_SOLVE},
     {"type": WS_CALIBRATION_APPLY, "trackers": {"tag": -50}},
+    {"type": WS_CALIBRATION_FIT, "tracker": "tag"},
 ]
 
 
@@ -424,7 +427,7 @@ async def test_calibration_list_and_delete(
     await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": active.id})
     msg = await client.receive_json()
     assert msg["success"], msg
-    assert msg["result"] == {"active": None, "runs": [run.summary()]}
+    assert msg["result"] == {"active": None, "runs": [run.summary()], "fit": None}
     assert calibration.active is None
 
 
@@ -593,3 +596,85 @@ async def test_subscribe_follows_a_reload(
     await client.send_json_auto_id({"type": WS_GET_FLOORPLAN})
     msg = await client.receive_json()
     assert msg["success"]
+
+
+async def test_calibration_saved_on_stop(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    clock: Callable[[float], None],
+) -> None:
+    """A stop saves the tracker's reference power and pairs from its runs; the scanners stay.
+
+    The tag lies at 2 / 2 with a true reference power of -62 dBm and the
+    kitchen plug hearing it 3 dB louder than the model says: the fit puts the
+    mean over the scanners into the reference power and the rest into the pairs.
+    """
+    client = await hass_ws_client(hass)
+    runtime = entry.runtime_data
+    plan = runtime.store.plan
+    clock(1000.0)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_START, "tracker": "tag", "x": 2, "y": 2})
+    assert (await client.receive_json())["success"]
+    extra = {"living": 0.0, "kitchen": 3.0, "bedroom": 0.0}
+    for scanner in plan.scanners:
+        distance = math.hypot(2 - scanner.x, 2 - scanner.y)
+        rssi = rssi_exact(distance, -62 + extra[scanner.key], scanner.z, 0.3)
+        for i in range(3):
+            runtime.calibration.add_sample(scanner.key, 1001.0 + i, rssi)
+    clock(1060.0)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_STOP})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    fit = msg["result"]["fit"]
+    assert fit["ref_power"] == {"old": -60.0, "new": -61.0}
+    assert fit["pairs"] == {
+        "living": {"old": 0.0, "new": -1.0},
+        "kitchen": {"old": 0.0, "new": 2.0},
+        "bedroom": {"old": 0.0, "new": -1.0},
+    }
+    assert fit["rms"]["new"] == pytest.approx(0.0, abs=0.01)
+    assert fit["rms"]["old"] > 1
+    assert (fit["runs"], fit["samples"]) == (1, 9)
+    saved = runtime.store.plan
+    tag = saved.tracker("tag")
+    assert tag is not None and tag.ref_power == -61.0
+    assert saved.pair_offset("kitchen", "tag") == 2.0
+    assert [s.rssi_offset for s in saved.scanners] == [s.rssi_offset for s in plan.scanners]
+    assert saved.settings == plan.settings
+    run_id = msg["result"]["id"]
+
+    # Again on request; an unknown tracker and one without runs fail
+    await client.send_json_auto_id({"type": WS_CALIBRATION_FIT, "tracker": "tag"})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["ref_power"] == {"old": -61.0, "new": -61.0}
+    await client.send_json_auto_id({"type": WS_CALIBRATION_FIT, "tracker": "nope"})
+    assert (await client.receive_json())["error"]["code"] == "not_found"
+    await client.send_json_auto_id({"type": WS_CALIBRATION_FIT, "tracker": "phone"})
+    assert (await client.receive_json())["error"]["code"] == "calibration_failed"
+
+    # The last run deleted: the values stay
+    await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": run_id})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["fit"] is None
+    assert runtime.store.plan.pair_offset("kitchen", "tag") == 2.0
+
+
+async def test_calibration_delete_refits(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Deleting one of two runs fits the tracker from the other one."""
+    client = await hass_ws_client(hass)
+    runtime = entry.runtime_data
+    plan = runtime.store.plan
+    good = synthetic_run(plan, "good", "tag", 2.0, 2.0, -62.0, {})
+    bad = synthetic_run(plan, "bad", "tag", 2.0, 2.0, -80.0, {})
+    runtime.calibration.runs.extend([good, bad])
+    await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": "bad"})
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["fit"]["ref_power"]["new"] == -62.0
+    tag = runtime.store.plan.tracker("tag")
+    assert tag is not None and tag.ref_power == -62.0
