@@ -18,6 +18,7 @@ BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home.
 - **A position, not only the nearest scanner:** distances from all scanners go into a weighted least-squares fit, with the heights of scanners and trackers taken into account.
 - **Calm, plausible movement:** smoothing, a speed limit, a confirmation for jumps and walls that can only be passed through doors keep trackers from hopping across the plan. Rooms change only after a hold time.
 - **Calibration on your own data:** record a tracker at a few known places, and a least-squares fit proposes the reference power of every tracker, the offset of every scanner and a correction per pair of scanner and tracker. Nothing is applied until you say so.
+- **Timeline:** drag back to any moment of the last days, or let it play, and the trackers move on the plan as they did, with the way behind them. Off until you set how many days to keep.
 - **Everything in the card:** draw the floor plan, add scanners and trackers, move scanners, tune the settings and run the calibration from the dashboard, without YAML files or developer tools.
 - **Home Assistant native:** rooms link to areas, presence works with persons, and an *Active scanners* sensor tells you when a scanner goes quiet.
 - **Local only:** no cloud, no network access of its own. All data stays in Home Assistant's storage.
@@ -51,7 +52,7 @@ A scanner or a tracker is taken off the plan with the ✕ next to it in the same
 
 ## The card
 
-The card is the plan. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan. The three buttons at the top rotate the plan, switch the labels of rooms, scanners and trackers, and open the gear (administrators only).
+The card is the plan. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan. The buttons at the top rotate the plan, switch the labels of rooms, scanners and trackers, open the timeline and open the gear (the last two for administrators only).
 
 | Tracker panel with the distance circles | Scanner panel |
 |---|---|
@@ -60,6 +61,7 @@ The card is the plan. Hovering a scanner or a tracker shows its distances and si
 - **Tracker panel:** room, position, the distance and signal strength at every scanner, height, reference power and pair corrections. Administrators edit those values, show the distance circles and start a calibration run from here.
 - **Scanner panel:** position, height, offset, what the scanner hears from every tracker and its pair corrections. Administrators move the scanner and edit its values.
 - **Gear:** sections that fold, for the floor plan, the scanners, the trackers, the display (rotation and labels, kept per browser), the settings and the calibration.
+- **Timeline** (the clock, once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
 
 ```yaml
 type: custom:ble-floorplan-card
@@ -78,8 +80,8 @@ Each tracker becomes a device with these entities:
 
 | Entity | Description |
 |---|---|
-| Room (`sensor`) | The room the tracker is in, unknown while no scanner sees it. Attributes: `x`, `y` in metres, `nearest_scanner`, `scanner_count`, `distances` (the floor distance to every scanner, null when not seen) and `area_id`. |
-| Position X, Position Y (`sensor`, diagnostic) | The coordinates on the plan in metres. |
+| Room (`sensor`) | The room the tracker is in, unknown while no scanner sees it or the room has no name. Attributes: `x`, `y` in metres, `nearest_scanner`, `scanner_count`, `distances` (the floor distance to every scanner, null when not seen) and `area_id`. The recorder keeps the room and `area_id` only; the other attributes change with every advertisement, the timeline keeps the way. |
+| Position X, Position Y (`sensor`, diagnostic) | The coordinates on the plan in metres, rounded to a decimetre. |
 | Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds`, `not_home` after that. Right after a start of Home Assistant it stays unknown until the tracker is seen or `away_seconds` passed, so a restart does not look like leaving home. Assign it to a person in **Settings → People**. |
 
 The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with the names of the active and inactive ones as attributes. Use it to get notified when a scanner fails.
@@ -140,6 +142,7 @@ All settings are in the gear of the card. Setting a value to 0 switches a rule o
 | Hold time (`room_hold_seconds`) | 5 s | The room changes only after this long in the new room. |
 | Wall margin (`room_margin`) | 0.3 m | ... and at least this far from the new room's walls; 0 is off. |
 | Residual (`robust_residual`) | 1 m | With four or more scanners, a scanner the others contradict by more loses weight; 0 is off. |
+| Days kept (`history_days`) | 0 | Days the timeline keeps, at most 30; 0 records nothing and deletes what was kept. |
 
 ## The floor plan
 
@@ -180,6 +183,7 @@ Room labels also take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) 
 3. **Position.** The distances of the scanners within reach go into a weighted Gauss-Newton least-squares fit. Near scanners count more, and a position nearer to a scanner than its measured distance costs less than one farther away, because walls make measured distances rather too long. With four or more scanners, one that the others contradict loses weight.
 4. **Movement.** The shown position follows the measured one with smoothing, ignores small moves, confirms jumps, keeps to the top speed and passes walls only through doors: a step through a wall heads for the door of its room that lies best on the way instead.
 5. **Room and presence.** The room is the room or zone the shown position lies in, and it changes only after the hold time and well inside the new room. Presence is `home` while any scanner saw the tracker within `away_seconds`.
+6. **Timeline.** When days are kept, a point goes into a tracker's track when it is seen again or no longer seen, when its room changes, and when it moved 0.3 m and the last point is 2 s old; a tracker at rest adds nothing. Every day (UTC) is a store of its own that starts with where the trackers were at midnight, written a minute after new points; days older than *Days kept* are deleted. A stop of Home Assistant ends every track with a gap, so the time it was down shows as not seen. A busy tracker adds about 10,000 points a day, some 350 kB.
 
 ## WebSocket API
 
@@ -206,6 +210,7 @@ The card uses these commands; they are open for scripts and tools as well. Comma
 | `ble_floorplan/calibration/delete` | admins | `run_id`: deletes a run. |
 | `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent too. Returns the proposal; nothing is written. |
 | `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers`, `scanners`, `pairs`, each optional: writes them into the plan. |
+| `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room], …]}`, x and y null while not seen; the first point is where the tracker was at midnight) and the stored `days`. |
 
 Example from a browser console on a dashboard: `await document.querySelector("home-assistant").hass.callWS({type: "ble_floorplan/get_floorplan"})`.
 
@@ -218,7 +223,7 @@ Example from a browser console on a dashboard: `await document.querySelector("ho
 
 ## Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids and the calibration runs (positions in the home and signal strengths) in Home Assistant's storage. It sends nothing anywhere else, and the card talks to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids the calibration runs (positions in the home and signal strengths) and, when *Days kept* is above 0, the timeline (where every tracker was, for that many days) in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. It sends nothing anywhere else, and the card talks to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Development
 

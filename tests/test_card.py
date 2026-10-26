@@ -23,3 +23,4 @@ def test_card_version_matches_manifest() -> None:
         assert f'"ble_floorplan/calibration/{command}"' in card, command
     assert '"ble_floorplan/set_tracker"' in card
     assert '"ble_floorplan/set_settings"' in card
+    assert '"ble_floorplan/history"' in card

@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .calibration import CalibrationRun, CalibrationStore
 from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
@@ -25,6 +26,7 @@ from .engine import (
     rssi_to_distance,
     trilaterate,
 )
+from .history import HistoryStore
 from .model import Floorplan, Tracker
 from .store import FloorplanStore
 
@@ -107,6 +109,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         entry: ConfigEntry,
         store: FloorplanStore,
         calibration: CalibrationStore,
+        history: HistoryStore,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -119,6 +122,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         )
         self.store = store
         self.calibration = calibration
+        self.history = history
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
         self._rooms = RoomTracker()
@@ -134,8 +138,12 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         return self.store.plan
 
     async def _async_update_data(self) -> Positions:
-        """Compute the positions."""
-        return self.compute(MONOTONIC_TIME())
+        """Compute the positions and add them to the timeline."""
+        positions = self.compute(MONOTONIC_TIME())
+        await self.history.async_record(
+            positions, dt_util.utcnow().timestamp(), self.plan.settings.history_days
+        )
+        return positions
 
     def compute(self, now: float) -> Positions:
         """Compute the position of every tracker at the monotonic time now."""

@@ -2,6 +2,21 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-10-26
+
+### Added
+
+- Timeline: the clock of the card opens a bar next to the plan. Drag it to a moment of the last days or let it play at 1× to 1800×; the trackers move on the plan as they did, with their way over the two minutes before. A bar per tracker shows when it was seen. Kept for *Days kept* (`history_days`, new setting, 0 = off, at most 30) in one store per day; only administrators can read it (`ble_floorplan/history`).
+
+### Changed
+
+- The *Room* sensor's `x`, `y`, `nearest_scanner`, `scanner_count` and `distances` are no longer recorded: they changed with every advertisement and put a new attribute set into the recorder every second. The state and `area_id` are recorded as before.
+- *Position X* and *Position Y* are rounded to a decimetre; the smoothed position crept by millimetres and wrote a new state nearly every second.
+
+### Fixed
+
+- A tracker in a room without a name had the *Room* state of an empty text; it is unknown now.
+
 ## [0.8.1] - 2026-10-23
 
 ### Fixed

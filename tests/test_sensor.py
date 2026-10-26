@@ -81,13 +81,14 @@ async def test_values(
     y = hass.states.get("sensor.tag_position_y")
     assert x is not None and y is not None
     assert x.attributes["unit_of_measurement"] == "m"
-    assert float(x.state) == pytest.approx(attributes["x"], abs=0.01)
-    assert float(y.state) == pytest.approx(attributes["y"], abs=0.01)
+    # Rounded to a decimetre
+    assert float(x.state) == round(attributes["x"], 1)
+    assert float(y.state) == round(attributes["y"], 1)
     expected = trilaterate(
         [Measurement(1, 1, 2.0), Measurement(9, 1, 6.5)], entry.runtime_data.store.plan
     )
     assert expected is not None
-    assert float(x.state) == pytest.approx(expected[0], abs=0.01)
+    assert float(x.state) == pytest.approx(expected[0], abs=0.05)
 
 
 async def test_stale_entities_removed(

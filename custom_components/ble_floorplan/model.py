@@ -18,6 +18,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DEFAULT_ATTENUATION,
     DEFAULT_AWAY_SECONDS,
+    DEFAULT_HISTORY_DAYS,
     DEFAULT_JUMP_CONFIRM_SECONDS,
     DEFAULT_JUMP_DISTANCE,
     DEFAULT_MAX_DISTANCE,
@@ -30,6 +31,7 @@ from .const import (
     DEFAULT_SMOOTHING_SECONDS,
     DOOR_STEP,
     DOOR_TOLERANCE,
+    HISTORY_MAX_DAYS,
     WALL_STOP,
 )
 from .geometry import (
@@ -171,6 +173,9 @@ SETTINGS_SCHEMA = probatio.Schema(
         probatio.Optional("walls", default=True): cv.boolean,
         probatio.Optional("away_seconds", default=DEFAULT_AWAY_SECONDS): probatio.All(
             NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("history_days", default=DEFAULT_HISTORY_DAYS): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=0, max=HISTORY_MAX_DAYS)
         ),
     }
 )
@@ -377,6 +382,8 @@ class Settings:
     walls: bool = True
     # A tracker no scanner saw for this long is away
     away_seconds: float = DEFAULT_AWAY_SECONDS
+    # Days the timeline keeps; 0 records nothing
+    history_days: int = DEFAULT_HISTORY_DAYS
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -401,6 +408,7 @@ class Settings:
             "robust_residual": self.robust_residual,
             "walls": self.walls,
             "away_seconds": self.away_seconds,
+            "history_days": self.history_days,
         }
 
 

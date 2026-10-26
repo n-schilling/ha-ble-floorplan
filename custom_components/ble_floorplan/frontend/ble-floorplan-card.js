@@ -3,8 +3,10 @@
 // runs come from the integration over the WebSocket API; the card only draws.
 // Tapping a tracker or a scanner opens its panel with the details and, for
 // admins, its actions: edit, move, calibration run. The gear opens the
-// settings, the calibration runs and the proposal.
-const VERSION = "0.8.1";
+// settings, the calibration runs and the proposal. The clock opens the
+// timeline: drag it to a moment or let it play, and the trackers move on the
+// plan as they did.
+const VERSION = "0.9.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const esc = (v) =>
@@ -38,6 +40,9 @@ if (!customElements.get("ble-floorplan-card")) {
       layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant. See the README.",
       confirmRemove: "Take {name} off the plan?", startHere: "Open the gear to draw the floor plan and add scanners and trackers.",
       newScannerHint: "New scanners land in the middle; move them to their place from their panel.",
+      timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
+      speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", historyDays: "Days kept (0 = off)",
+      timelineHint: "Keeps where the trackers were in Home Assistant's storage, at most 30 days. Only administrators see it.",
     },
     de: {
       title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -65,6 +70,9 @@ if (!customElements.get("ble-floorplan-card")) {
       layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant. Siehe README.",
       confirmRemove: "{name} vom Plan nehmen?", startHere: "Über das Zahnrad den Grundriss eintragen und Scanner und Tracker hinzufügen.",
       newScannerHint: "Neue Scanner landen in der Mitte; über ihr Panel an den Platz schieben.",
+      timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",
+      speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", historyDays: "Tage aufbewahren (0 = aus)",
+      timelineHint: "Speichert, wo die Tracker waren, im Speicher von Home Assistant, höchstens 30 Tage. Nur Administratoren sehen ihn.",
     },
   };
 
@@ -84,7 +92,27 @@ if (!customElements.get("ble-floorplan-card")) {
     ["roomRules", "room_hold_seconds", "roomHold", 0.5],
     ["roomRules", "room_margin", "roomMargin", 0.05],
     ["robust", "robust_residual", "robustResidual", 0.1],
+    ["timeline", "history_days", "historyDays", 1],
   ];
+
+  // The timeline: newer moments above, the playhead this far below the top (px)
+  const PLAYHEAD = 44;
+  // Seconds per pixel: zoomed in, zoomed out, at the start
+  const SPP_MIN = 0.25;
+  const SPP_MAX = 900;
+  const SPP_START = 4;
+  const SPEEDS = [1, 10, 60, 300, 1800];
+  // Tick spacing in seconds, the first that leaves enough room is taken
+  const TICKS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
+  // Two points this close in time are joined by a straight move, farther apart the first holds
+  const LERP_MAX = 10;
+  // The way behind a tracker drawn on the plan (s)
+  const TRAIL = 120;
+  // Today's tracks are fetched again after this long (s)
+  const REFETCH = 30;
+  const utcDay = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+  const dayStart = (d) => Date.parse(`${d}T00:00:00Z`) / 1000;
+  const nowS = () => Date.now() / 1000;
 
   // Rooms are rectangles (x, y, w, h) or polygons (points), all in metres
   const roomPoints = (r) =>
@@ -129,6 +157,8 @@ if (!customElements.get("ble-floorplan-card")) {
       this._plan = this._plan || null;
       this._positions = this._positions || {};
       this._calibration = this._calibration || { active: null, runs: [] };
+      // The timeline: open, the moment shown (null = live), zoom, playback, the days fetched
+      this._tl = this._tl || { open: false, cursor: null, spp: SPP_START, playing: false, speed: 60, days: {}, loading: new Set(), wasLive: true };
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
       this._render();
     }
@@ -145,6 +175,7 @@ if (!customElements.get("ble-floorplan-card")) {
 
     disconnectedCallback() {
       this._unsubscribe();
+      this._tlPause();
     }
 
     getCardSize() {
@@ -377,7 +408,7 @@ if (!customElements.get("ble-floorplan-card")) {
         180: `rotate(180) translate(${-B.w} ${-B.h})`,
         270: `rotate(270) translate(${-B.w} 0)`,
       }[rot];
-      const upright = (x, y, extra = 0) => (extra - rot ? ` transform="rotate(${extra - rot} ${x} ${y})"` : "");
+      const upright = (x, y, extra = 0) => this._upright(x, y, extra);
 
       const rooms = plan.rooms
         .map((r) => {
@@ -413,9 +444,10 @@ if (!customElements.get("ble-floorplan-card")) {
 
       let circles = "";
       const dots = [];
+      const shown = this._shownPositions();
       plan.trackers.forEach((tr, i) => {
         const color = COLORS[i % COLORS.length];
-        const pos = this._positions[tr.key] || {};
+        const pos = shown[tr.key] || {};
         const readings = pos.readings || {};
         const seen = pos.x != null && pos.y != null;
         this._info.trackers[tr.key] = { name: tr.name, color, readings, p: seen ? pos : null, room: pos.room };
@@ -424,14 +456,7 @@ if (!customElements.get("ble-floorplan-card")) {
           this._info.scanners[s.key].trackers.push({ key: tr.key, name: tr.name, color, d: r.distance ?? null, rssi: r.rssi, used: !!r.used });
         }
         if (!seen) return;
-        const open = this._panel?.kind === "tracker" && this._panel.key === tr.key;
-        dots.push(
-          `<g class="tracker${open ? " open" : ""}" data-key="${esc(tr.key)}"><circle cx="${pos.x}" cy="${pos.y}" r="0.28" fill="${color}"/>` +
-            (this._labels.trackers
-              ? `<text class="tlabel" x="${pos.x}" y="${pos.y - 0.42}" fill="${color}"${upright(pos.x, pos.y)}>${esc(tr.name)}</text>`
-              : "") +
-            `</g>`
-        );
+        dots.push(this._dotHtml(tr, i, pos));
         if (this._selected === tr.key) {
           circles += plan.scanners
             .filter((s) => readings[s.key]?.used)
@@ -485,18 +510,379 @@ if (!customElements.get("ble-floorplan-card")) {
             <div class="btns">
               <button id="rotate" class="icon" title="${esc(t.rotate)}">⟳</button>
               <span class="menuwrap"><button id="labels" class="icon${this._labelMenu ? " on" : ""}" title="${esc(t.labels)}">Aa</button>${labelMenu}</span>
+              ${this._tlAllowed ? `<button id="timeline" class="icon${this._tl.open ? " on" : ""}" title="${esc(t.timeline)}">◷</button>` : ""}
               ${this._admin ? `<button id="settings" class="icon${this._panel?.kind === "settings" ? " on" : ""}" title="${esc(t.settings)}">⚙</button>` : ""}
             </div>
           </div>
-          <div class="body${landscape ? " landscape" : ""}${this._panel ? " withpanel" : ""}"><div class="map${this._mode === "measure" && !active ? " aim" : ""}">
+          <div class="body${landscape ? " landscape" : ""}${this._panel ? " withpanel" : ""}"><div class="stage"><div class="map${this._mode === "measure" && !active ? " aim" : ""}">
           ${plan.rooms.length
             ? `<svg viewBox="${-pad} ${-pad} ${vbW + 2 * pad} ${vbH + 2 * pad}" preserveAspectRatio="xMidYMin meet">
-            <g id="plan" transform="${planTf}">${rooms}${openings}${circles}${truePos}${scanners}${dots.join("")}</g>
+            <g id="plan" transform="${planTf}">${rooms}${openings}${circles}${truePos}<g id="trails">${this._tlTrailsHtml()}</g>${scanners}<g id="dots">${dots.join("")}</g></g>
           </svg>`
-            : `<div class="empty">${esc(t.startHere)}</div>`}${tip}</div>${panel}</div>
+            : `<div class="empty">${esc(t.startHere)}</div>`}${tip}</div>${this._tlHtml()}</div>${panel}</div>
         </ha-card>`;
 
       this._bind();
+      this._tlFrame();
+    }
+
+    // Turn a text back at its anchor so it stays readable on the rotated plan
+    _upright(x, y, extra = 0) {
+      return extra - this._rot ? ` transform="rotate(${extra - this._rot} ${x} ${y})"` : "";
+    }
+
+    _dotHtml(tr, i, pos) {
+      const color = COLORS[i % COLORS.length];
+      const open = this._panel?.kind === "tracker" && this._panel.key === tr.key;
+      return (
+        `<g class="tracker${open ? " open" : ""}" data-key="${esc(tr.key)}"><circle cx="${pos.x}" cy="${pos.y}" r="0.28" fill="${color}"/>` +
+        (this._labels.trackers
+          ? `<text class="tlabel" x="${pos.x}" y="${pos.y - 0.42}" fill="${color}"${this._upright(pos.x, pos.y)}>${esc(tr.name)}</text>`
+          : "") +
+        `</g>`
+      );
+    }
+
+    // ---- Timeline ----
+
+    get _tlAllowed() {
+      return this._admin && (this._plan?.settings?.history_days || 0) > 0;
+    }
+
+    get _tlOn() {
+      return this._tl.open && this._tlAllowed;
+    }
+
+    // What the map shows: the live positions, or where the trackers were at the moment of the timeline
+    _shownPositions() {
+      if (!this._tlOn || this._tl.cursor == null) return this._positions;
+      const shown = {};
+      for (const tr of this._plan.trackers) {
+        const p = this._tlAt(tr.key, this._tl.cursor);
+        if (p) shown[tr.key] = { ...p, readings: {}, scanner_count: 0 };
+      }
+      return shown;
+    }
+
+    // Index of the last point at or before t, -1 when there is none
+    _tlIndex(pts, t) {
+      let lo = 0;
+      let hi = pts.length - 1;
+      let found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (pts[mid][0] <= t) {
+          found = mid;
+          lo = mid + 1;
+        } else hi = mid - 1;
+      }
+      return found;
+    }
+
+    // Where the tracker was at the unix time t; null when not seen or not fetched
+    _tlAt(key, t) {
+      const pts = this._tl.days[utcDay(t)]?.tracks[key];
+      if (!pts) return null;
+      const i = this._tlIndex(pts, t);
+      if (i < 0 || pts[i][1] == null) return null;
+      const p = pts[i];
+      const q = pts[i + 1];
+      if (q && q[1] != null && q[0] - p[0] <= LERP_MAX && q[0] > p[0]) {
+        const f = (t - p[0]) / (q[0] - p[0]);
+        return { x: p[1] + (q[1] - p[1]) * f, y: p[2] + (q[2] - p[2]) * f, room: f < 0.5 ? p[3] : q[3] };
+      }
+      return { x: p[1], y: p[2], room: p[3] };
+    }
+
+    // The way of every tracker over the last TRAIL seconds before the moment shown
+    _tlTrailsHtml() {
+      if (!this._tlOn || this._tl.cursor == null) return "";
+      const t1 = this._tl.cursor;
+      const t0 = t1 - TRAIL;
+      return this._plan.trackers
+        .map((tr, i) => {
+          const pts = this._tl.days[utcDay(t1)]?.tracks[tr.key] || [];
+          const lines = [];
+          let line = [];
+          for (let j = Math.max(0, this._tlIndex(pts, t0)); j < pts.length && pts[j][0] <= t1; j++) {
+            if (pts[j][1] == null) {
+              if (line.length > 1) lines.push(line);
+              line = [];
+            } else line.push([pts[j][1], pts[j][2]]);
+          }
+          const now = this._tlAt(tr.key, t1);
+          if (now && line.length) line.push([now.x, now.y]);
+          if (line.length > 1) lines.push(line);
+          const color = COLORS[i % COLORS.length];
+          return lines.map((l) => `<polyline class="trail" stroke="${color}" points="${l.map((p) => p.join(",")).join(" ")}"/>`).join("");
+        })
+        .join("");
+    }
+
+    // The earliest moment the timeline reaches
+    _tlFirst() {
+      return nowS() - (this._plan?.settings?.history_days || 0) * 86400;
+    }
+
+    // A moment within the timeline; null (live) at or after now
+    _tlClamp(t) {
+      const now = nowS();
+      if (t >= now - 0.5) return null;
+      return Math.max(t, this._tlFirst());
+    }
+
+    _tlToggle() {
+      this._tl.open = !this._tl.open;
+      if (!this._tl.open) {
+        this._tlPause();
+        this._tl.cursor = null;
+      }
+      this._render();
+    }
+
+    _tlPause() {
+      this._tl.playing = false;
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = null;
+    }
+
+    _tlPlay() {
+      if (this._tl.cursor == null) return;
+      this._tl.playing = true;
+      let last = performance.now();
+      const step = (ts) => {
+        if (!this._tl.playing) return;
+        // A tab in the background gets few frames; a long pause still does not jump far
+        const dt = Math.min((ts - last) / 1000, 1);
+        last = ts;
+        this._tl.cursor = this._tlClamp(this._tl.cursor + dt * this._tl.speed);
+        if (this._tl.cursor == null) this._tl.playing = false;
+        this._tlFrame();
+        if (this._tl.playing) this._raf = requestAnimationFrame(step);
+      };
+      this._raf = requestAnimationFrame(step);
+    }
+
+    // Fetch the days the axis and the trail need, today again after a while
+    _tlEnsure(tFrom, tTo) {
+      const first = utcDay(this._tlFirst());
+      const today = utcDay(nowS());
+      for (let t = dayStart(utcDay(tFrom)); t <= tTo; t += 86400) {
+        const d = utcDay(t);
+        if (d < first || this._tl.loading.has(d)) continue;
+        const have = this._tl.days[d];
+        if (!have || (d === today && nowS() - have.fetched > REFETCH)) this._tlFetch(d);
+      }
+    }
+
+    async _tlFetch(d) {
+      this._tl.loading.add(d);
+      try {
+        const result = await this._hass.callWS({ type: "ble_floorplan/history", day: d });
+        this._tl.days[d] = { tracks: result.tracks, fetched: nowS() };
+      } catch (err) {
+        this._tl.days[d] = { tracks: {}, fetched: nowS() };
+      }
+      this._tl.loading.delete(d);
+      this._tlFrame();
+    }
+
+    _tlHtml() {
+      if (!this._tlOn) return "";
+      const t = this._t;
+      const v = Math.round((100 * Math.log(this._tl.spp / SPP_MAX)) / Math.log(SPP_MIN / SPP_MAX));
+      const speeds = SPEEDS.map((s) => `<option value="${s}"${s === this._tl.speed ? " selected" : ""}>${s}×</option>`).join("");
+      return `<div class="tl">
+        <div class="tlhead">
+          <div class="tldate" id="tldate"></div>
+          <div class="tlrow"><button data-zoom="-10" title="${esc(t.zoomOut)}">−</button><input id="tlzoom" type="range" min="0" max="100" value="${v}"><button data-zoom="10" title="${esc(t.zoomIn)}">+</button></div>
+          <div class="tlrow"><button id="tlplay"></button><select id="tlspeed" title="${esc(t.speed)}">${speeds}</select></div>
+          <button id="tllive" class="tllive">${esc(t.backToLive)}</button>
+        </div>
+        <div class="tlaxis" id="tlaxis"></div>
+      </div>`;
+    }
+
+    _tlLabel(ts, major) {
+      const lang = this._hass?.language || "en";
+      const d = new Date(ts * 1000);
+      if (major >= 86400 || (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0)) {
+        return d.toLocaleDateString(lang, { day: "numeric", month: "numeric" });
+      }
+      return d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", ...(major < 60 ? { second: "2-digit" } : {}) });
+    }
+
+    // Seen stretches of a tracker between a and b, as [from, to]
+    _tlSegments(key, a, b) {
+      const segs = [];
+      const now = nowS();
+      for (let t = dayStart(utcDay(a)); t <= b; t += 86400) {
+        const pts = this._tl.days[utcDay(t)]?.tracks[key];
+        if (!pts) continue;
+        let start = null;
+        for (const p of pts) {
+          if (p[1] != null && start == null) start = p[0];
+          else if (p[1] == null && start != null) {
+            segs.push([start, p[0]]);
+            start = null;
+          }
+        }
+        if (start != null) segs.push([start, Math.min(t + 86400, now)]);
+      }
+      return segs.filter(([s, e]) => e > a && s < b).map(([s, e]) => [Math.max(s, a), Math.min(e, b)]);
+    }
+
+    _tlAxisHtml(h, w) {
+      const tl = this._tl;
+      const spp = tl.spp;
+      const now = nowS();
+      const T = tl.cursor ?? now;
+      const y = (ts) => PLAYHEAD + (T - ts) / spp;
+      const tTop = T + PLAYHEAD * spp;
+      const tBot = T - (h - PLAYHEAD) * spp;
+      this._tlEnsure(Math.min(tBot, T - TRAIL), Math.min(tTop, now));
+      const html = [];
+      if (now < tTop) html.push(`<div class="tlfuture" style="height:${y(now)}px"></div>`);
+      const first = this._tlFirst();
+      if (first > tBot) html.push(`<div class="tlfuture" style="top:${y(first)}px;bottom:0"></div>`);
+      const major = TICKS.find((s) => s / spp >= 56) || 86400;
+      const minor = [...TICKS].reverse().find((s) => s <= major / 4 && s / spp >= 8 && major % s === 0);
+      const step = minor || major;
+      // Ticks on the local clock, each with its own offset: a day may have 23 or 25 hours
+      const off = (ts) => -new Date(ts * 1000).getTimezoneOffset() * 60;
+      const align = (ts) => Math.floor((ts + off(ts)) / step) * step - off(ts);
+      for (let ts = align(tBot); ts <= tTop; ts = Math.max(align(ts + step + 1), ts + 1)) {
+        const isMajor = (ts + off(ts)) % major === 0;
+        html.push(`<div class="tick${isMajor ? " major" : ""}" style="top:${y(ts)}px"></div>`);
+        if (isMajor) html.push(`<div class="ticklabel" style="top:${y(ts)}px">${esc(this._tlLabel(ts, major))}</div>`);
+      }
+      const trackers = this._plan.trackers;
+      const barW = Math.max(2, Math.min(6, (w - 60) / Math.max(trackers.length, 1) - 3));
+      trackers.forEach((tr, i) => {
+        const left = 58 + i * (barW + 3);
+        for (const [a, b] of this._tlSegments(tr.key, tBot, Math.min(tTop, now))) {
+          html.push(`<div class="tlbar" style="left:${left}px;width:${barW}px;top:${y(b)}px;height:${Math.max(1, (b - a) / spp)}px;background:${COLORS[i % COLORS.length]}"></div>`);
+        }
+      });
+      const lang = this._hass?.language || "en";
+      const badge = tl.cursor == null
+        ? this._t.live
+        : new Date(T * 1000).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      html.push(`<div class="tlline" style="top:${PLAYHEAD}px"></div><div class="tlbadge${tl.cursor == null ? " live" : ""}" style="top:${PLAYHEAD}px">${esc(badge)}</div>`);
+      return html.join("");
+    }
+
+    // Redraw what moves with the timeline: the axis, the moment, the trackers and their way
+    _tlFrame() {
+      const root = this.shadowRoot;
+      if (!root || !this._tlOn || !this._plan) return;
+      const t = this._t;
+      const tl = this._tl;
+      const ax = root.getElementById("tlaxis");
+      if (ax) ax.innerHTML = this._tlAxisHtml(ax.clientHeight || 400, ax.clientWidth || 104);
+      const lang = this._hass?.language || "en";
+      const date = root.getElementById("tldate");
+      if (date) date.textContent = new Date((tl.cursor ?? nowS()) * 1000).toLocaleDateString(lang, { weekday: "short", day: "numeric", month: "short" });
+      const play = root.getElementById("tlplay");
+      if (play) {
+        play.textContent = tl.playing ? "❚❚" : "▶";
+        play.title = tl.playing ? t.pause : t.play;
+        play.disabled = tl.cursor == null;
+      }
+      const live = root.getElementById("tllive");
+      if (live) live.disabled = tl.cursor == null;
+      if (tl.cursor == null && !tl.wasLive) {
+        // Back at live: the next redraw shows the live positions
+        tl.wasLive = true;
+        if (!this._dragging) this._render();
+        return;
+      }
+      tl.wasLive = tl.cursor == null;
+      if (tl.cursor == null) return;
+      const shown = this._shownPositions();
+      const dots = root.getElementById("dots");
+      if (dots) {
+        dots.innerHTML = this._plan.trackers
+          .map((tr, i) => (shown[tr.key] ? this._dotHtml(tr, i, shown[tr.key]) : ""))
+          .join("");
+      }
+      const trails = root.getElementById("trails");
+      if (trails) trails.innerHTML = this._tlTrailsHtml();
+    }
+
+    _tlBind(root) {
+      root.getElementById("timeline")?.addEventListener("click", () => this._tlToggle());
+      if (!this._tlOn) return;
+      const tl = this._tl;
+      const ax = root.getElementById("tlaxis");
+      if (!ax) return;
+      ax.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        ax.setPointerCapture?.(e.pointerId);
+        this._tlPause();
+        this._dragging = true;
+        const y0 = e.clientY;
+        const c0 = tl.cursor ?? nowS();
+        let moved = false;
+        const move = (ev) => {
+          const dy = ev.clientY - y0;
+          if (Math.abs(dy) > 3) moved = true;
+          if (!moved) return;
+          tl.cursor = this._tlClamp(c0 + dy * tl.spp);
+          this._tlFrame();
+        };
+        const up = (ev) => {
+          ax.removeEventListener("pointermove", move);
+          ax.removeEventListener("pointerup", up);
+          ax.removeEventListener("pointercancel", up);
+          this._dragging = false;
+          if (!moved) {
+            // A tap jumps to the moment under it
+            const r = ax.getBoundingClientRect();
+            tl.cursor = this._tlClamp(c0 + (PLAYHEAD - (ev.clientY - r.top)) * tl.spp);
+          }
+          this._render();
+        };
+        ax.addEventListener("pointermove", move);
+        ax.addEventListener("pointerup", up);
+        ax.addEventListener("pointercancel", up);
+      });
+      ax.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        if (e.ctrlKey) this._tlZoom(tl.spp * Math.exp(e.deltaY / 100));
+        else tl.cursor = this._tlClamp((tl.cursor ?? nowS()) - e.deltaY * tl.spp);
+        this._tlFrame();
+      }, { passive: false });
+      const zoom = root.getElementById("tlzoom");
+      zoom?.addEventListener("input", () => {
+        this._tlZoom(SPP_MAX * Math.pow(SPP_MIN / SPP_MAX, zoom.value / 100), false);
+        this._tlFrame();
+      });
+      root.querySelectorAll("button[data-zoom]").forEach((b) => b.addEventListener("click", () => {
+        const v = Math.min(100, Math.max(0, Number(zoom.value) + Number(b.dataset.zoom)));
+        zoom.value = v;
+        this._tlZoom(SPP_MAX * Math.pow(SPP_MIN / SPP_MAX, v / 100), false);
+        this._tlFrame();
+      }));
+      root.getElementById("tlplay")?.addEventListener("click", () => {
+        if (tl.playing) this._tlPause();
+        else this._tlPlay();
+        this._tlFrame();
+      });
+      root.getElementById("tlspeed")?.addEventListener("change", (e) => {
+        tl.speed = Number(e.target.value);
+      });
+      root.getElementById("tllive")?.addEventListener("click", () => {
+        this._tlPause();
+        tl.cursor = null;
+        this._render();
+      });
+    }
+
+    _tlZoom(spp, syncSlider = true) {
+      this._tl.spp = Math.min(SPP_MAX, Math.max(SPP_MIN, spp));
+      const zoom = syncSlider && this.shadowRoot.getElementById("tlzoom");
+      if (zoom) zoom.value = Math.round((100 * Math.log(this._tl.spp / SPP_MAX)) / Math.log(SPP_MIN / SPP_MAX));
     }
 
     _panelHtml(active) {
@@ -676,8 +1062,8 @@ if (!customElements.get("ble-floorplan-card")) {
         <div class="checks">${[["rooms", t.rooms], ["scanners", t.scanners], ["trackers", t.trackers]]
           .map(([k, l]) => `<label class="check"><input type="checkbox" data-toggle="${k}"${this._labels[k] ? " checked" : ""}> ${esc(l)}</label>`)
           .join("")}</div>`;
-      const settings = ["engine", "motion", "roomRules", "robust"]
-        .map((id) => sec(id, t[id], `<div class="grid2">${sections[id]}</div>${saveSettings}`))
+      const settings = ["engine", "motion", "roomRules", "robust", "timeline"]
+        .map((id) => sec(id, t[id], `<div class="grid2">${sections[id]}</div>${id === "timeline" ? `<div class="hint">${esc(t.timelineHint)}</div>` : ""}${saveSettings}`))
         .join("");
 
       const name = (key) => plan.trackers.find((x) => x.key === key)?.name || key;
@@ -748,8 +1134,9 @@ if (!customElements.get("ble-floorplan-card")) {
         button:disabled { opacity: 0.5; cursor: default; }
         button.small { padding: 0 6px; line-height: 1.6; }
         .body { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-top: 8px; }
-        .map { flex: 1 1 360px; min-width: 0; position: relative; }
-        .body.landscape .map { flex-basis: 100%; }
+        .stage { flex: 1 1 360px; min-width: 0; display: flex; gap: 8px; align-items: stretch; }
+        .body.landscape .stage { flex-basis: 100%; }
+        .map { flex: 1 1 auto; min-width: 0; position: relative; }
         .panel { flex: 1 1 280px; min-width: 0; max-width: 100%; font-size: 0.95em; }
         .body.withpanel:not(.landscape) .panel { flex: 0 1 300px; }
         svg { width: 100%; max-height: 85vh; display: block; touch-action: none; overflow: hidden; }
@@ -817,6 +1204,28 @@ if (!customElements.get("ble-floorplan-card")) {
         textarea { width: 100%; box-sizing: border-box; font-family: var(--code-font-family, monospace); font-size: 0.85em;
           border: 1px solid var(--divider-color); border-radius: 6px; padding: 6px 8px; resize: vertical; white-space: pre; overflow-x: auto;
           background: var(--card-background-color); color: var(--primary-text-color); }
+        .tl { flex: 0 0 104px; display: flex; flex-direction: column; min-height: 320px; max-height: 85vh; font-size: 0.8em;
+          background: var(--secondary-background-color); border-radius: 12px; overflow: hidden; user-select: none; -webkit-user-select: none; }
+        .tlhead { padding: 6px 6px 4px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--divider-color); }
+        .tldate { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tlrow { display: flex; gap: 4px; align-items: center; }
+        .tlrow button { padding: 0 6px; line-height: 1.6; flex: 0 0 auto; }
+        .tlrow input[type=range] { flex: 1 1 auto; min-width: 0; width: 30px; margin: 0; accent-color: var(--primary-color); }
+        .tlrow select { font: inherit; flex: 1 1 auto; min-width: 0; padding: 1px 2px; border-radius: 6px;
+          border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+        button.tllive { padding: 1px 4px; font-size: 0.95em; }
+        .tlaxis { position: relative; flex: 1 1 auto; overflow: hidden; cursor: grab; touch-action: none; }
+        .tlaxis:active { cursor: grabbing; }
+        .tlfuture { position: absolute; left: 0; right: 0; top: 0; background: var(--card-background-color); opacity: 0.5; }
+        .tick { position: absolute; left: 44px; width: 6px; height: 1px; background: var(--divider-color); }
+        .tick.major { left: 40px; width: 12px; background: var(--secondary-text-color); }
+        .ticklabel { position: absolute; right: calc(100% - 37px); transform: translateY(-50%); color: var(--secondary-text-color);
+          font-size: 0.9em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .tlbar { position: absolute; border-radius: 3px; opacity: 0.85; }
+        .tlline { position: absolute; left: 0; right: 0; height: 2px; margin-top: -1px; background: var(--primary-color); pointer-events: none; }
+        .tlbadge { position: absolute; left: 4px; transform: translateY(-50%); background: var(--primary-color); color: var(--text-primary-color);
+          border-radius: 6px; padding: 1px 6px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+        .trail { fill: none; stroke-width: 0.08; stroke-linecap: round; stroke-linejoin: round; opacity: 0.55; }
         .err { color: var(--error-color, #c62828); margin-top: 8px; }
         .ok { color: var(--success-color, #2e7d32); margin-top: 8px; }`;
     }
@@ -901,6 +1310,7 @@ if (!customElements.get("ble-floorplan-card")) {
         root.querySelectorAll(".scanner").forEach((g) => g.addEventListener("click", () => this._open("scanner", g.dataset.key)));
       }
       this._bindHover(root.querySelector(".map"), root.querySelector(".tip"));
+      this._tlBind(root);
       if (this._panel) this._bindPanel(root);
     }
 

@@ -22,6 +22,19 @@ CALIBRATION_MIN_SAMPLES: Final = 3
 # A run closer than this to a scanner counts as this far, so the logarithm stays finite
 CALIBRATION_MIN_DISTANCE: Final = 0.05
 
+# The timeline: one store per day (UTC) with the track of every tracker, and
+# an index of the days that are stored
+HISTORY_STORAGE_KEY: Final = f"{DOMAIN}.history"
+HISTORY_STORAGE_VERSION: Final = 1
+# Today's track is written to storage this long after a new point
+HISTORY_SAVE_DELAY_SECONDS: Final = 60.0
+# A point goes into the track when the position moved this far (m) …
+HISTORY_MIN_MOVE: Final = 0.3
+# … and the last point is this old (s); a change of room or of being seen always does
+HISTORY_MIN_INTERVAL: Final = 2.0
+# The timeline keeps at most this many days
+HISTORY_MAX_DAYS: Final = 30
+
 # How often the positions are recomputed from the advertisements Home
 # Assistant's Bluetooth scanners hold
 UPDATE_INTERVAL_SECONDS: Final = 1.0
@@ -51,6 +64,8 @@ DEFAULT_ROOM_MARGIN: Final = 0.3
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 # A tracker counts as away once no scanner saw it this long (s)
 DEFAULT_AWAY_SECONDS: Final = 120.0
+# Days of the timeline (0 = off)
+DEFAULT_HISTORY_DAYS: Final = 0
 # A scanner counts as active when it received anything this recently (s)
 SCANNER_ACTIVE_SECONDS: Final = 60.0
 # A wall is crossed only through an opening this close (m)
@@ -84,3 +99,4 @@ WS_CALIBRATION_LIST: Final = f"{DOMAIN}/calibration/list"
 WS_CALIBRATION_DELETE: Final = f"{DOMAIN}/calibration/delete"
 WS_CALIBRATION_SOLVE: Final = f"{DOMAIN}/calibration/solve"
 WS_CALIBRATION_APPLY: Final = f"{DOMAIN}/calibration/apply"
+WS_HISTORY: Final = f"{DOMAIN}/history"

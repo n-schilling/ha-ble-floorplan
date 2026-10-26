@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 KINDS = ("room", "position_x", "position_y", "presence")
 HUB = "hub"
 ACTIVE_SCANNERS = "active_scanners"
+# Decimals of the position sensors
+POSITION_DIGITS = 1
 
 
 async def async_setup_entry(
@@ -80,7 +82,13 @@ class TrackerEntity(CoordinatorEntity[FloorplanCoordinator]):
 
 
 class RoomSensor(TrackerEntity, SensorEntity):
-    """The room the tracker is in; unknown while no scanner sees it."""
+    """The room the tracker is in; unknown while no scanner sees it or the room has no name.
+
+    The attributes change with every advertisement: the recorder keeps the
+    room only, the timeline keeps the way.
+    """
+
+    _unrecorded_attributes = frozenset({"x", "y", "nearest_scanner", "scanner_count", "distances"})
 
     def __init__(self, coordinator: FloorplanCoordinator, tracker: Tracker) -> None:
         """Initialize the sensor."""
@@ -90,7 +98,7 @@ class RoomSensor(TrackerEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the room name."""
         position = self.position
-        return position.room if position is not None and position.seen else None
+        return (position.room or None) if position is not None and position.seen else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -116,12 +124,16 @@ class RoomSensor(TrackerEntity, SensorEntity):
 
 
 class PositionSensor(TrackerEntity, SensorEntity):
-    """One coordinate of the tracker on the plan, in metres."""
+    """One coordinate of the tracker on the plan, in metres.
+
+    Rounded to a decimetre: the smoothed position creeps by millimetres, and
+    every new value would be a row in the recorder.
+    """
 
     _attr_device_class = SensorDeviceClass.DISTANCE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_native_unit_of_measurement = UnitOfLength.METERS
-    _attr_suggested_display_precision = 2
+    _attr_suggested_display_precision = POSITION_DIGITS
 
     def __init__(self, coordinator: FloorplanCoordinator, tracker: Tracker, kind: str) -> None:
         """Initialize the sensor."""
@@ -132,9 +144,9 @@ class PositionSensor(TrackerEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return the coordinate."""
         position = self.position
-        if position is None or not position.seen:
+        if position is None or position.x is None or position.y is None:
             return None
-        return position.x if self._axis == "x" else position.y
+        return round(position.x if self._axis == "x" else position.y, POSITION_DIGITS)
 
 
 class ActiveScannersSensor(SensorEntity):

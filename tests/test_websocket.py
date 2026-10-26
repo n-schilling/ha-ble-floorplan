@@ -19,6 +19,7 @@ from custom_components.ble_floorplan.const import (
     WS_CALIBRATION_START,
     WS_CALIBRATION_STOP,
     WS_GET_FLOORPLAN,
+    WS_HISTORY,
     WS_SET_FLOORPLAN,
     WS_SET_SCANNER,
     WS_SET_SETTINGS,
@@ -87,6 +88,7 @@ async def test_not_loaded(
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         *CALIBRATION_MESSAGES,
         *CATALOG_MESSAGES,
+        {"type": WS_HISTORY, "day": "2026-10-26"},
     ):
         await client.send_json_auto_id(message)
         msg = await client.receive_json()
@@ -321,6 +323,7 @@ async def test_set_floorplan(
         {"type": WS_SET_FLOORPLAN, "floorplan": {}},
         *CALIBRATION_MESSAGES,
         *CATALOG_MESSAGES,
+        {"type": WS_HISTORY, "day": "2026-10-26"},
     ],
 )
 async def test_admin_only(

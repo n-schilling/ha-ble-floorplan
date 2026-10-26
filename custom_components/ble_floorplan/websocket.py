@@ -46,6 +46,7 @@ from .const import (
     WS_CANDIDATES,
     WS_GET_FLOORPLAN,
     WS_GET_LAYOUT,
+    WS_HISTORY,
     WS_REMOVE_SCANNER,
     WS_REMOVE_TRACKER,
     WS_SET_FLOORPLAN,
@@ -55,6 +56,7 @@ from .const import (
     WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
+from .history import to_wire
 from .model import (
     NUMBER,
     Floorplan,
@@ -115,6 +117,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_calibration_delete)
     async_register_command(hass, ws_calibration_solve)
     async_register_command(hass, ws_calibration_apply)
+    async_register_command(hass, ws_history)
 
 
 def _runtime(hass: HomeAssistant) -> RuntimeData | None:
@@ -650,3 +653,24 @@ async def ws_set_layout(
         return
     await runtime.store.async_save(plan)
     connection.send_result(msg["id"], {"yaml": layout_yaml(plan)})
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_HISTORY, probatio.Required("day"): cv.date})
+@async_response
+async def ws_history(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return the tracks of one day (UTC) and the days there are.
+
+    A point is [unix time, x, y, room]; x and y are null while the tracker is
+    not seen. Between two points the tracker stayed where the first one says.
+    """
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    day = msg["day"].isoformat()
+    tracks = await runtime.history.async_day(day)
+    connection.send_result(
+        msg["id"], {"day": day, "days": runtime.history.days, "tracks": to_wire(tracks)}
+    )
