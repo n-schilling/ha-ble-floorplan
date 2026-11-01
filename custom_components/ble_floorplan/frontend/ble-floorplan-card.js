@@ -7,6 +7,7 @@
 import {
   PANEL_PATH,
   PLAN_CSS,
+  PlanZoom,
   VERSION,
   bindHover,
   computeBounds,
@@ -21,7 +22,7 @@ import {
   planInfo,
   planSvg,
   texts,
-} from "./ble-floorplan-plan.js?v=0.11.0";
+} from "./ble-floorplan-plan.js?v=0.11.1";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
@@ -45,6 +46,11 @@ if (!customElements.get("ble-floorplan-card")) {
       // The scanner or tracker tapped: {kind, key}
       this._sel = null;
       this._labelMenu = false;
+      this._zoom = this._zoom || new PlanZoom({
+        geom: () => ({ bounds: this._bounds || computeBounds(this._plan), rot: this._rot }),
+        texts: () => texts(this._hass),
+        wheel: false,
+      });
       this._plan = this._plan || null;
       this._positions = this._positions || {};
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -136,6 +142,7 @@ if (!customElements.get("ble-floorplan-card")) {
           `<div class="map"><div id="svg"></div><div class="tip"></div></div><div id="info"></div></ha-card>`;
         this._frame = true;
         this._bindOnce();
+        this._zoom.attach(this.shadowRoot.querySelector(".map"));
         const fmt = formatter(this._hass);
         this._refreshTip = bindHover(this.shadowRoot.querySelector(".map"), this.shadowRoot.querySelector(".tip"),
           (kind, key) => detailHtml(this._info, kind, key, texts(this._hass), fmt));
@@ -155,6 +162,7 @@ if (!customElements.get("ble-floorplan-card")) {
         circles: sel?.kind === "tracker" ? sel.key : null,
         openTracker: sel?.kind === "tracker" ? sel.key : null,
         openScanner: sel?.kind === "scanner" ? sel.key : null,
+        view: this._zoom.view,
       });
       const labelMenu = this._labelMenu
         ? `<div class="menu">${[["rooms", t.rooms], ["scanners", t.scanners], ["trackers", t.trackers]]
@@ -184,6 +192,7 @@ if (!customElements.get("ble-floorplan-card")) {
         if (el.id === "rotate") {
           this._rot = (this._rot + 90) % 360;
           keep(ROT_KEY, String(this._rot));
+          this._zoom.view = null;
         } else if (el.id === "labels") {
           this._labelMenu = !this._labelMenu;
         } else if (el.id === "edit") {

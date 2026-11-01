@@ -58,6 +58,7 @@ A scanner or a tracker is taken off the plan with **Remove** in its details.
 |---|---|
 | ![The trackers tab](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![The scanners tab](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
 
+- **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from tab to tab.
 - **Scanners:** the list with position, height and how many trackers each one hears. Tap one, in the list or on the plan, for its details: what it hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its values.
 - **Trackers:** the list with the room and how many scanners see each one. A tracker's details show its distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them, **Calibration run** takes it to the calibration with this tracker chosen.
 - **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
@@ -68,7 +69,7 @@ A scanner or a tracker is taken off the plan with **Remove** in its details.
 
 ## The card
 
-The card shows the plan with the trackers live, for every user. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser; administrators get a pencil that opens the page, at the scanner or tracker tapped.
+The card shows the plan with the trackers live, for every user. Pinch with two fingers, Ctrl and the mouse wheel, a trackpad pinch or the buttons in the corner zoom it; zoomed in, drag to move it. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser; administrators get a pencil that opens the page, at the scanner or tracker tapped.
 
 ![The card](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/card.png)
 

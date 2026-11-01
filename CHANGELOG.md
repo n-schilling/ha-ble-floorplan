@@ -2,6 +2,17 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] - 2026-11-01
+
+### Added
+
+- Zoom and pan the plan, on the page and on the card: pinch with two fingers, the buttons in the corner (in, out, whole plan), the mouse wheel on the page, Ctrl and the wheel or a trackpad pinch on the card. Zoomed in, dragging moves the plan; a tap still selects, places a scanner or sets a run's position. The page keeps the zoom from tab to tab; rotating shows the whole plan again.
+
+### Fixed
+
+- The page takes the height of the window: in Home Assistant it grew with a tall plan, and the plan could only be seen by scrolling.
+- On the card, swiping over the plan scrolls the dashboard again as long as the plan is not zoomed in.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added

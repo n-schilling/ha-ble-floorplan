@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.11.0";
+export const VERSION = "0.11.1";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -41,7 +41,7 @@ const TEXTS = {
     layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant. See the README.",
     confirmRemove: "Take {name} off the plan?", startHere: "No rooms yet: write the floor plan on the right, then add scanners and trackers.",
     timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
-    speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", historyDays: "Days kept (0 = off)",
+    speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", fit: "Whole plan", historyDays: "Days kept (0 = off)",
     timelineHint: "Keeps where the trackers were in Home Assistant's storage, at most 30 days.",
     timelineOff: "The timeline is off. Set the days to keep in the settings.",
     runOne: "1 run", runMany: "{n} runs", fitSaved: "Saved from {runs}: reference power {ref} dBm (was {old}), corrections {pairs}. Error {rmsOld} → {rmsNew} dB.",
@@ -84,7 +84,7 @@ const TEXTS = {
     layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant. Siehe README.",
     confirmRemove: "{name} vom Plan nehmen?", startHere: "Noch keine Räume: rechts den Grundriss eintragen, dann Scanner und Tracker hinzufügen.",
     timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",
-    speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", historyDays: "Tage aufbewahren (0 = aus)",
+    speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", fit: "Ganzer Grundriss", historyDays: "Tage aufbewahren (0 = aus)",
     timelineHint: "Speichert, wo die Tracker waren, im Speicher von Home Assistant, höchstens 30 Tage.",
     timelineOff: "Der Verlauf ist aus. In den Einstellungen festlegen, wie viele Tage er aufbewahrt wird.",
     runOne: "1 Messlauf", runMany: "{n} Messläufen", fitSaved: "Gespeichert aus {runs}: Referenzleistung {ref} dBm (vorher {old}), Korrekturen {pairs}. Fehler {rmsOld} → {rmsNew} dB.",
@@ -210,13 +210,40 @@ export const dotHtml = (tr, i, pos, { rot, labels, open }) => {
 
 // The floor plan as SVG. `marks` goes above the rooms and below the scanners
 // (true positions, run positions), `trails` below the trackers.
+// The whole plan on screen, in the units of the plan: rotated, with a margin
+const fullBox = (B, rot) => {
+  const pad = 0.9;
+  const landscape = rot % 180 !== 0;
+  return [-pad, -pad, (landscape ? B.h : B.w) + 2 * pad, (landscape ? B.w : B.h) + 2 * pad];
+};
+
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+// The part of the plan in view. Zoomed in (view.k > 1), the box takes the
+// shape of the map (view.a = width / height), so a zoomed plan fills it,
+// and its centre stays where the plan is.
+export const viewBox = (B, rot, view) => {
+  let [x, y, w, h] = fullBox(B, rot);
+  if (!view || view.k <= 1) return [x, y, w, h];
+  if (view.a > 0) {
+    if (w / h < view.a) {
+      x -= (h * view.a - w) / 2;
+      w = h * view.a;
+    } else {
+      y -= (w / view.a - h) / 2;
+      h = w / view.a;
+    }
+  }
+  const vw = w / view.k;
+  const vh = h / view.k;
+  view.cx = clamp(view.cx, x + vw / 2, x + w - vw / 2);
+  view.cy = clamp(view.cy, y + vh / 2, y + h - vh / 2);
+  return [view.cx - vw / 2, view.cy - vh / 2, vw, vh];
+};
+
 export const planSvg = (plan, o) => {
   const B = o.bounds;
   const rot = o.rot;
-  const pad = 0.9;
-  const landscape = rot % 180 !== 0;
-  const vbW = landscape ? B.h : B.w;
-  const vbH = landscape ? B.w : B.h;
   // Rotate the plan as a whole, turn every text back at its anchor so it stays readable
   const planTf = {
     0: "",
@@ -278,7 +305,7 @@ export const planSvg = (plan, o) => {
       );
     })
     .join("");
-  return `<svg viewBox="${-pad} ${-pad} ${vbW + 2 * pad} ${vbH + 2 * pad}" preserveAspectRatio="${o.align || "xMidYMin"} meet">` +
+  return `<svg viewBox="${viewBox(B, rot, o.view).join(" ")}" preserveAspectRatio="${o.align || "xMidYMin"} meet">` +
     `<g id="plan" transform="${planTf}">${rooms}${openings}${circles}${o.marks || ""}<g id="trails">${o.trails || ""}</g>` +
     `${scanners}<g id="dots">${dots.join("")}</g></g></svg>`;
 };
@@ -373,9 +400,195 @@ export const navigate = (path) => {
   window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
 };
 
+// Zoom and pan of the plan in a map: pinch, wheel (on the card with Ctrl, as a
+// trackpad pinch sends it), the buttons in the corner; drag pans while
+// zoomed in. The map stays, the plan in it is redrawn every second: the view
+// lives here and goes into every drawing (planSvg's `view`).
+export class PlanZoom {
+  // geom() returns {bounds, rot}; wheel: zoom with the plain wheel too
+  constructor({ geom, texts, wheel }) {
+    this.geom = geom;
+    this.texts = texts;
+    this.wheel = wheel;
+    this.view = null;
+  }
+
+  // Bind to a (new) map element
+  attach(map) {
+    this.map = map;
+    this.pointers = new Map();
+    this.gesture = null;
+    const btns = document.createElement("div");
+    btns.className = "zoombtns";
+    map.append(btns);
+    this.btns = btns;
+    this._buttons();
+    btns.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.zoom === "fit") this.reset();
+      else this.zoomBy(b.dataset.zoom === "in" ? 1.5 : 1 / 1.5);
+    });
+    map.addEventListener("wheel", (e) => this._wheel(e), { passive: false });
+    map.addEventListener("pointerdown", (e) => this._down(e));
+    map.addEventListener("pointermove", (e) => this._move(e));
+    for (const ev of ["pointerup", "pointercancel"]) map.addEventListener(ev, (e) => this._up(e));
+    // The click that ends a pan or a pinch selects nothing
+    map.addEventListener("click", (e) => {
+      if (this.moved) {
+        e.stopPropagation();
+        e.preventDefault();
+        this.moved = false;
+      }
+    }, true);
+  }
+
+  reset() {
+    this.view = null;
+    this._apply();
+  }
+
+  zoomBy(f) {
+    const b = this._box();
+    if (b) this._zoomAt([b.x + b.width / 2, b.y + b.height / 2], (this.view?.k || 1) * f);
+  }
+
+  _svg() {
+    return this.map?.querySelector("svg:not(.mdi)");
+  }
+
+  _box() {
+    return this._svg()?.viewBox.baseVal;
+  }
+
+  // Screen point → plan view units
+  _pt(x, y) {
+    const svg = this._svg();
+    const pt = svg.createSVGPoint();
+    pt.x = x;
+    pt.y = y;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return [p.x, p.y];
+  }
+
+  // Plan units per screen pixel
+  _scale() {
+    return 1 / (this._svg().getScreenCTM()?.a || 1);
+  }
+
+  _zoomAt(p, k) {
+    const svg = this._svg();
+    const b = this._box();
+    if (!svg || !b) return;
+    const k0 = this.view?.k || 1;
+    const k1 = clamp(k, 1, 10);
+    if (k1 <= 1.001) {
+      this.reset();
+      return;
+    }
+    const r = svg.getBoundingClientRect();
+    const c = [b.x + b.width / 2, b.y + b.height / 2];
+    this.view = { k: k1, cx: p[0] + ((c[0] - p[0]) * k0) / k1, cy: p[1] + ((c[1] - p[1]) * k0) / k1, a: r.width / r.height };
+    this._apply();
+  }
+
+  _panBy(dx, dy) {
+    if (!this.view) return;
+    const s = this._scale();
+    this.view.cx -= dx * s;
+    this.view.cy -= dy * s;
+    this._apply();
+  }
+
+  _apply() {
+    const svg = this._svg();
+    if (svg) {
+      const { bounds, rot } = this.geom();
+      svg.setAttribute("viewBox", viewBox(bounds, rot, this.view).join(" "));
+    }
+    this.map?.classList.toggle("zoomed", !!this.view);
+    this._buttons();
+  }
+
+  _buttons() {
+    if (!this.btns) return;
+    const t = this.texts();
+    const k = this.view?.k || 1;
+    const btn = (z, name, title, off) =>
+      `<button class="icon-button" data-zoom="${z}" title="${esc(title)}"${off ? " disabled" : ""}>${icon(name)}</button>`;
+    const html = btn("in", "plus", t.zoomIn, k >= 10) + btn("out", "minus", t.zoomOut, k <= 1) +
+      (this.view ? btn("fit", "fit", t.fit, false) : "");
+    if (this.btns.innerHTML !== html) this.btns.innerHTML = html;
+  }
+
+  _wheel(e) {
+    if (!this._svg() || (!this.wheel && !e.ctrlKey)) return;
+    e.preventDefault();
+    // A trackpad pinch comes as small steps with Ctrl
+    const f = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
+    this._zoomAt(this._pt(e.clientX, e.clientY), (this.view?.k || 1) * f);
+  }
+
+  _down(e) {
+    if (!this._svg() || e.target.closest(".zoombtns, .maptools, .scanner.movable") || (e.pointerType === "mouse" && e.button !== 0)) return;
+    this.pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    this.moved = false;
+    this._start();
+  }
+
+  _start() {
+    const ps = [...this.pointers.values()];
+    if (ps.length >= 2) {
+      const [a, b] = ps;
+      this.gesture = { pinch: true, d: Math.hypot(a[0] - b[0], a[1] - b[1]), m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
+    } else if (ps.length === 1) {
+      this.gesture = { pinch: false, p: ps[0], pan: false };
+    } else this.gesture = null;
+  }
+
+  _move(e) {
+    if (!this.pointers.has(e.pointerId) || !this.gesture) return;
+    this.pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    const g = this.gesture;
+    const ps = [...this.pointers.values()];
+    if (g.pinch && ps.length >= 2) {
+      const [a, b] = ps;
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (g.d > 0) this._zoomAt(this._pt(m[0], m[1]), (this.view?.k || 1) * (d / g.d));
+      this._panBy(m[0] - g.m[0], m[1] - g.m[1]);
+      g.d = d;
+      g.m = m;
+      this.moved = true;
+    } else if (!g.pinch && this.view) {
+      const dx = e.clientX - g.p[0];
+      const dy = e.clientY - g.p[1];
+      if (!g.pan && Math.hypot(dx, dy) < 5) return;
+      if (!g.pan) {
+        g.pan = true;
+        this.map.setPointerCapture?.(e.pointerId);
+        this.map.classList.add("panning");
+      }
+      this._panBy(dx, dy);
+      g.p = [e.clientX, e.clientY];
+      this.moved = true;
+    }
+  }
+
+  _up(e) {
+    if (!this.pointers.delete(e.pointerId)) return;
+    this.map.classList.remove("panning");
+    this._start();
+  }
+}
+
 // Material Design Icons, as Home Assistant draws them
 const MDI = {
   menu: "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z",
+  plus: "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
+  minus: "M19,13H5V11H19V13Z",
+  fit: "M17,4H20C21.1,4 22,4.9 22,6V8H20V6H17V4M4,8V6H7V4H4C2.9,4 2,4.9 2,6V8H4M20,16V18H17V20H20C21.1,20 22,19.1 22,18V16H20M7,18H4V16H2V18C2,19.1 2.9,20 4,20H7V18M18,8H6V16H18V8M16,14H8V10H16V14Z",
   close: "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
   back: "M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z",
   pencil: "M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z",
@@ -401,7 +614,13 @@ export const icon = (name) => `<svg class="mdi" viewBox="0 0 24 24" aria-hidden=
 // The floor plan, its tooltip and the icon buttons on it
 export const PLAN_CSS = `
   .map { position: relative; min-width: 0; }
-  .map svg:not(.mdi) { width: 100%; height: 100%; display: block; touch-action: none; overflow: hidden; }
+  .map svg:not(.mdi) { width: 100%; height: 100%; display: block; touch-action: pan-x pan-y; overflow: hidden; }
+  .map.zoomed svg:not(.mdi), .map.aim svg:not(.mdi) { touch-action: none; }
+  .map.zoomed svg:not(.mdi) { cursor: grab; }
+  .map.panning svg:not(.mdi) { cursor: grabbing; }
+  .zoombtns { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 2px; z-index: 1;
+    background: var(--card-background-color); border-radius: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
+  .zoombtns .icon-button:disabled { opacity: 0.35; cursor: default; background: none; }
   .map.aim svg:not(.mdi) { cursor: crosshair; }
   .room { fill: var(--card-background-color); stroke: var(--primary-text-color); stroke-width: 0.08; stroke-linejoin: miter; }
   .room.outdoor { fill: none; stroke-width: 0.04; stroke-dasharray: 0.25 0.15; opacity: 0.6; }

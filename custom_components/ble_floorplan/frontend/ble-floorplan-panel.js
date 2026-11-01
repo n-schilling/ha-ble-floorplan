@@ -8,6 +8,7 @@ import {
   COLORS,
   PANEL_PATH,
   PLAN_CSS,
+  PlanZoom,
   VERSION,
   bindHover,
   computeBounds,
@@ -29,7 +30,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.11.0";
+} from "./ble-floorplan-plan.js?v=0.11.1";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -323,6 +324,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._svgHtml = null;
       this._toolsHtml = null;
       if (showMap) {
+        this._zoomer().attach(this.shadowRoot.getElementById("map"));
         this._refreshTip = bindHover(this.shadowRoot.getElementById("map"), this.shadowRoot.querySelector(".tip"),
           (kind, k) => detailHtml(this._info, kind, k, this._t, this._fmt));
       }
@@ -357,6 +359,18 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
       }
       this._tlFrame();
+    }
+
+    // One zoom for every tab: the view stays when the tab changes
+    _zoomer() {
+      if (!this._zoom) {
+        this._zoom = new PlanZoom({
+          geom: () => ({ bounds: this._bounds || computeBounds(this._plan), rot: this._rot }),
+          texts: () => this._t,
+          wheel: true,
+        });
+      }
+      return this._zoom;
     }
 
     _scannerPos(s) {
@@ -396,6 +410,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         marks,
         trails: this._tlTrailsHtml(),
         align: "xMidYMid",
+        view: this._zoom?.view,
       });
     }
 
@@ -859,6 +874,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         case "rotate":
           this._rot = (this._rot + 90) % 360;
           keep(ROT_KEY, String(this._rot));
+          if (this._zoom) this._zoom.view = null;
           break;
         case "labels":
           this._labelMenu = !this._labelMenu;
@@ -1392,7 +1408,8 @@ if (!customElements.get("ble-floorplan-panel")) {
   // Home Assistant's look: toolbar and tabs of the settings pages, cards, list
   // items, filled text fields, switches; the colours of the active theme
   const STYLE = `
-    :host { display: block; height: 100%; background: var(--primary-background-color); color: var(--primary-text-color);
+    /* The panel's own container has no height of its own: the page takes the window */
+    :host { display: block; height: 100vh; height: 100dvh; background: var(--primary-background-color); color: var(--primary-text-color);
       font-family: var(--ha-font-family-body, Roboto, Noto, sans-serif); font-size: 14px; line-height: 1.5;
       -webkit-font-smoothing: antialiased; }
     * { box-sizing: border-box; }
