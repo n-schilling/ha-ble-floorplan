@@ -80,13 +80,17 @@ def test_no_network_libraries() -> None:
             assert not name.startswith(NETWORK_PATHS), f"{path}: {name}"
 
 
-def test_card_talks_to_home_assistant_only() -> None:
-    """The card uses the WebSocket connection of the page, no other URL."""
-    card = (PACKAGE / "frontend" / "ble-floorplan-card.js").read_text(encoding="utf-8")
-    assert "fetch(" not in card
-    assert "XMLHttpRequest" not in card
-    assert "http://" not in card
-    assert "https://" not in card
+def test_frontend_talks_to_home_assistant_only() -> None:
+    """The card and the panel use the WebSocket connection of the page, no other URL."""
+    scripts = sorted((PACKAGE / "frontend").glob("*.js"))
+    assert len(scripts) == 3
+    for path in scripts:
+        code = path.read_text(encoding="utf-8")
+        assert "fetch(" not in code, path
+        assert "XMLHttpRequest" not in code, path
+        assert "WebSocket(" not in code, path
+        assert "http://" not in code, path
+        assert "https://" not in code, path
 
 
 def test_no_diagnostics() -> None:

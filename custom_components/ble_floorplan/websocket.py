@@ -135,12 +135,32 @@ def _positions(runtime: RuntimeData) -> dict[str, Any]:
     return {key: p.as_dict() for key, p in runtime.coordinator.data.items()}
 
 
-def _snapshot(runtime: RuntimeData) -> dict[str, Any]:
+def _plan(plan: Floorplan, admin: bool) -> dict[str, Any]:
+    """Return the plan for a connection; other users get what the card draws.
+
+    Bluetooth addresses, device ids, scanner sources and the calibration stay
+    with the administrators.
+    """
+    if admin:
+        return plan.as_dict()
     return {
-        "floorplan": runtime.store.plan.as_dict(),
-        "positions": _positions(runtime),
-        "calibration": runtime.calibration.as_event(),
+        "rooms": [r.as_dict() for r in plan.rooms],
+        "openings": [list(o) for o in plan.openings],
+        "scanners": [
+            {"key": s.key, "name": s.name, "x": s.x, "y": s.y, "z": s.z} for s in plan.scanners
+        ],
+        "trackers": [{"key": t.key, "name": t.name} for t in plan.trackers],
     }
+
+
+def _snapshot(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "floorplan": _plan(runtime.store.plan, admin),
+        "positions": _positions(runtime),
+    }
+    if admin:
+        snapshot["calibration"] = runtime.calibration.as_event()
+    return snapshot
 
 
 @websocket_command({probatio.Required("type"): WS_GET_FLOORPLAN})
@@ -152,7 +172,7 @@ def ws_get_floorplan(
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
-    connection.send_result(msg["id"], _snapshot(runtime))
+    connection.send_result(msg["id"], _snapshot(runtime, connection.user.is_admin))
 
 
 @websocket_command({probatio.Required("type"): WS_SUBSCRIBE})
@@ -160,8 +180,10 @@ def ws_get_floorplan(
 def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Send the plan, the positions and the runs now, then every change of any of them.
 
-    A reload of the entry sends a fresh snapshot of the new one.
+    A reload of the entry sends a fresh snapshot of the new one. Users who are
+    no administrators get the plan as the card draws it and no runs.
     """
+    admin = connection.user.is_admin
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -185,22 +207,23 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
         def _send_positions() -> None:
             event: dict[str, Any] = {"positions": _positions(runtime)}
             # The sample counts of a going run grow with every refresh
-            if runtime.calibration.active is not None:
+            if admin and runtime.calibration.active is not None:
                 event["calibration"] = runtime.calibration.as_event()
             _send(event)
 
         removers.append(runtime.coordinator.async_add_listener(_send_positions))
         removers.append(
             runtime.store.async_add_listener(
-                lambda: _send({"floorplan": runtime.store.plan.as_dict()})
+                lambda: _send({"floorplan": _plan(runtime.store.plan, admin)})
             )
         )
-        removers.append(
-            runtime.calibration.async_add_listener(
-                lambda: _send({"calibration": runtime.calibration.as_event()})
+        if admin:
+            removers.append(
+                runtime.calibration.async_add_listener(
+                    lambda: _send({"calibration": runtime.calibration.as_event()})
+                )
             )
-        )
-        _send(_snapshot(runtime))
+        _send(_snapshot(runtime, admin))
 
     @callback
     def _unsubscribe() -> None:

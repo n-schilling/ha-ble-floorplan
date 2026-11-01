@@ -2,6 +2,22 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-11-01
+
+### Added
+
+- A page of its own: **BLE Floorplan** in the sidebar of administrators, in the look of Home Assistant's settings pages, with the tabs *Floor plan*, *Scanners*, *Trackers*, *Calibration*, *Timeline* and *Settings*. The plan is on every tab but the settings, with the trackers live and the details next to it; on a phone the plan sits on top and the tabs at the bottom. Links like `/ble-floorplan/trackers?key=<tracker>` open a tracker or a scanner directly.
+- A new scanner goes straight on to being placed: tap the plan where it is, or drag it.
+- The calibration tab shows where every run was taken, as dots in the colour of its tracker.
+
+### Changed
+
+- The card only shows: the plan with the trackers live, readings on hover or tap, distance circles of a tapped tracker, rotation and labels. Setting up, calibrating, the timeline and the settings moved to the page; administrators get a pencil on the card that opens it at the scanner or tracker tapped.
+- The card and the page share one module for the drawing of the plan; every import carries the version, so a browser that cached a release fetches the next one.
+- README images show the page and the card.
+- Users who are no administrators get the plan as the card draws it: no Bluetooth addresses of scanners and trackers, no device ids, no corrections, no settings and no calibration runs.
+- The clock labels of the timeline get the room they need, for a 12-hour clock and with seconds.
+
 ## [0.10.0] - 2026-10-26
 
 ### Changed

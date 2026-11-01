@@ -1,4 +1,4 @@
-"""The card that the integration ships."""
+"""The card and the panel that the integration ships."""
 
 from __future__ import annotations
 
@@ -7,20 +7,66 @@ from pathlib import Path
 import re
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "ble_floorplan"
+FRONTEND = PACKAGE / "frontend"
 
 
-def test_card_version_matches_manifest() -> None:
-    """The card logs the version of the integration it came with."""
+def _version() -> str:
     manifest = json.loads((PACKAGE / "manifest.json").read_text(encoding="utf-8"))
-    card = (PACKAGE / "frontend" / "ble-floorplan-card.js").read_text(encoding="utf-8")
-    match = re.search(r'const VERSION = "([^"]+)"', card)
+    return str(manifest["version"])
+
+
+def test_shared_module_version_matches_manifest() -> None:
+    """The shared module logs the version of the integration it came with."""
+    shared = (FRONTEND / "ble-floorplan-plan.js").read_text(encoding="utf-8")
+    match = re.search(r'export const VERSION = "([^"]+)"', shared)
     assert match is not None
-    assert match.group(1) == manifest["version"]
+    assert match.group(1) == _version()
+
+
+def test_imports_carry_the_version() -> None:
+    """Every import names the release, so a browser that cached the last one fetches anew."""
+    version = _version()
+    for name in ("ble-floorplan-card.js", "ble-floorplan-panel.js"):
+        code = (FRONTEND / name).read_text(encoding="utf-8")
+        imports = re.findall(r'from "([^"]+)"', code)
+        assert imports, name
+        for target in imports:
+            assert target == f"./ble-floorplan-plan.js?v={version}", (name, target)
+
+
+def test_card_shows_and_links() -> None:
+    """The card draws the live plan and leads administrators to the panel."""
+    card = (FRONTEND / "ble-floorplan-card.js").read_text(encoding="utf-8")
     assert 'customElements.define("ble-floorplan-card"' in card
     assert '"ble_floorplan/subscribe"' in card
-    assert '"ble_floorplan/set_scanner"' in card
-    for command in ("start", "stop", "delete", "solve", "apply"):
-        assert f'"ble_floorplan/calibration/{command}"' in card, command
-    assert '"ble_floorplan/set_tracker"' in card
-    assert '"ble_floorplan/set_settings"' in card
-    assert '"ble_floorplan/history"' in card
+    assert "navigate(" in card
+    # Setting up, calibrating and the timeline are the panel's
+    assert '"ble_floorplan/set_' not in card
+    assert '"ble_floorplan/calibration/' not in card
+    assert '"ble_floorplan/history"' not in card
+
+
+def test_panel_uses_the_commands() -> None:
+    """The panel sets up, calibrates and plays back through the WebSocket commands."""
+    panel = (FRONTEND / "ble-floorplan-panel.js").read_text(encoding="utf-8")
+    assert 'customElements.define("ble-floorplan-panel"' in panel
+    for command in (
+        "subscribe",
+        "get_layout",
+        "set_layout",
+        "candidates",
+        "add_scanner",
+        "add_tracker",
+        "set_scanner",
+        "set_tracker",
+        "set_settings",
+        "history",
+        "calibration/start",
+        "calibration/stop",
+        "calibration/delete",
+        "calibration/solve",
+        "calibration/apply",
+    ):
+        assert f'"ble_floorplan/{command}"' in panel, command
+    # Removing is built from the action name
+    assert "`ble_floorplan/${act.replace" in panel

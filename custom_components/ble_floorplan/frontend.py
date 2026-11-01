@@ -1,24 +1,40 @@
-"""Serves the card and registers it with the frontend and the dashboards."""
+"""Serves the card and the panel and registers them with the frontend and the dashboards."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, add_extra_js_url
+from homeassistant.components import panel_custom
+from homeassistant.components.frontend import (
+    DATA_EXTRA_MODULE_URL,
+    add_extra_js_url,
+    async_panel_exists,
+    async_remove_panel,
+)
 from homeassistant.components.http.server import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 from homeassistant.util.hass_dict import HassKey
 
-from .const import CARD_FILENAME, DOMAIN, FRONTEND_URL_BASE
+from .const import (
+    CARD_FILENAME,
+    DOMAIN,
+    FRONTEND_URL_BASE,
+    NAME,
+    PANEL_ELEMENT,
+    PANEL_FILENAME,
+    PANEL_ICON,
+    PANEL_URL_PATH,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 DATA_FRONTEND: HassKey[str] = HassKey(f"{DOMAIN}_frontend")
 CARD_PATH = f"{FRONTEND_URL_BASE}/{CARD_FILENAME}"
+PANEL_PATH = f"{FRONTEND_URL_BASE}/{PANEL_FILENAME}"
 RESOURCE_TYPE = "module"
 
 
@@ -26,6 +42,32 @@ async def async_card_url(hass: HomeAssistant) -> str:
     """Return the URL of the card, with the version so browsers fetch a new release."""
     integration = await async_get_integration(hass, DOMAIN)
     return f"{CARD_PATH}?v={integration.version}"
+
+
+async def async_register_panel(hass: HomeAssistant) -> None:
+    """Add the panel to the sidebar of administrators, unless it is there.
+
+    It stays through a reload of the entry, so a page that shows it is not
+    thrown out while a change reloads the entry; removing the entry removes it.
+    """
+    if async_panel_exists(hass, PANEL_URL_PATH):
+        return
+    integration = await async_get_integration(hass, DOMAIN)
+    await panel_custom.async_register_panel(
+        hass,
+        frontend_url_path=PANEL_URL_PATH,
+        webcomponent_name=PANEL_ELEMENT,
+        sidebar_title=NAME,
+        sidebar_icon=PANEL_ICON,
+        module_url=f"{PANEL_PATH}?v={integration.version}",
+        require_admin=True,
+    )
+
+
+@callback
+def async_unregister_panel(hass: HomeAssistant) -> None:
+    """Take the panel off the sidebar."""
+    async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:

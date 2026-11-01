@@ -8,19 +8,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
+from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, DATA_PANELS
 from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE, MODE_YAML
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 
-from custom_components.ble_floorplan.const import CALIBRATION_STORAGE_KEY, DOMAIN, STORAGE_KEY
+from custom_components.ble_floorplan.const import (
+    CALIBRATION_STORAGE_KEY,
+    DOMAIN,
+    PANEL_ELEMENT,
+    PANEL_URL_PATH,
+    STORAGE_KEY,
+)
 from custom_components.ble_floorplan.frontend import (
     CARD_PATH,
     DATA_FRONTEND,
+    PANEL_PATH,
     async_card_url,
     async_register_frontend,
+    async_register_panel,
 )
 
 from .conftest import ScannerDevices
@@ -60,6 +68,36 @@ async def test_remove_deletes_storage(
     await hass.async_block_till_done()
     assert STORAGE_KEY not in storage
     assert CALIBRATION_STORAGE_KEY not in storage
+
+
+async def test_panel_for_administrators(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """The panel is in the sidebar of administrators, its module carries the version."""
+    panel = hass.data[DATA_PANELS][PANEL_URL_PATH]
+    assert panel.require_admin
+    assert panel.sidebar_title == "BLE Floorplan"
+    assert panel.sidebar_icon == "mdi:floor-plan"
+    custom = panel.config["_panel_custom"]
+    assert custom["name"] == PANEL_ELEMENT
+    assert custom["module_url"] == (await async_card_url(hass)).replace(CARD_PATH, PANEL_PATH)
+    assert not custom["embed_iframe"]
+
+
+async def test_panel_stays_through_a_reload(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """A reload keeps the panel, a page that shows it stays; a second registration does nothing."""
+    panel = hass.data[DATA_PANELS][PANEL_URL_PATH]
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data[DATA_PANELS][PANEL_URL_PATH] is panel
+    await async_register_panel(hass)
+    assert hass.data[DATA_PANELS][PANEL_URL_PATH] is panel
+
+
+async def test_remove_takes_the_panel_away(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """Removing the entry takes the panel off the sidebar."""
+    assert PANEL_URL_PATH in hass.data[DATA_PANELS]
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert PANEL_URL_PATH not in hass.data[DATA_PANELS]
 
 
 async def test_card_url_carries_version(hass: HomeAssistant, bluetooth: None) -> None:

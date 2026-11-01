@@ -4,6 +4,7 @@
   "after_dependencies": [
     "frontend",
     "lovelace",
+    "panel_custom",
     "private_ble_device"
   ],
   "codeowners": [
@@ -21,5 +22,5 @@
   "issue_tracker": "https://github.com/n-schilling/ha-ble-floorplan/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.10.0"
+  "version": "0.11.0"
 }

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Richtet BLE Floorplan ein. Danach die Karte custom:ble-floorplan-card in ein Dashboard einfügen und Grundriss, Scanner und Tracker über ihr Zahnrad einrichten."
+        "description": "Richtet BLE Floorplan ein. Danach Grundriss, Scanner und Tracker auf der Seite BLE Floorplan in der Seitenleiste einrichten; die Karte custom:ble-floorplan-card zeigt den Grundriss in einem Dashboard."
       }
     },
     "abort": {

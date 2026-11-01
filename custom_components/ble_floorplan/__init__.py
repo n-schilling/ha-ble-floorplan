@@ -18,7 +18,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .coordinator import FloorplanCoordinator
-from .frontend import async_register_frontend
+from .frontend import async_register_frontend, async_register_panel, async_unregister_panel
 from .history import HistoryStore
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
@@ -40,7 +40,7 @@ type FloorplanConfigEntry = ConfigEntry[RuntimeData]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> bool:
-    """Set up the floor plan: load it, start the engine, serve the card."""
+    """Set up the floor plan: load it, start the engine, serve the card and the panel."""
     store = FloorplanStore(hass)
     await store.async_load()
     calibration = CalibrationStore(hass)
@@ -64,15 +64,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop))
     await coordinator.async_config_entry_first_refresh()
     await async_register_frontend(hass)
+    await async_register_panel(hass)
     async_register_websocket(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # Cards subscribed before a reload follow to this coordinator
+    # Cards and pages subscribed before a reload follow to this coordinator
     async_rebind_subscriptions(hass, entry.runtime_data)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> bool:
-    """Unload the entry, ending a calibration run and the tracks; the card stays served until the next restart."""
+    """Unload the entry, ending a calibration run and the tracks; the card and the page stay served until the next restart."""
     if entry.runtime_data.calibration.active is not None:
         await entry.runtime_data.coordinator.async_stop_calibration()
     await entry.runtime_data.history.async_close(dt_util.utcnow().timestamp())
@@ -80,7 +81,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> None:
-    """Remove the stored floor plan, the calibration runs and the timeline with the entry."""
+    """Remove the panel, the stored floor plan, the calibration runs and the timeline with the entry."""
+    async_unregister_panel(hass)
     store: Store[dict[str, object]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     await store.async_remove()
     calibration: Store[dict[str, object]] = Store(

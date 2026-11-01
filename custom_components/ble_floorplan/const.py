@@ -75,9 +75,14 @@ DOOR_STEP: Final = 0.2
 # … and stopped by a wall, this far before it
 WALL_STOP: Final = 0.1
 
-# The card, served by the integration
+# The card and the panel, served by the integration
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}"
 CARD_FILENAME: Final = "ble-floorplan-card.js"
+PANEL_FILENAME: Final = "ble-floorplan-panel.js"
+# The panel in the sidebar, for administrators: set up, calibrate, look back
+PANEL_URL_PATH: Final = "ble-floorplan"
+PANEL_ELEMENT: Final = "ble-floorplan-panel"
+PANEL_ICON: Final = "mdi:floor-plan"
 
 # WebSocket commands
 WS_GET_FLOORPLAN: Final = f"{DOMAIN}/get_floorplan"

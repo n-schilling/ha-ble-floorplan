@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Sets up BLE Floorplan. Afterwards add the card custom:ble-floorplan-card to a dashboard and set up the floor plan, the scanners and the trackers from its gear."
+        "description": "Sets up BLE Floorplan. Afterwards set up the floor plan, the scanners and the trackers on the page BLE Floorplan in the sidebar; the card custom:ble-floorplan-card shows the plan on a dashboard."
       }
     },
     "abort": {

@@ -5,9 +5,9 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![HACS: custom](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 
-BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor, its coordinates and a presence tracker, and a dashboard card shows the plan with the trackers moving live.
+BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor, its coordinates and a presence tracker. A page of its own in the sidebar sets everything up, and a dashboard card shows the plan with the trackers moving live.
 
-![The card: two trackers walk through the doors of a flat, the panel follows the tag](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.gif)
+![The BLE Floorplan page: two trackers move through a flat, the tag with its distance circles and readings](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.gif)
 
 *All images show a made-up example flat with made-up devices, rendered from the test data of this repository.*
 
@@ -19,7 +19,8 @@ BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home.
 - **Calm, plausible movement:** smoothing, a speed limit, a confirmation for jumps and walls that can only be passed through doors keep trackers from hopping across the plan. Rooms change only after a hold time.
 - **Calibration on your own data:** put a tracker where it really is, and every run saves its reference power and a correction per scanner right away. A least-squares fit over all runs proposes the offsets of the scanners as well, applied when you say so.
 - **Timeline:** drag back to any moment of the last days, or let it play, and the trackers move on the plan as they did, with the way behind them. Off until you set how many days to keep.
-- **Everything in the card:** draw the floor plan, add scanners and trackers, move scanners, tune the settings and run the calibration from the dashboard, without YAML files or developer tools.
+- **A page of its own, in Home Assistant's look:** *BLE Floorplan* in the sidebar of administrators. Draw the floor plan, add scanners and trackers and place them on the plan, calibrate, play back the timeline and tune the settings, without YAML files or developer tools.
+- **A card for the dashboards:** the plan with the trackers live; tap one for its readings.
 - **Home Assistant native:** rooms link to areas, presence works with persons, and an *Active scanners* sensor tells you when a scanner goes quiet.
 - **Local only:** no cloud, no network access of its own. All data stays in Home Assistant's storage.
 
@@ -34,34 +35,42 @@ BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home.
 1. In HACS: **⋮ → Custom repositories**, add `https://github.com/n-schilling/ha-ble-floorplan` as type **Integration**.
 2. Install **BLE Floorplan** and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → BLE Floorplan**. There is nothing to fill in.
-4. Add the card `custom:ble-floorplan-card` to a dashboard. The integration registers the card as a dashboard resource by itself.
+4. **BLE Floorplan** appears in the sidebar of administrators. Set up the plan there, see [Getting started](#getting-started).
+5. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too. The integration registers the card as a dashboard resource by itself.
 
 ## Getting started
 
-Everything is done in the card, as an administrator, from the gear (⚙). While the plan is empty, the gear opens with the floor plan, the scanners and the trackers.
+Everything is set up on the page **BLE Floorplan** in the sidebar, which only administrators see. Its tabs are *Floor plan*, *Scanners*, *Trackers*, *Calibration*, *Timeline* and *Settings*; all but the settings show the plan on the left, with the trackers live, and the details on the right. On a phone the plan sits on top and the tabs at the bottom.
 
-![Setting up: the floor plan as YAML, adding scanners and trackers](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/setup.png)
+![The floor plan tab: the plan as YAML next to the drawing](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/setup.png)
 
-1. **Draw the floor plan.** The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, with the origin at the top left corner: rectangles with `x`, `y`, `w`, `h` or polygons with `points`, plus zones, outdoor areas and the doors as `openings`. Then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
-2. **Add the scanners.** The list offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. It lands in the middle of the plan: tap it, **Move**, drag it to its place and **Save**.
-3. **Add the trackers.** The list offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its sensors appear right away.
-4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time, then compute and apply the proposal. Without calibration the positions are rough.
+1. **Draw the floor plan** on the *Floor plan* tab. The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, with the origin at the top left corner: rectangles with `x`, `y`, `w`, `h` or polygons with `points`, plus zones, outdoor areas and the doors as `openings`. Then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
+2. **Add the scanners** on the *Scanners* tab. *Add scanner* offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. The page goes straight on to placing it: tap the plan where it is, or drag it, and **Save**.
+3. **Add the trackers** on the *Trackers* tab. *Add tracker* offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its sensors appear right away.
+4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time. Without calibration the positions are rough.
 5. **Tune if needed.** The defaults of the [settings](#settings) suit a flat.
 
-A scanner or a tracker is taken off the plan with the ✕ next to it in the same lists.
+A scanner or a tracker is taken off the plan with **Remove** in its details.
+
+## The page
+
+| Trackers | Scanners: placing a scanner |
+|---|---|
+| ![The trackers tab](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![The scanners tab](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
+
+- **Scanners:** the list with position, height and how many trackers each one hears. Tap one, in the list or on the plan, for its details: what it hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its values.
+- **Trackers:** the list with the room and how many scanners see each one. A tracker's details show its distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them, **Calibration run** takes it to the calibration with this tracker chosen.
+- **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
+
+  ![The timeline](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/timeline.png)
+
+- The buttons above the plan rotate it and switch the labels of rooms, scanners and trackers, per browser. Hovering a scanner or a tracker shows its readings. Numbers are shown in the language of Home Assistant, and a point and a comma are both taken as the decimal sign.
 
 ## The card
 
-The card is the plan. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it opens its panel next to the plan. The buttons at the top rotate the plan, switch the labels of rooms, scanners and trackers, open the timeline and open the gear (the last two for administrators only).
+The card shows the plan with the trackers live, for every user. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser; administrators get a pencil that opens the page, at the scanner or tracker tapped.
 
-| Tracker panel with the distance circles | Scanner panel |
-|---|---|
-| ![Tracker panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/tracker.png) | ![Scanner panel](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/scanner.png) |
-
-- **Tracker panel:** room, position, the distance and signal strength at every scanner, height, reference power and pair corrections. Administrators edit those values, show the distance circles and start a calibration run from here.
-- **Scanner panel:** position, height, offset, what the scanner hears from every tracker and its pair corrections. Administrators move the scanner and edit its values.
-- **Gear:** sections that fold, for the floor plan, the scanners, the trackers, the display (rotation and labels, kept per browser), the settings and the calibration.
-- **Timeline** (the clock, once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
+![The card](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/card.png)
 
 ```yaml
 type: custom:ble-floorplan-card
@@ -72,7 +81,7 @@ show_scanner_labels: true
 show_tracker_labels: true
 ```
 
-The visual editor offers the title; rotation and labels are set on the card itself. Numbers are shown in the language of Home Assistant, and a point and a comma are both taken as the decimal sign.
+The visual editor offers the title; rotation and labels are set on the card itself.
 
 ## Entities
 
@@ -106,12 +115,12 @@ The *Room* sensor changes only after the room hold time, so it suits "who is whe
 
 Every scanner hears every tracker a little differently: an adapter may hear a tag as loud as a proxy does, and a phone 15 dB louder. One reference power per tracker and one offset per scanner cannot express that. The calibration therefore records each tracker at known places. Each run improves that tracker at once; a fit over all runs adjusts the scanners as well.
 
-1. In the card, tap the tracker and choose **Calibration run**. Set the tracker's height for this run, tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. While the run goes, a crosshair marks the true position and the panel counts the samples per scanner. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the panel shows what was saved and the error before and after.
+1. On the *Calibration* tab, choose the tracker under *New run* (or tap it on the plan) and set its height for this run. Tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. While the run goes, a crosshair marks the true position and the page counts the samples per scanner. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the page shows what was saved and the error before and after. The places of all runs stay on the plan as dots in the colour of their tracker.
 
    ![A calibration run](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/measure.png)
 
 2. Repeat at other places and with the other trackers. A scanner needs at least three samples in a run to count. More places average out the walls between one spot and the scanners. Deleting a run saves the tracker's values from the runs that are left; without a run left, they stay.
-3. To adjust the scanners too, open **Calibration** in the gear and **Compute**. Fitting the exponent needs runs at different distances from a scanner. The proposal lists the current and the proposed value of every parameter, the runs and samples behind it, and the error before and after.
+3. To adjust the scanners too, **Compute** under *Scanner offsets and exponent* on the same tab. Fitting the exponent needs runs at different distances from a scanner. The proposal lists the current and the proposed value of every parameter, the runs and samples behind it, and the error before and after.
 
    ![The calibration proposal](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/calibration.png)
 
@@ -125,7 +134,9 @@ The runs are kept in `.storage/ble_floorplan.calibration`.
 
 ## Settings
 
-All settings are in the gear of the card. Setting a value to 0 switches a rule off where noted.
+All settings are on the *Settings* tab of the page. Setting a value to 0 switches a rule off where noted.
+
+![The settings tab](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/settings.png)
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -148,7 +159,7 @@ All settings are in the gear of the card. Setting a value to 0 switches a rule o
 
 ## The floor plan
 
-The floor plan is edited as YAML in the gear. Everything is in metres; the origin is the top left corner and y grows downwards.
+The floor plan is edited as YAML on the *Floor plan* tab of the page. Everything is in metres; the origin is the top left corner and y grows downwards.
 
 ```yaml
 rooms:
@@ -189,12 +200,12 @@ Room labels also take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) 
 
 ## WebSocket API
 
-The card uses these commands; they are open for scripts and tools as well. Commands marked *admins* need an administrator.
+The page and the card use these commands; they are open for scripts and tools as well. Commands marked *admins* need an administrator.
 
 | Command | Who | Description |
 |---|---|---|
-| `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. |
-| `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions` and `calibration` now, then an event for every change. |
+| `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. Users who are no administrators get the plan as the card draws it: rooms, openings, scanners with name and position, trackers with name. |
+| `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions` and `calibration` now, then an event for every change. Users who are no administrators get the plan as `get_floorplan` gives it to them and no `calibration`. |
 | `ble_floorplan/get_layout` | admins | Returns `yaml`: the rooms and openings, a template while the plan has none. |
 | `ble_floorplan/set_layout` | admins | `yaml`: replaces the rooms and openings; scanners, trackers and settings stay. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
@@ -226,7 +237,7 @@ Example from a browser console on a dashboard: `await document.querySelector("ho
 
 ## Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids the calibration runs (positions in the home and signal strengths) and, when *Days kept* is above 0, the timeline (where every tracker was, for that many days) in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. It sends nothing anywhere else, and the card talks to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids the calibration runs (positions in the home and signal strengths) and, when *Days kept* is above 0, the timeline (where every tracker was, for that many days) in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Development
 
