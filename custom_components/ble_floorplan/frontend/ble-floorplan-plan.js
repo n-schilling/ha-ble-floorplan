@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.11.1";
+export const VERSION = "0.11.2";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -51,7 +51,6 @@ const TEXTS = {
     advancedHint: "Compute and Apply fit the offsets of the scanners and the exponent from all runs, for all trackers.",
     newRun: "New run", pickTracker: "Tracker", runAt: "At",
     addScanner: "Add scanner", addTracker: "Add tracker", trackerCount: "{n} trackers", seenBy: "{n} scanners",
-    editPlan: "Open in BLE Floorplan", setupPanel: "Set it up in BLE Floorplan",
     planSaved: "Floor plan saved.",
     tabPlan: "Floor plan", tabScanners: "Scanners", tabTrackers: "Trackers", tabCalibration: "Calibration",
     tabTimeline: "Timeline", tabSettings: "Settings", menu: "Menu",
@@ -94,7 +93,6 @@ const TEXTS = {
     advancedHint: "Berechnen und Übernehmen passen aus allen Messläufen die Offsets der Scanner und den Exponenten an, für alle Tracker.",
     newRun: "Neuer Messlauf", pickTracker: "Tracker", runAt: "Ort",
     addScanner: "Scanner hinzufügen", addTracker: "Tracker hinzufügen", trackerCount: "{n} Tracker", seenBy: "{n} Scanner",
-    editPlan: "In BLE Floorplan öffnen", setupPanel: "In BLE Floorplan einrichten",
     planSaved: "Grundriss gespeichert.",
     tabPlan: "Grundriss", tabScanners: "Scanner", tabTrackers: "Tracker", tabCalibration: "Kalibrierung",
     tabTimeline: "Verlauf", tabSettings: "Einstellungen", menu: "Menü",
@@ -591,7 +589,6 @@ const MDI = {
   fit: "M17,4H20C21.1,4 22,4.9 22,6V8H20V6H17V4M4,8V6H7V4H4C2.9,4 2,4.9 2,6V8H4M20,16V18H17V20H20C21.1,20 22,19.1 22,18V16H20M7,18H4V16H2V18C2,19.1 2.9,20 4,20H7V18M18,8H6V16H18V8M16,14H8V10H16V14Z",
   close: "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
   back: "M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z",
-  pencil: "M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z",
   plus: "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
   delete: "M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z",
   play: "M8,5.14V19.14L19,12.14L8,5.14Z",

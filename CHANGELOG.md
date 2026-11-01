@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] - 2026-11-01
+
+### Removed
+
+- The pencil on the card and the button that led from an empty card to the page: the card only shows, for administrators as well; the page is in the sidebar.
+
 ## [0.11.1] - 2026-11-01
 
 ### Added

@@ -2,10 +2,8 @@
 // floor plan, live. The plan, the scanners and the positions come from the
 // integration over the WebSocket API; the card only draws. Tapping a tracker
 // or a scanner shows its readings, a tracker with its circles. Setting up,
-// calibrating and the timeline live in the panel BLE Floorplan; the pencil
-// takes administrators there.
+// calibrating and the timeline live in the panel BLE Floorplan in the sidebar.
 import {
-  PANEL_PATH,
   PLAN_CSS,
   PlanZoom,
   VERSION,
@@ -18,11 +16,10 @@ import {
   keep,
   loadLabels,
   loadRot,
-  navigate,
   planInfo,
   planSvg,
   texts,
-} from "./ble-floorplan-plan.js?v=0.11.1";
+} from "./ble-floorplan-plan.js?v=0.11.2";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
@@ -84,10 +81,6 @@ if (!customElements.get("ble-floorplan-card")) {
       return {};
     }
 
-    get _admin() {
-      return !!this._hass?.user?.is_admin;
-    }
-
     async _subscribe() {
       if (this._subscribing || !this._hass) return;
       this._subscribing = true;
@@ -128,9 +121,8 @@ if (!customElements.get("ble-floorplan-card")) {
       const plan = this._plan;
       if (!plan || !plan.rooms.length) {
         this._frame = false;
-        const link = plan && this._admin ? `<button id="edit" class="text-button">${esc(t.setupPanel)}</button>` : "";
         this.shadowRoot.innerHTML = `<style>${PLAN_CSS}${this._style()}</style><ha-card><div class="head">` +
-          `<div class="title">${esc(this._config.title || t.title)}</div></div><div class="hint">${esc(this._error || t.noPlan)}</div>${link}</ha-card>`;
+          `<div class="title">${esc(this._config.title || t.title)}</div></div><div class="hint">${esc(this._error || t.noPlan)}</div></ha-card>`;
         this._bindOnce();
         return;
       }
@@ -170,8 +162,7 @@ if (!customElements.get("ble-floorplan-card")) {
             .join("")}</div>`
         : "";
       const btns = `<button id="rotate" class="icon-button" title="${esc(t.rotate)}">${icon("rotate")}</button>` +
-        `<span class="menuwrap"><button id="labels" class="icon-button${this._labelMenu ? " on" : ""}" title="${esc(t.labels)}">${icon("label")}</button>${labelMenu}</span>` +
-        (this._admin ? `<button id="edit" class="icon-button" title="${esc(t.editPlan)}">${icon("pencil")}</button>` : "");
+        `<span class="menuwrap"><button id="labels" class="icon-button${this._labelMenu ? " on" : ""}" title="${esc(t.labels)}">${icon("label")}</button>${labelMenu}</span>`;
       const btnsEl = root.getElementById("btns");
       if (btnsEl.innerHTML !== btns) btnsEl.innerHTML = btns;
       root.getElementById("info").innerHTML = sel
@@ -187,7 +178,7 @@ if (!customElements.get("ble-floorplan-card")) {
       this._bound = true;
       const root = this.shadowRoot;
       root.addEventListener("click", (e) => {
-        const el = e.target.closest?.("#rotate, #labels, #edit, #close, .scanner, .tracker");
+        const el = e.target.closest?.("#rotate, #labels, #close, .scanner, .tracker");
         if (!el) return;
         if (el.id === "rotate") {
           this._rot = (this._rot + 90) % 360;
@@ -195,10 +186,6 @@ if (!customElements.get("ble-floorplan-card")) {
           this._zoom.view = null;
         } else if (el.id === "labels") {
           this._labelMenu = !this._labelMenu;
-        } else if (el.id === "edit") {
-          const sel = this._sel;
-          navigate(sel ? `${PANEL_PATH}/${sel.kind}s?key=${encodeURIComponent(sel.key)}` : PANEL_PATH);
-          return;
         } else if (el.id === "close") {
           this._sel = null;
         } else {
@@ -228,10 +215,7 @@ if (!customElements.get("ble-floorplan-card")) {
         .map svg:not(.mdi) { max-height: 85vh; }
         .info { position: relative; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider-color); font-size: 13px; }
         .info .icon-button { position: absolute; right: -8px; top: 4px; }
-        .hint { color: var(--secondary-text-color); margin-top: 8px; }
-        .text-button { margin-top: 8px; margin-left: -12px; height: 36px; padding: 0 12px; border: 0; border-radius: 18px; background: none;
-          color: var(--primary-color); font: inherit; font-weight: 500; cursor: pointer; }
-        .text-button:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }`;
+        .hint { color: var(--secondary-text-color); margin-top: 8px; }`;
     }
   }
 

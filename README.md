@@ -69,7 +69,7 @@ A scanner or a tracker is taken off the plan with **Remove** in its details.
 
 ## The card
 
-The card shows the plan with the trackers live, for every user. Pinch with two fingers, Ctrl and the mouse wheel, a trackpad pinch or the buttons in the corner zoom it; zoomed in, drag to move it. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser; administrators get a pencil that opens the page, at the scanner or tracker tapped.
+The card shows the plan with the trackers live, for every user. Pinch with two fingers, Ctrl and the mouse wheel, a trackpad pinch or the buttons in the corner zoom it; zoomed in, drag to move it. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser. Nothing on the card sets anything up: that is the page in the sidebar.
 
 ![The card](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/card.png)
 

@@ -34,12 +34,13 @@ def test_imports_carry_the_version() -> None:
             assert target == f"./ble-floorplan-plan.js?v={version}", (name, target)
 
 
-def test_card_shows_and_links() -> None:
-    """The card draws the live plan and leads administrators to the panel."""
+def test_card_only_shows() -> None:
+    """The card draws the live plan; it neither sets up nor leads to the panel."""
     card = (FRONTEND / "ble-floorplan-card.js").read_text(encoding="utf-8")
     assert 'customElements.define("ble-floorplan-card"' in card
     assert '"ble_floorplan/subscribe"' in card
-    assert "navigate(" in card
+    assert "navigate(" not in card
+    assert "is_admin" not in card
     # Setting up, calibrating and the timeline are the panel's
     assert '"ble_floorplan/set_' not in card
     assert '"ble_floorplan/calibration/' not in card
