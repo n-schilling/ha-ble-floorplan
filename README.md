@@ -5,7 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![HACS: custom](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 
-BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor, its coordinates and a presence tracker. A page of its own in the sidebar sets everything up, and a dashboard card shows the plan with the trackers moving live.
+BLE Floorplan places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor with its coordinates and a presence tracker. A page of its own in the sidebar sets everything up, and a dashboard card shows the plan with the trackers moving live.
 
 ![The BLE Floorplan page: two trackers move through a flat, the tag with its distance circles and readings](https://raw.githubusercontent.com/n-schilling/ha-ble-floorplan/main/docs/images/overview.gif)
 
@@ -91,10 +91,14 @@ Each tracker becomes a device with these entities:
 | Entity | Description |
 |---|---|
 | Room (`sensor`) | The room the tracker is in, unknown while no scanner sees it or the room has no name. Attributes: `x`, `y` in metres, `nearest_scanner`, `scanner_count`, `distances` (the floor distance to every scanner, null when not seen) and `area_id`. The recorder keeps the room and `area_id` only; the other attributes change with every advertisement, the timeline keeps the way. |
-| Position X, Position Y (`sensor`, diagnostic) | The coordinates on the plan in metres, rounded to a decimetre. |
+| Position X, Position Y (`sensor`, diagnostic) | Only with the option *Position sensors*: the coordinates on the plan in metres, rounded to a decimetre. |
 | Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds`, `not_home` after that. Right after a start of Home Assistant it stays unknown until the tracker is seen or `away_seconds` passed, so a restart does not look like leaving home. Assign it to a person in **Settings → People**. |
 
 The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with the names of the active and inactive ones as attributes. Use it to get notified when a scanner fails.
+
+### Options
+
+**Settings → Devices & services → BLE Floorplan → Configure** has one option. **Position sensors** (off by default) gives every tracker the sensors *Position X* and *Position Y* in addition to the attributes `x` and `y` of its room sensor, for example for history graphs; unlike the attributes they go into the recorder. Turning it off removes them again. Saving reloads the integration, so the sensors are unavailable for a moment.
 
 ### Rooms and areas
 

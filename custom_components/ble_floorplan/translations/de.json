@@ -10,6 +10,17 @@
       "single_instance_allowed": "BLE Floorplan ist bereits eingerichtet; ein Grundriss wird unterstützt."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen",
+        "description": "Die Koordinaten jedes Trackers sind Attribute seines Raumsensors. Eingeschaltet gibt es sie zusätzlich als eigene Sensoren, etwa für Verlaufsdiagramme; sie landen dann in der Aufzeichnung.",
+        "data": {
+          "position_sensors": "Positionssensoren (X und Y je Tracker)"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "room": {

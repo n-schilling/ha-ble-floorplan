@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 
-from custom_components.ble_floorplan.const import DOMAIN, NAME
+from custom_components.ble_floorplan.const import CONF_POSITION_SENSORS, DOMAIN, NAME
 from custom_components.ble_floorplan.engine import Measurement, trilaterate
 
 from . import TAG, FakeScanner, rssi_exact, scanner_device
@@ -21,13 +21,8 @@ from .conftest import ScannerDevices
 
 
 async def test_entities_and_device(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """Three sensors per tracker on a device named after it; unknown while not seen."""
-    for entity_id in (
-        "sensor.tag_room",
-        "sensor.tag_position_x",
-        "sensor.tag_position_y",
-        "sensor.phone_room",
-    ):
+    """A room sensor per tracker on a device named after it, unknown while not seen; no position sensors."""
+    for entity_id in ("sensor.tag_room", "sensor.phone_room"):
         state = hass.states.get(entity_id)
         assert state is not None, entity_id
         assert state.state == STATE_UNKNOWN
@@ -35,10 +30,8 @@ async def test_entities_and_device(hass: HomeAssistant, entry: MockConfigEntry) 
     assert room is not None
     assert room.attributes["friendly_name"] == "Tag Room"
     registry = er.async_get(hass)
-    x_entry = registry.async_get("sensor.tag_position_x")
-    assert x_entry is not None
-    assert x_entry.entity_category == "diagnostic"
-    assert x_entry.unique_id == "tag_position_x"
+    assert registry.async_get("sensor.tag_position_x") is None
+    assert registry.async_get("sensor.tag_position_y") is None
     devices = dr.async_get(hass)
     device = devices.async_get_device_by_identifier((DOMAIN, "tag"), entry.entry_id)
     assert device is not None
@@ -50,6 +43,21 @@ async def test_entities_and_device(hass: HomeAssistant, entry: MockConfigEntry) 
     assert entry.title == NAME
 
 
+@pytest.mark.parametrize("options", [{CONF_POSITION_SENSORS: True}])
+async def test_position_sensors(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """With the option, two diagnostic sensors per tracker, unknown while not seen."""
+    registry = er.async_get(hass)
+    for entity_id in ("sensor.tag_position_x", "sensor.tag_position_y", "sensor.phone_position_x"):
+        state = hass.states.get(entity_id)
+        assert state is not None, entity_id
+        assert state.state == STATE_UNKNOWN
+    x_entry = registry.async_get("sensor.tag_position_x")
+    assert x_entry is not None
+    assert x_entry.entity_category == "diagnostic"
+    assert x_entry.unique_id == "tag_position_x"
+
+
+@pytest.mark.parametrize("options", [{CONF_POSITION_SENSORS: True}])
 async def test_values(
     hass: HomeAssistant,
     entry: MockConfigEntry,
@@ -109,8 +117,11 @@ async def test_stale_entities_removed(
     entities.async_get_or_create(
         "sensor", DOMAIN, "old_room", config_entry=config_entry, device_id=old_device.id
     )
+    # A position sensor from before the option was turned off
+    entities.async_get_or_create("sensor", DOMAIN, "tag_position_x", config_entry=config_entry)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert entities.async_get_entity_id("sensor", DOMAIN, "old_room") is None
+    assert entities.async_get_entity_id("sensor", DOMAIN, "tag_position_x") is None
     assert devices.async_get_device_by_identifier((DOMAIN, "old"), config_entry.entry_id) is None
     assert entities.async_get_entity_id("sensor", DOMAIN, "tag_room") == "sensor.tag_room"

@@ -86,9 +86,15 @@ def scanners() -> dict[str, FakeScanner]:
 
 
 @pytest.fixture
-def config_entry() -> MockConfigEntry:
+def options() -> dict[str, Any]:
+    """The options of the entry; parametrize to change them."""
+    return {}
+
+
+@pytest.fixture
+def config_entry(options: dict[str, Any]) -> MockConfigEntry:
     """The entry, not yet added."""
-    return MockConfigEntry(domain=DOMAIN, title=NAME, unique_id=DOMAIN, data={})
+    return MockConfigEntry(domain=DOMAIN, title=NAME, unique_id=DOMAIN, data={}, options=options)
 
 
 @pytest.fixture

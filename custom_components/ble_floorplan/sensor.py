@@ -1,4 +1,4 @@
-"""Sensors per tracker: the room, and the position for diagnostics."""
+"""Sensors per tracker: the room, and on request the position for diagnostics."""
 
 from __future__ import annotations
 
@@ -13,14 +13,21 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, NAME, SCANNER_ACTIVE_SECONDS
+from .const import (
+    CONF_POSITION_SENSORS,
+    DEFAULT_POSITION_SENSORS,
+    DOMAIN,
+    NAME,
+    SCANNER_ACTIVE_SECONDS,
+)
 from .coordinator import FloorplanCoordinator, TrackerPosition
 from .model import Floorplan, Tracker
 
 if TYPE_CHECKING:
     from . import FloorplanConfigEntry
 
-KINDS = ("room", "position_x", "position_y", "presence")
+KINDS = ("room", "presence")
+POSITION_KINDS = ("position_x", "position_y")
 HUB = "hub"
 ACTIVE_SCANNERS = "active_scanners"
 # Decimals of the position sensors
@@ -32,22 +39,26 @@ async def async_setup_entry(
     entry: FloorplanConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create the sensors of every tracker and drop those of trackers that are gone."""
+    """Create the sensors of every tracker and drop those no longer wanted."""
     coordinator = entry.runtime_data.coordinator
     plan = coordinator.plan
-    _async_remove_stale(hass, entry.entry_id, plan)
+    positions = entry.options.get(CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS)
+    kinds = KINDS + POSITION_KINDS if positions else KINDS
+    _async_remove_stale(hass, entry.entry_id, plan, kinds)
     entities: list[SensorEntity] = [ActiveScannersSensor(coordinator)]
     for tracker in plan.trackers:
         entities.append(RoomSensor(coordinator, tracker))
-        entities.append(PositionSensor(coordinator, tracker, "position_x"))
-        entities.append(PositionSensor(coordinator, tracker, "position_y"))
+        if positions:
+            entities.extend(PositionSensor(coordinator, tracker, kind) for kind in POSITION_KINDS)
     async_add_entities(entities)
 
 
 @callback
-def _async_remove_stale(hass: HomeAssistant, entry_id: str, plan: Floorplan) -> None:
-    """Remove the entities and devices of trackers that are no longer in the plan."""
-    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in KINDS} | {ACTIVE_SCANNERS}
+def _async_remove_stale(
+    hass: HomeAssistant, entry_id: str, plan: Floorplan, kinds: tuple[str, ...]
+) -> None:
+    """Remove the devices of trackers no longer in the plan and the entities not wanted."""
+    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in kinds} | {ACTIVE_SCANNERS}
     entities = er.async_get(hass)
     for entry in er.async_entries_for_config_entry(entities, entry_id):
         if entry.unique_id not in wanted_ids:

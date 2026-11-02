@@ -7,6 +7,11 @@ from typing import Final
 DOMAIN: Final = "ble_floorplan"
 NAME: Final = "BLE Floorplan"
 
+# Option of the entry: a sensor per coordinate of every tracker; off, the
+# coordinates are only attributes of the room sensor
+CONF_POSITION_SENSORS: Final = "position_sensors"
+DEFAULT_POSITION_SENSORS: Final = False
+
 # The floor plan, the scanners and the trackers live in a versioned store of
 # their own: they are too large for the options of the config entry
 STORAGE_KEY: Final = f"{DOMAIN}.floorplan"

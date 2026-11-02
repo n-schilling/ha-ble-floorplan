@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-11-02
+
+### Added
+
+- An option of the entry, **Position sensors** (**Configure** on the integration): only with it does every tracker get the sensors *Position X* and *Position Y*.
+
+### Changed
+
+- The position sensors are off by default. Without the option they are removed at the next start; the coordinates stay attributes of the room sensor, and the page and the timeline show the way.
+
 ## [0.11.2] - 2026-11-01
 
 ### Removed

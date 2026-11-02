@@ -10,6 +10,17 @@
       "single_instance_allowed": "BLE Floorplan is already set up; one floor plan is supported."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "The coordinates of every tracker are attributes of its room sensor. Turn this on to get them as sensors of their own as well, for example for history graphs; they then go into the recorder.",
+        "data": {
+          "position_sensors": "Position sensors (X and Y per tracker)"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "room": {
