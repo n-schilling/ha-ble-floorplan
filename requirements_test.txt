@@ -6,6 +6,6 @@ dbus-fast==5.0.22
 aiousbwatcher==1.1.2
 serialx==1.11.0
 ruff==0.17.3
-mypy==2.4.0
-types-PyYAML==6.0.12.20260906
+mypy==2.4.1
+types-PyYAML==6.0.12.20261030
 pytest-cov==7.1.0
