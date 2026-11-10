@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import probatio
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -14,11 +17,19 @@ from .calibration import CalibrationStore
 from .const import (
     CALIBRATION_STORAGE_KEY,
     CALIBRATION_STORAGE_VERSION,
+    DOMAIN,
+    HISTORY_STORAGE_KEY,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
 from .coordinator import FloorplanCoordinator
-from .frontend import async_register_frontend, async_register_panel, async_unregister_panel
+from .frontend import (
+    async_about,
+    async_register_frontend,
+    async_register_panel,
+    async_remove_resource,
+    async_unregister_panel,
+)
 from .history import HistoryStore
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
@@ -34,6 +45,8 @@ class RuntimeData:
     calibration: CalibrationStore
     history: HistoryStore
     coordinator: FloorplanCoordinator
+    # Shown at the bottom of the page: the version, and the commit of a test deployment
+    about: dict[str, str | None]
 
 
 type FloorplanConfigEntry = ConfigEntry[RuntimeData]
@@ -42,18 +55,35 @@ type FloorplanConfigEntry = ConfigEntry[RuntimeData]
 async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> bool:
     """Set up the floor plan: load it, start the engine, serve the card and the panel."""
     store = FloorplanStore(hass)
-    await store.async_load()
     calibration = CalibrationStore(hass)
-    await calibration.async_load()
     history = HistoryStore(hass)
-    await history.async_load(dt_util.utcnow().timestamp(), store.plan.settings.history_days)
+    key = STORAGE_KEY
+    try:
+        await store.async_load()
+        key = CALIBRATION_STORAGE_KEY
+        await calibration.async_load()
+        key = HISTORY_STORAGE_KEY
+        await history.async_load(dt_util.utcnow().timestamp(), store.plan.settings.history_days)
+    except probatio.Invalid as err:
+        # Nothing is replaced: the file stays as it is for a look or a repair by hand
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_storage",
+            translation_placeholders={"file": f".storage/{key}", "error": str(err)},
+        ) from err
     coordinator = FloorplanCoordinator(hass, entry, store, calibration, history)
-    entry.runtime_data = RuntimeData(store, calibration, history, coordinator)
+    entry.runtime_data = RuntimeData(
+        store, calibration, history, coordinator, await async_about(hass)
+    )
+    kept_days = store.plan.settings.history_days
 
     @callback
     def _prune() -> None:
-        """Drop the days a shorter timeline no longer keeps."""
-        days = store.plan.settings.history_days
+        """Drop the days a shorter timeline no longer keeps; only when the days change."""
+        nonlocal kept_days
+        if (days := store.plan.settings.history_days) == kept_days:
+            return
+        kept_days = days
         entry.async_create_task(hass, history.async_prune(dt_util.utcnow().timestamp(), days))
 
     @callback
@@ -73,7 +103,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> bool:
-    """Unload the entry, ending a calibration run and the tracks; the card and the page stay served until the next restart."""
+    """Unload the entry, ending a calibration run and the tracks; the card and the page stay served until the next restart.
+
+    A run that a reload ends saves the tracker's values, as a stop on the page does.
+    """
     if entry.runtime_data.calibration.active is not None:
         await entry.runtime_data.coordinator.async_stop_calibration()
     await entry.runtime_data.history.async_close(dt_util.utcnow().timestamp())
@@ -81,8 +114,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> None:
-    """Remove the panel, the stored floor plan, the calibration runs and the timeline with the entry."""
+    """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs and the timeline with the entry."""
     async_unregister_panel(hass)
+    await async_remove_resource(hass)
     store: Store[dict[str, object]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     await store.async_remove()
     calibration: Store[dict[str, object]] = Store(

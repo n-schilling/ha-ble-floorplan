@@ -4,3 +4,5 @@ __pycache__/
 .ruff_cache/
 .venv/
 .coverage
+custom_components/ble_floorplan/BUILD
+.venv-panel/

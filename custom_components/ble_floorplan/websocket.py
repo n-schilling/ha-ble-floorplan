@@ -67,7 +67,7 @@ from .model import (
     with_scanner_position,
     with_settings,
 )
-from .solver import CalibrationError, fit_tracker, solve
+from .solver import CalibrationError, solve
 
 if TYPE_CHECKING:
     from . import RuntimeData
@@ -160,6 +160,7 @@ def _snapshot(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
     }
     if admin:
         snapshot["calibration"] = runtime.calibration.as_event()
+        snapshot["about"] = runtime.about
     return snapshot
 
 
@@ -239,7 +240,7 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
 PAIRS = {cv.string: probatio.Any(None, NUMBER)}
 
 
-def _check_pairs(plan: Floorplan, keys: Any, lookup: Any, what: str) -> str | None:
+def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
     """Return the first unknown key of a pair table, or None."""
     return next((f"no {what} {key}" for key in keys if lookup(key) is None), None)
 
@@ -269,7 +270,7 @@ async def ws_set_scanner(
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
         return
     pairs = msg.get("pair_offsets", {})
-    if (problem := _check_pairs(plan, pairs, plan.tracker, "tracker")) is not None:
+    if (problem := _check_pairs(pairs, plan.tracker, "tracker")) is not None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, problem)
         return
     changed = with_scanner_position(
@@ -310,7 +311,7 @@ async def ws_set_tracker(
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['key']}")
         return
     pairs = msg.get("pair_offsets", {})
-    if (problem := _check_pairs(plan, pairs, plan.scanner, "scanner")) is not None:
+    if (problem := _check_pairs(pairs, plan.scanner, "scanner")) is not None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, problem)
         return
     changed = tracker
@@ -428,8 +429,7 @@ async def ws_calibration_stop(
     if runtime.calibration.active is None:
         connection.send_error(msg["id"], ERR_NOT_RUNNING, "no calibration run is going")
         return
-    run = await runtime.coordinator.async_stop_calibration()
-    fit = await _async_fit_tracker(runtime, run.tracker)
+    run, fit = await runtime.coordinator.async_stop_calibration()
     connection.send_result(msg["id"], {**run.summary(), "fit": fit})
 
 
@@ -473,7 +473,7 @@ async def ws_calibration_delete(
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no run {msg['run_id']}")
         return
     await runtime.calibration.async_delete(run.id)
-    fit = None if run.running else await _async_fit_tracker(runtime, run.tracker)
+    fit = None if run.running else await runtime.coordinator.async_fit_tracker(run.tracker)
     connection.send_result(msg["id"], {**runtime.calibration.as_event(), "fit": fit})
 
 
@@ -536,24 +536,6 @@ async def ws_calibration_apply(
     connection.send_result(msg["id"], plan.as_dict())
 
 
-async def _async_fit_tracker(runtime: RuntimeData, tracker_key: str) -> dict[str, Any] | None:
-    """Save the tracker's reference power and pair corrections from all of its runs.
-
-    Returns the fit (old and new values), None when the runs give nothing,
-    for a tracker without a usable run or no longer on the plan.
-    """
-    plan = runtime.store.plan
-    try:
-        fit = fit_tracker(plan, runtime.calibration.finished, tracker_key)
-    except CalibrationError:
-        return None
-    pairs = {scanner: {tracker_key: value["new"]} for scanner, value in fit["pairs"].items()}
-    await runtime.store.async_save(
-        with_calibration(plan, None, {tracker_key: fit["ref_power"]["new"]}, {}, pairs)
-    )
-    return fit
-
-
 @require_admin
 @websocket_command(
     {probatio.Required("type"): WS_CALIBRATION_FIT, probatio.Required("tracker"): cv.string}
@@ -569,7 +551,7 @@ async def ws_calibration_fit(
     if runtime.store.plan.tracker(msg["tracker"]) is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['tracker']}")
         return
-    if (fit := await _async_fit_tracker(runtime, msg["tracker"])) is None:
+    if (fit := await runtime.coordinator.async_fit_tracker(msg["tracker"])) is None:
         connection.send_error(msg["id"], ERR_CALIBRATION, f"no usable run of {msg['tracker']}")
         return
     connection.send_result(msg["id"], fit)
@@ -707,7 +689,13 @@ def ws_get_layout(hass: HomeAssistant, connection: ActiveConnection, msg: dict[s
 
 
 @require_admin
-@websocket_command({probatio.Required("type"): WS_SET_LAYOUT, probatio.Required("yaml"): str})
+@websocket_command(
+    {
+        probatio.Required("type"): WS_SET_LAYOUT,
+        # A layout is a few kilobytes; the limit keeps alias bombs out of the parser
+        probatio.Required("yaml"): probatio.All(str, probatio.Length(max=200_000)),
+    }
+)
 @async_response
 async def ws_set_layout(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]

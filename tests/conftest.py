@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
@@ -17,11 +17,6 @@ from custom_components.ble_floorplan.const import DOMAIN, NAME, STORAGE_KEY
 from . import FLOORPLAN, FakeScanner
 
 ScannerDevices = dict[str, list[Any]]
-
-
-@pytest.fixture(autouse=True)
-def _custom_integrations(enable_custom_integrations: None) -> None:
-    """Load the integration from custom_components."""
 
 
 @pytest.fixture

@@ -27,7 +27,8 @@ from .engine import (
     trilaterate,
 )
 from .history import HistoryStore
-from .model import Floorplan, Tracker
+from .model import Floorplan, Tracker, with_calibration
+from .solver import CalibrationError, fit_tracker
 from .store import FloorplanStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -174,27 +175,53 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         """Start recording the tracker's advertisements at its true position."""
         return await self.calibration.async_start(tracker_key, x, y, height, MONOTONIC_TIME())
 
-    async def async_stop_calibration(self) -> CalibrationRun:
-        """Stop the recording."""
-        return await self.calibration.async_stop(MONOTONIC_TIME())
+    async def async_stop_calibration(self) -> tuple[CalibrationRun, dict[str, Any] | None]:
+        """Stop the recording and save the tracker's values from its runs, as fit_tracker does."""
+        run = await self.calibration.async_stop(MONOTONIC_TIME())
+        return run, await self.async_fit_tracker(run.tracker)
+
+    async def async_fit_tracker(self, tracker_key: str) -> dict[str, Any] | None:
+        """Save the tracker's reference power and pair corrections from all of its runs.
+
+        Returns the fit (old and new values), None when the runs give nothing,
+        for a tracker without a usable run or no longer on the plan.
+        """
+        plan = self.plan
+        try:
+            fit = fit_tracker(plan, self.calibration.finished, tracker_key)
+        except CalibrationError:
+            return None
+        pairs = {scanner: {tracker_key: value["new"]} for scanner, value in fit["pairs"].items()}
+        await self.store.async_save(
+            with_calibration(plan, None, {tracker_key: fit["ref_power"]["new"]}, {}, pairs)
+        )
+        return fit
 
     def _address_of(self, tracker: Tracker) -> str | None:
         """Return the address to look for: fixed, or the current one of the Private BLE Device."""
         if tracker.address is not None:
             return tracker.address
         assert tracker.device_id is not None
-        if (entity_id := self._tracker_entities.get(tracker.device_id)) is None:
-            registry = er.async_get(self.hass)
-            for entry in er.async_entries_for_device(registry, tracker.device_id, True):
-                if entry.domain == "device_tracker" and entry.platform == PRIVATE_BLE_DEVICE:
-                    entity_id = self._tracker_entities[tracker.device_id] = entry.entity_id
-                    break
-            else:
+        entity_id = self._tracker_entities.get(tracker.device_id)
+        state = self.hass.states.get(entity_id) if entity_id is not None else None
+        if state is None:
+            # Not looked up yet, or renamed or created anew since: ask the registry
+            if (entity_id := self._tracker_entity(tracker.device_id)) is None:
                 return None
-        state = self.hass.states.get(entity_id)
+            state = self.hass.states.get(entity_id)
         if state is None or (address := state.attributes.get(ATTR_CURRENT_ADDRESS)) is None:
             return None
         return str(address).upper()
+
+    def _tracker_entity(self, device_id: str) -> str | None:
+        """Look up and remember the device tracker of a Private BLE Device."""
+        registry = er.async_get(self.hass)
+        for entry in er.async_entries_for_device(registry, device_id, True):
+            if entry.domain == "device_tracker" and entry.platform == PRIVATE_BLE_DEVICE:
+                self._tracker_entities[device_id] = entry.entity_id
+                return entry.entity_id
+        self._tracker_entities.pop(device_id, None)
+        return None
 
     def _collect(self, key: str, address: str, sources: dict[str, str]) -> None:
         """Take the newest advertisement of every scanner that sees the address.

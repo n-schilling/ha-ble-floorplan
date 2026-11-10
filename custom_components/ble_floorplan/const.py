@@ -80,6 +80,9 @@ DOOR_STEP: Final = 0.2
 # … and stopped by a wall, this far before it
 WALL_STOP: Final = 0.1
 
+# Written by scripts/deploy.sh for a test deployment: the commit the page shows
+BUILD_FILE: Final = "BUILD"
+
 # The card and the panel, served by the integration
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}"
 CARD_FILENAME: Final = "ble-floorplan-card.js"

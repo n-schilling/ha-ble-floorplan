@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
+import logging
 import math
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,8 @@ from .model import NUMBER
 
 if TYPE_CHECKING:
     from .coordinator import Positions
+
+_LOGGER = logging.getLogger(__name__)
 
 # (unix time, x, y, room); x and y are None while no scanner sees the tracker
 type Point = tuple[float, float | None, float | None, str | None]
@@ -59,6 +62,15 @@ def day_of(t: float) -> str:
 def day_start(day: str) -> float:
     """Return the unix time of the day's midnight, UTC."""
     return datetime.combine(date.fromisoformat(day), datetime.min.time(), UTC).timestamp()
+
+
+def _valid_day(day: str, data: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the stored day, validated; None and a warning for a day that cannot be read."""
+    try:
+        return dict(DAY_SCHEMA(data))
+    except probatio.Invalid as err:
+        _LOGGER.warning("The timeline of %s cannot be read and is left out: %s", day, err)
+        return None
 
 
 def _seen(point: Point | None) -> bool:
@@ -142,6 +154,9 @@ class HistoryStore:
         cutoff = day_of(now - keep_days * 86400) if keep_days else None
         gone = [d for d in self.days if cutoff is None or d < cutoff]
         if self._today is not None and (cutoff is None or self._today.day < cutoff):
+            # Through its own store, which also drops the write it has scheduled;
+            # another instance would leave that write to bring the day back
+            await self._today.store.async_remove()
             self._today = None
         for day in gone:
             await _day_store(self.hass, day).async_remove()
@@ -157,13 +172,16 @@ class HistoryStore:
             return {}
         if (data := await _day_store(self.hass, day).async_load()) is None:
             return {}
-        return _tracks_of(DAY_SCHEMA(data))
+        return _tracks_of(valid) if (valid := _valid_day(day, data)) is not None else {}
 
     async def _async_open(self, day: str) -> _Day:
         """Return today's track: from storage after a restart, else a new day."""
         tracks: Tracks = {}
-        if day in self.days and (data := await _day_store(self.hass, day).async_load()):
-            valid = DAY_SCHEMA(data)
+        if (
+            day in self.days
+            and (data := await _day_store(self.hass, day).async_load())
+            and (valid := _valid_day(day, data)) is not None
+        ):
             tracks = _tracks_of(valid)
             for track in tracks.values():
                 if _seen(track[-1] if track else None):

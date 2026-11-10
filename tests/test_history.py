@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
-from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant.typing import WebSocketGenerator
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
@@ -175,6 +175,41 @@ async def test_prune(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
     await history.async_prune(NOON, 0)
     assert history.days == []
     assert await history.async_day(DAY) == {}
+
+
+async def test_turning_off_drops_the_pending_write(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    """A write of today that was scheduled does not bring the day back after the timeline is off."""
+    freezer.move_to(datetime.fromtimestamp(NOON, UTC))
+    history = HistoryStore(hass)
+    await history.async_load(NOON, 7)
+    await history.async_record({"tag": _at(1.0)}, NOON, 7)
+    await history.async_prune(NOON, 0)
+    freezer.tick(120)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert TODAY_KEY not in hass_storage
+    assert hass_storage[INDEX]["data"] == {"days": []}
+    # Nor does the final write when Home Assistant stops
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert TODAY_KEY not in hass_storage
+
+
+async def test_unreadable_day(
+    hass: HomeAssistant, hass_storage: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A day that cannot be read is left out with a warning; today starts anew."""
+    hass_storage[INDEX] = _stored(INDEX, {"days": ["2026-10-25", DAY]})
+    for key in (f"{HISTORY_STORAGE_KEY}.2026-10-25", TODAY_KEY):
+        hass_storage[key] = _stored(key, {"saved": None, "tracks": {}})
+    history = HistoryStore(hass)
+    await history.async_load(NOON, 7)
+    assert await history.async_day("2026-10-25") == {}
+    assert "The timeline of 2026-10-25 cannot be read" in caplog.text
+    await history.async_record({"tag": _at(1.0)}, NOON, 7)
+    assert await history.async_day(DAY) == {"tag": [(NOON, 1.0, 1.0, "Living room")]}
 
 
 async def test_restart(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:

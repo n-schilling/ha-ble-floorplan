@@ -67,7 +67,7 @@ def _async_remove_stale(
     devices = dr.async_get(hass)
     for device in dr.async_entries_for_config_entry(devices, entry_id):
         if not device.identifiers & wanted_devices:
-            devices.async_update_device(device.id, remove_config_entry_id=entry_id)
+            devices.async_remove_device(device.id)
 
 
 class TrackerEntity(CoordinatorEntity[FloorplanCoordinator]):

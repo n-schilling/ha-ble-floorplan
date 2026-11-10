@@ -41,5 +41,10 @@
         "name": "Anwesenheit"
       }
     }
+  },
+  "exceptions": {
+    "invalid_storage": {
+      "message": "BLE Floorplan kann {file} nicht lesen: {error}. Die Datei bleibt unverändert; korrigieren oder entfernen und die Integration neu laden."
+    }
   }
 }

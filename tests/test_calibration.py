@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from freezegun.api import FrozenDateTimeFactory
 import probatio
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from homeassistant.core import HomeAssistant
 

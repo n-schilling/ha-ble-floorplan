@@ -19,7 +19,7 @@ from custom_components.ble_floorplan.model import (
     with_settings,
 )
 
-from . import FLOORPLAN, SCANNER_LIVING, TAG, make_plan
+from . import FLOORPLAN, SCANNER_LIVING, SCANNERS, TAG, make_plan
 
 
 def test_round_trip() -> None:
@@ -152,6 +152,12 @@ def test_room_without_name_is_fine() -> None:
         {"settings": {"robust_residual": -1}},
         {"settings": {"unknown": 1}},
         {"unknown": 1},
+        # Storage would keep NaN and infinity as null, which then no longer loads
+        {"settings": {"attenuation": "nan"}},
+        {"settings": {"max_distance": math.inf}},
+        {"openings": [[0, 0, "inf", 1]]},
+        {"rooms": [{"name": "R", "x": 0, "y": 0, "w": math.nan, "h": 1}]},
+        {"scanners": [{**SCANNERS[0], "x": "-inf"}]},
     ],
 )
 def test_invalid(bad: dict[str, Any]) -> None:

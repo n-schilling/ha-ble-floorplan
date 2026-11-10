@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -253,6 +253,19 @@ async def test_private_ble_device(
     assert phone.room == "Kitchen"
     assert phone.readings["kitchen"].distance == pytest.approx(1.5)
     assert device.id != PHONE_DEVICE_ID
+    # Renamed: the new entity is found without a reload
+    entities.async_update_entity("device_tracker.phone", new_entity_id="device_tracker.renamed")
+    hass.states.async_remove("device_tracker.phone")
+    hass.states.async_set("device_tracker.renamed", "home", {"current_address": PHONE_ADDRESS})
+    clock(1004.0)
+    await coordinator.async_refresh()
+    assert coordinator.data["phone"].address == PHONE_ADDRESS
+    # Gone: no address, and nothing remembered
+    entities.async_remove("device_tracker.renamed")
+    hass.states.async_remove("device_tracker.renamed")
+    clock(1005.0)
+    await coordinator.async_refresh()
+    assert coordinator.data["phone"].address is None
 
 
 async def test_private_ble_device_without_tracker(
@@ -313,8 +326,10 @@ async def test_calibration_records_new_advertisements(
     assert run.samples == {"living": [(1.0, -60), (4.0, -62)], "kitchen": [(1.5, -70)]}
     # The phone is not the run's tracker
     hass.states.async_set("device_tracker.phone", "home", {"current_address": PHONE_ADDRESS})
-    stopped = await coordinator.async_stop_calibration()
+    stopped, fit = await coordinator.async_stop_calibration()
     assert stopped is run
+    # Two samples of the kitchen are too few for a fit
+    assert fit is None
     assert run.duration == 5.0
     assert calibration.active is None
     # After the stop nothing is added

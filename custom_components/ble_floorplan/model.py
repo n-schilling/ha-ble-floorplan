@@ -36,6 +36,7 @@ from .const import (
 )
 from .geometry import (
     Point,
+    bounds,
     closest_on_outline,
     closest_on_segment,
     point_in_polygon,
@@ -43,7 +44,15 @@ from .geometry import (
     segment_intersection,
 )
 
-NUMBER = probatio.Coerce(float)
+
+def _finite(value: float) -> float:
+    """Reject NaN and infinity: storage would keep them as null, which no longer loads."""
+    if not math.isfinite(value):
+        raise probatio.Invalid("not a finite number")
+    return value
+
+
+NUMBER = probatio.All(probatio.Coerce(float), _finite)
 POINT = probatio.ExactSequence([NUMBER, NUMBER])
 OPENING = probatio.ExactSequence([NUMBER, NUMBER, NUMBER, NUMBER])
 
@@ -465,13 +474,7 @@ class Floorplan:
     @property
     def extent(self) -> tuple[float, float]:
         """Return the width and height of the plan, from the origin."""
-        max_x = 0.0
-        max_y = 0.0
-        for room in self.rooms:
-            for x, y in room.corners:
-                max_x = max(max_x, x)
-                max_y = max(max_y, y)
-        return max_x, max_y
+        return bounds(r.corners for r in self.rooms)
 
     def scanner(self, key: str) -> Scanner | None:
         """Return the scanner with the key."""
