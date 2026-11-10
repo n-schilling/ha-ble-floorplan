@@ -3,9 +3,13 @@
 // the timeline and change the settings. The floor plan is on every page but
 // the settings: the scanners are placed on it, the true position of a
 // calibration run is tapped on it. Everything comes from the integration over
-// the WebSocket API, the page looks like Home Assistant's own.
+// the WebSocket API. The page is built from Home Assistant's own elements (top
+// app bar, cards, buttons, icon buttons, alerts and ha-form with selectors);
+// a scanner or a tracker opens as a subpage with a back arrow.
 import {
   COLORS,
+  LiveSubscription,
+  MDI,
   PANEL_PATH,
   PLAN_CSS,
   PlanZoom,
@@ -16,21 +20,20 @@ import {
   detailHtml,
   dotHtml,
   esc,
-  fieldNumber,
   formatter,
   icon,
+  iconButton,
   keep,
   loadLabels,
   loadRot,
   navigate,
-  numOrNull,
   planInfo,
   planSvg,
   snap,
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.12.0";
+} from "./ble-floorplan-plan.js?v=0.13.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -116,22 +119,39 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._frameKey = null;
       // The timeline: the moment shown (null = live), zoom, playback, the days fetched
       this._tl = { cursor: null, spp: SPP_START, playing: false, speed: 60, days: {}, loading: new Set(), wasLive: true };
+      // The forms on the sheet: id -> {schema, data, onChange}, drawn as ha-form
+      this._forms = {};
+      // A removal waiting for its confirmation: {act, key, name}
+      this._confirm = null;
+      // Shown at the bottom: {version, commit}
+      this._about = null;
+      this._live = new LiveSubscription(
+        this,
+        (event) => this._onEvent(event),
+        (err) => {
+          this._error = !err ? null : err.code === "not_loaded" ? this._t.notLoaded : String(err.message || err);
+          this._render();
+        }
+      );
       this._bindOnce();
     }
 
     set hass(hass) {
       const first = !this._hass;
       this._hass = hass;
+      this._live.ensure(hass);
       if (first) {
-        this._subscribe();
         this._load();
+        this._render();
       }
-      // The menu button follows the sidebar; nothing else needs a redraw
-      if (first || this._menuShown !== this._showMenu) this._render();
+      // The menu button follows the sidebar itself; the forms need the new hass
+      for (const el of this.shadowRoot.querySelectorAll("ha-menu-button, ha-form")) el.hass = hass;
     }
 
     set narrow(narrow) {
       this._narrow = narrow;
+      const menu = this.shadowRoot.querySelector("ha-menu-button");
+      if (menu) menu.narrow = narrow;
       this._render();
     }
 
@@ -147,12 +167,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     }
 
     connectedCallback() {
-      if (this._hass && !this._unsub) this._subscribe();
+      this._live.ensure(this._hass);
       this._render();
     }
 
     disconnectedCallback() {
-      this._unsubscribe();
+      this._live.close();
       this._tlPause();
     }
 
@@ -164,35 +184,6 @@ if (!customElements.get("ble-floorplan-panel")) {
       return formatter(this._hass);
     }
 
-    get _showMenu() {
-      return !!this._narrow || this._hass?.dockedSidebar === "always_hidden";
-    }
-
-    async _subscribe() {
-      if (this._subscribing || this._unsub || !this._hass) return;
-      this._subscribing = true;
-      try {
-        this._unsub = await this._hass.connection.subscribeMessage(
-          (event) => this._onEvent(event),
-          { type: "ble_floorplan/subscribe" }
-        );
-        this._error = null;
-      } catch (err) {
-        this._error = err?.code === "not_loaded" ? this._t.notLoaded : String(err?.message || err);
-        this._render();
-      } finally {
-        this._subscribing = false;
-      }
-    }
-
-    _unsubscribe() {
-      if (this._unsub) {
-        const unsub = this._unsub;
-        this._unsub = null;
-        unsub().catch(() => {});
-      }
-    }
-
     _onEvent(event) {
       if (event.floorplan) {
         this._plan = event.floorplan;
@@ -200,6 +191,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       if (event.positions) this._positions = event.positions;
       if (event.calibration) this._calibration = event.calibration;
+      if (event.about) this._about = event.about;
       this._render();
     }
 
@@ -212,6 +204,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._dragPos = null;
         this._form = null;
         this._note = null;
+        this._confirm = null;
         this._labelMenu = false;
       }
       if (tab === "scanners" && key) this._selScanner = key;
@@ -268,10 +261,12 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._render();
     }
 
-    // A redraw while a field has the focus would lose the input
+    // A redraw while a field has the focus would lose the input; a choice in a
+    // drop-down that changes other fields asks for the redraw itself
     _typing() {
+      if (this._redraw) return false;
       const el = this.shadowRoot.activeElement;
-      return !!el && (el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && el.type === "text"));
+      return !!el && (el.tagName === "TEXTAREA" || el.tagName === "HA-FORM");
     }
 
     get _tlAllowed() {
@@ -289,37 +284,55 @@ if (!customElements.get("ble-floorplan-panel")) {
       const plan = this._plan;
       const showMap = this._tab !== "settings" && !!plan?.rooms.length;
       const showSheet = !this._tlOn;
-      const key = [this._tab, !!this._narrow, this._showMenu, !!plan, showMap, showSheet, this._tlOn, this._hass.language].join("|");
+      const sub = this._subpage;
+      const key = [this._tab, !!this._narrow, !!plan, showMap, showSheet, this._tlOn, this._hass.language, sub?.key, sub?.name].join("|");
       if (key !== this._frameKey) {
         this._frameKey = key;
-        this._menuShown = this._showMenu;
-        this._frame(plan, showMap, showSheet);
+        this._frame(plan, showMap, showSheet, sub);
       }
       this._update();
     }
 
-    // The parts that stay while the page is open: toolbar, tabs, map, timeline, sheet
-    _frame(plan, showMap, showSheet) {
+    // A scanner or a tracker opened: a subpage with a back arrow and its name
+    get _subpage() {
+      const plan = this._plan;
+      if (!plan) return null;
+      if (this._tab === "scanners" && this._selScanner) return plan.scanners.find((x) => x.key === this._selScanner) || null;
+      if (this._tab === "trackers" && this._selTracker) return plan.trackers.find((x) => x.key === this._selTracker) || null;
+      return null;
+    }
+
+    // The parts that stay while the page is open: top app bar, tabs, map, timeline, sheet
+    _frame(plan, showMap, showSheet, sub) {
       const t = this._t;
       const tabs = TABS.map(([id, ic, label]) =>
         `<a class="tab${this._tab === id ? " active" : ""}" data-tab="${id}" href="${PANEL_PATH}/${id}">` +
         `${this._narrow ? icon(ic) : ""}<span>${esc(t[label])}</span></a>`).join("");
-      const menu = this._showMenu
-        ? `<button class="icon-button menu-button" data-act="menu" title="${esc(t.menu)}">${icon("menu")}</button>`
-        : "";
+      const nav = sub
+        ? iconButton("back", t.back, 'slot="navigationIcon" data-act="back"')
+        : `<ha-menu-button slot="navigationIcon"></ha-menu-button>`;
       const stage = showMap
         ? `<div class="stage"><div class="map" id="map"><div class="maptools" id="maptools"></div><div id="svg"></div>` +
           `<div class="tip"></div></div>${this._tlOn ? this._tlHtml() : ""}</div>`
         : "";
-      const sheet = showSheet ? `<div class="sheet" id="sheet"></div>` : "";
+      const sheet = showSheet ? `<div class="sheet" id="sheet"></div>` : `<div class="about" id="about"></div>`;
+      const topTabs = !this._narrow && !sub;
       this.shadowRoot.innerHTML = `
         <style>${PLAN_CSS}${STYLE}</style>
-        <div class="app${this._narrow ? " narrow" : ""}">
-          <div class="toolbar">${menu}<div class="main-title">BLE Floorplan</div>
-            ${this._narrow ? "" : `<nav class="tabs">${tabs}</nav>`}</div>
-          <div class="content ${this._tab}${showMap ? " withmap" : ""}${showSheet ? "" : " nosheet"}">${stage}${sheet}</div>
-          ${this._narrow ? `<nav class="bottom-tabs">${tabs}</nav>` : ""}
-        </div>`;
+        <ha-top-app-bar-fixed class="${topTabs ? "with-tabs" : ""}">
+          ${nav}
+          <div slot="title">${esc(sub ? sub.name : "BLE Floorplan")}</div>
+          <div class="app${this._narrow ? " narrow" : ""}">
+            ${topTabs ? `<nav class="tabs">${tabs}</nav>` : ""}
+            <div class="content ${this._tab}${showMap ? " withmap" : ""}${showSheet ? "" : " nosheet"}">${stage}${sheet}</div>
+            ${this._narrow && !sub ? `<nav class="bottom-tabs">${tabs}</nav>` : ""}
+          </div>
+        </ha-top-app-bar-fixed>`;
+      const menu = this.shadowRoot.querySelector("ha-menu-button");
+      if (menu) {
+        menu.hass = this._hass;
+        menu.narrow = this._narrow;
+      }
       this._sheetHtml = null;
       this._svgHtml = null;
       this._toolsHtml = null;
@@ -352,12 +365,17 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       const sheet = root.getElementById("sheet");
       if (sheet && !this._typing()) {
+        this._forms = {};
         const html = this._sheet();
         if (html !== this._sheetHtml) {
           this._sheetHtml = html;
           sheet.innerHTML = html;
+          this._hydrate(sheet);
         }
+        this._redraw = false;
       }
+      const about = root.getElementById("about");
+      if (about) about.textContent = this._aboutText();
       this._tlFrame();
     }
 
@@ -421,46 +439,91 @@ if (!customElements.get("ble-floorplan-panel")) {
             .map(([k, l]) => `<label><input type="checkbox" data-label="${k}"${this._labels[k] ? " checked" : ""}>${esc(l)}</label>`)
             .join("")}</div>`
         : "";
-      return `<button class="icon-button" data-act="rotate" title="${esc(t.rotate)}">${icon("rotate")}</button>` +
-        `<span class="menuwrap"><button class="icon-button${this._labelMenu ? " on" : ""}" data-act="labels" title="${esc(t.labels)}">${icon("label")}</button>${menu}</span>`;
+      return iconButton("rotate", t.rotate, 'data-act="rotate"') +
+        `<span class="menuwrap">${iconButton("label", t.labels, `data-act="labels"${this._labelMenu ? ' class="on"' : ""}`)}${menu}</span>`;
     }
 
     // ---- Building blocks, as Home Assistant draws them ----
 
     _card(title, body, actions = "", cls = "") {
-      return `<div class="card ${cls}">${title ? `<h2>${title}</h2>` : ""}<div class="card-content">${body}</div>` +
-        `${actions ? `<div class="card-actions">${actions}</div>` : ""}</div>`;
+      return `<ha-card${title ? ` header="${esc(title)}"` : ""} class="${cls}"><div class="card-content${title ? "" : " top"}">${body}</div>` +
+        `${actions ? `<div class="card-actions">${actions}</div>` : ""}</ha-card>`;
     }
 
+    // kind: "" (plain), "filled" (the main action), "danger"
     _btn(act, label, { kind = "", disabled = false, data = "" } = {}) {
-      return `<button class="btn ${kind}" data-act="${act}"${data}${disabled || this._busy ? " disabled" : ""}>${esc(label)}</button>`;
+      const look = kind === "filled" ? "" : kind === "danger" ? ' appearance="plain" variant="danger"' : ' appearance="plain"';
+      return `<ha-button${look} data-act="${act}"${data}${disabled || this._busy ? " disabled" : ""}>${esc(label)}</ha-button>`;
     }
 
-    _field(name, label, value, { text = false, wide = false } = {}) {
-      const v = text ? value ?? "" : fieldNumber(this._hass, value);
-      return `<label class="field${wide ? " wide" : ""}"><span>${esc(label)}</span>` +
-        `<input type="text"${text ? "" : ' inputmode="decimal"'} data-f="${esc(name)}" value="${esc(v)}"></label>`;
+    // A field in metres, dB, seconds: a number selector of Home Assistant
+    _num(name, label, unit, extra = {}) {
+      return { name, label, selector: { number: { mode: "box", step: "any", ...(unit ? { unit_of_measurement: unit } : {}), ...extra } } };
     }
 
-    _select(name, label, options, value) {
-      return `<label class="field wide"><span>${esc(label)}</span><select data-f="${esc(name)}">` +
-        options.map(([v, l]) => `<option value="${esc(v)}"${v === value ? " selected" : ""}>${esc(l)}</option>`).join("") +
-        `</select></label>`;
+    // An ha-form with Home Assistant's selectors; drawn after the sheet's HTML.
+    // The data is part of the placeholder, so a change from outside redraws it
+    _formSlot(id, schema, data, onChange) {
+      const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== null && v !== undefined));
+      this._forms[id] = { schema, data: clean, onChange };
+      return `<div class="haform" data-form="${esc(id)}" data-v="${esc(JSON.stringify(clean))}"></div>`;
+    }
+
+    _hydrate(root) {
+      for (const slot of root.querySelectorAll("[data-form]")) {
+        const spec = this._forms[slot.dataset.form];
+        if (!spec) continue;
+        const form = document.createElement("ha-form");
+        form.hass = this._hass;
+        form.schema = spec.schema;
+        form.data = spec.data;
+        form.computeLabel = (s) => s.label ?? s.name;
+        form.computeHelper = (s) => s.helper;
+        form.addEventListener("value-changed", (e) => {
+          form.data = e.detail.value;
+          spec.onChange(e.detail.value);
+        });
+        slot.append(form);
+      }
     }
 
     _kv(rows) {
       return `<table class="kv">${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join("")}</table>`;
     }
 
+    _alert(kind, text) {
+      return `<ha-alert alert-type="${kind}">${esc(text)}</ha-alert>`;
+    }
+
     _noteHtml() {
-      return this._note ? `<div class="alert ${this._note.kind}">${esc(this._note.text)}</div>` : "";
+      if (!this._note) return "";
+      return this._alert(this._note.kind === "ok" ? "success" : this._note.kind === "err" ? "error" : "info", this._note.text);
+    }
+
+    // Removing asks first, in the card, as Home Assistant's own pages do
+    _confirmHtml() {
+      const c = this._confirm;
+      if (!c) return "";
+      return `<ha-alert alert-type="warning">${esc(this._t.confirmRemove.replace("{name}", c.name))}` +
+        `<ha-button slot="action" appearance="plain" data-act="confirm-cancel">${esc(this._t.cancel)}</ha-button>` +
+        `<ha-button slot="action" variant="danger" data-act="confirm-ok">${esc(this._t.remove)}</ha-button></ha-alert>`;
+    }
+
+    // The version, from the integration's manifest, and the commit of a test deployment
+    _aboutText() {
+      const a = this._about;
+      if (!a?.version) return "";
+      return (a.commit ? this._t.aboutCommit : this._t.about).replace("{version}", a.version).replace("{commit}", a.commit || "");
     }
 
     // ---- The sheet of each page ----
 
     _sheet() {
       const t = this._t;
-      if (!this._plan) return this._card("", `<div class="muted">${esc(this._error || "…")}</div>`);
+      if (!this._plan) {
+        return (this._error ? this._alert("error", this._error) : this._card("", `<div class="muted">…</div>`)) +
+          `<div class="about">${esc(this._aboutText())}</div>`;
+      }
       const page = {
         plan: () => this._planSheet(),
         scanners: () => this._scannersSheet(),
@@ -471,23 +534,23 @@ if (!customElements.get("ble-floorplan-panel")) {
         settings: () => this._settingsSheet(),
       }[this._tab];
       const empty = !this._plan.rooms.length && this._tab !== "plan" && this._tab !== "settings"
-        ? `<div class="alert info">${esc(t.startHere)}</div>`
+        ? this._alert("info", t.startHere)
         : "";
-      return this._noteHtml() + empty + page();
+      return this._noteHtml() + empty + page() + `<div class="about">${esc(this._aboutText())}</div>`;
     }
 
     _planSheet() {
       const t = this._t;
-      const empty = this._plan.rooms.length ? "" : `<div class="alert info">${esc(t.startHere)}</div>`;
+      const empty = this._plan.rooms.length ? "" : this._alert("info", t.startHere);
       const body = `<textarea data-f="layout" rows="22" spellcheck="false" wrap="off">${esc(this._layout ?? "…")}</textarea>` +
         `<div class="muted small">${esc(t.layoutHint)}</div>`;
       return empty + this._card(t.plan, body, `<span></span>${this._btn("save-layout", t.save, { kind: "filled", disabled: this._layout == null })}`);
     }
 
     _item(act, key, lead, headline, supporting, active) {
-      return `<button class="item${active ? " active" : ""}" data-act="${act}" data-key="${esc(key)}">${lead}` +
+      return `<div class="item${active ? " active" : ""}" role="button" tabindex="0" data-act="${act}" data-key="${esc(key)}">${lead}` +
         `<span class="text"><span class="headline">${esc(headline)}</span><span class="supporting">${supporting}</span></span>` +
-        `<span class="next">${icon("chevron")}</span></button>`;
+        `<span class="next">${icon("chevron")}</span></div>`;
     }
 
     _addCard(kind) {
@@ -501,14 +564,32 @@ if (!customElements.get("ble-floorplan-panel")) {
       const options = items.map((c) => [value(c), kind === "scanner" ? `${c.name} (${c.source})` : `${c.name}${c.address ? ` (${c.address})` : ""}`]);
       const chosen = this._add[kind] && options.some(([v]) => v === this._add[kind]) ? this._add[kind] : options[0][0];
       this._add[kind] = chosen;
-      let body = this._select(`add:${kind}`, t.add, options, chosen);
+      const pick = { name: "item", label: t.add, required: true, selector: { select: { mode: "dropdown", options: options.map(([v, l]) => ({ value: v, label: l })) } } };
+      let schema;
+      let data;
       if (kind === "scanner") {
-        body += `<div class="fields">${this._field("add:z", `${t.height} (m)`, this._add.z ?? 1)}</div>`;
+        schema = [pick, this._num("z", t.height, "m")];
+        data = { item: chosen, z: this._add.z ?? 1 };
       } else {
         const c = items.find((x) => value(x) === chosen);
-        body += `<div class="fields">${this._field("add:name", t.name, this._add.name ?? c?.name ?? "", { text: true })}` +
-          `${this._field("add:height", `${t.height} (m)`, this._add.height ?? 1)}</div>`;
+        schema = [pick, { name: "name", label: t.name, selector: { text: {} } }, this._num("height", t.height, "m")];
+        data = { item: chosen, name: this._add.name ?? c?.name ?? "", height: this._add.height ?? 1 };
       }
+      const body = this._formSlot(`add-${kind}`, schema, data, (v) => {
+        if (v.item !== this._add[kind]) {
+          // Another choice: the name follows it
+          this._add[kind] = v.item;
+          if (kind === "tracker") this._add.name = null;
+          this._redraw = true;
+          this._render();
+          return;
+        }
+        if (kind === "scanner") this._add.z = v.z ?? null;
+        else {
+          this._add.name = v.name ?? "";
+          this._add.height = v.height ?? null;
+        }
+      });
       return this._card(title, body, `<span></span>${this._btn(`add-${kind}`, t.add, { kind: "filled" })}`);
     }
 
@@ -531,8 +612,6 @@ if (!customElements.get("ble-floorplan-panel")) {
         return this._card(t.scanners, items.join("") || `<div class="muted">${esc(t.none)}</div>`, "", "list") + this._addCard("scanner");
       }
       const info = this._info.scanners[s.key];
-      const head = `<div class="card-head"><button class="icon-button" data-act="back" title="${esc(t.back)}">${icon("back")}</button>` +
-        `<span>${esc(s.name)}</span></div>`;
       const hears = `<table class="data"><tr><th>${esc(t.tracker)}</th><th class="n">m</th><th class="n">dBm</th></tr>` +
         info.trackers.map((e) => `<tr class="${e.d == null || !e.used ? "ign" : ""}"><td><span class="dot" style="background:${e.color}"></span>${esc(e.name)}</td>` +
           `<td class="n">${e.d == null ? esc(t.notSeen) : fmt(e.d)}</td><td class="n">${e.rssi == null ? "" : fmt(e.rssi, 0)}</td></tr>`).join("") +
@@ -541,27 +620,34 @@ if (!customElements.get("ble-floorplan-panel")) {
       let actions;
       if (this._form) {
         const f = this._form;
-        body = `<div class="fields">${this._field("form:x", "x (m)", f.x)}${this._field("form:y", "y (m)", f.y)}${this._field("form:z", `${t.height} (m)`, f.z)}` +
-          `${this._field("form:rssi_offset", `${t.offset} (dB)`, f.rssi_offset)}</div>` +
-          `<div class="subhead">${esc(t.pairs)} (dB)</div><div class="fields">` +
-          plan.trackers.map((tr) => this._field(`form:pair:${tr.key}`, tr.name, f.pairs[tr.key])).join("") + `</div>`;
+        body = this._formSlot("scanner", [
+          { type: "grid", name: "", schema: [this._num("x", "x", "m"), this._num("y", "y", "m"), this._num("z", t.height, "m"), this._num("rssi_offset", t.offset, "dB")] },
+        ], f, (v) => {
+          for (const k of ["x", "y", "z", "rssi_offset"]) f[k] = v[k] ?? null;
+        }) +
+          `<div class="subhead">${esc(t.pairs)}</div>` +
+          this._formSlot("scanner-pairs", [
+            { type: "grid", name: "", schema: plan.trackers.map((tr) => this._num(tr.key, tr.name, "dB")) },
+          ], f.pairs, (v) => {
+            for (const tr of plan.trackers) f.pairs[tr.key] = v[tr.key] ?? null;
+          });
         actions = `<span></span><span>${this._btn("cancel", t.cancel)}${this._btn("save-scanner", t.save, { kind: "filled" })}</span>`;
       } else if (this._mode === "move") {
         const [x, y] = this._scannerPos(s);
-        body = `<div class="alert info">${esc(t.hintMove)}</div>` + this._kv([[t.position, `${fmt(x, 2)} / ${fmt(y, 2)} m`]]);
+        body = this._alert("info", t.hintMove) + this._kv([[t.position, `${fmt(x, 2)} / ${fmt(y, 2)} m`]]);
         actions = `<span></span><span>${this._btn("cancel", t.cancel)}${this._btn("save-move", t.save, { kind: "filled" })}</span>`;
       } else {
         const pairs = plan.trackers.map((tr) => [tr.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
-        body = this._kv([
+        body = this._confirmHtml() + this._kv([
           [t.position, `${fmt(s.x)} / ${fmt(s.y)} m`],
           [t.height, `${fmt(s.z)} m`],
           [t.offset, `${s.rssi_offset > 0 ? "+" : ""}${fmt(s.rssi_offset)} dB`],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
         ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}`;
-        actions = this._btn("remove-scanner", t.remove, { kind: "danger" }) +
+        actions = this._btn("remove-scanner", t.remove, { kind: "danger", disabled: !!this._confirm }) +
           `<span>${this._btn("move", t.move)}${this._btn("edit-scanner", t.edit)}</span>`;
       }
-      return `<div class="card">${head}<div class="card-content">${body}</div><div class="card-actions">${actions}</div></div>`;
+      return this._card("", body, actions);
     }
 
     _trackersSheet() {
@@ -578,8 +664,6 @@ if (!customElements.get("ble-floorplan-panel")) {
         return this._card(t.trackers, items.join("") || `<div class="muted">${esc(t.none)}</div>`, "", "list") + this._addCard("tracker");
       }
       const info = this._info.trackers[tr.key];
-      const head = `<div class="card-head"><button class="icon-button" data-act="back" title="${esc(t.back)}">${icon("back")}</button>` +
-        `<span class="dot" style="background:${info.color}"></span><span>${esc(tr.name)}</span></div>`;
       const status = info.p
         ? `${esc(info.room || t.unknown)} · ${fmt(info.p.x)} / ${fmt(info.p.y)} m · ${esc(t.seenBy.replace("{n}", info.p.scanner_count))}`
         : esc(t.notSeen);
@@ -593,23 +677,34 @@ if (!customElements.get("ble-floorplan-panel")) {
       let actions;
       if (this._form) {
         const f = this._form;
-        body = `<div class="fields">${this._field("form:height", `${t.height} (m)`, f.height)}` +
-          `${this._field("form:ref_power", `${t.refPower} (dBm, ${t.default} ${fmt(plan.settings.ref_power_default, 0)})`, f.ref_power)}</div>` +
-          `<div class="subhead">${esc(t.pairs)} (dB)</div><div class="fields">` +
-          plan.scanners.map((s) => this._field(`form:pair:${s.key}`, s.name, f.pairs[s.key])).join("") + `</div>`;
+        body = this._formSlot("tracker", [
+          { type: "grid", name: "", schema: [
+            this._num("height", t.height, "m"),
+            { ...this._num("ref_power", t.refPower, "dBm"), helper: `${t.default} ${fmt(plan.settings.ref_power_default, 0)} dBm` },
+          ] },
+        ], f, (v) => {
+          f.height = v.height ?? null;
+          f.ref_power = v.ref_power ?? null;
+        }) +
+          `<div class="subhead">${esc(t.pairs)}</div>` +
+          this._formSlot("tracker-pairs", [
+            { type: "grid", name: "", schema: plan.scanners.map((sc) => this._num(sc.key, sc.name, "dB")) },
+          ], f.pairs, (v) => {
+            for (const sc of plan.scanners) f.pairs[sc.key] = v[sc.key] ?? null;
+          });
         actions = `<span></span><span>${this._btn("cancel", t.cancel)}${this._btn("save-tracker", t.save, { kind: "filled" })}</span>`;
       } else {
         const ref = tr.ref_power == null ? `${esc(t.default)} (${fmt(plan.settings.ref_power_default, 0)} dBm)` : `${fmt(tr.ref_power)} dBm`;
         const pairs = plan.scanners.map((s) => [s.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
-        body = `<div class="status">${status}</div>` + this._kv([
+        body = this._confirmHtml() + `<div class="status"><span class="dot" style="background:${info.color}"></span>${status}</div>` + this._kv([
           [t.height, `${fmt(tr.height, 2)} m`],
           [t.refPower, ref],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
         ]) + `<div class="subhead">${esc(t.heardBy)}</div>${readings}`;
-        actions = this._btn("remove-tracker", t.remove, { kind: "danger" }) +
+        actions = this._btn("remove-tracker", t.remove, { kind: "danger", disabled: !!this._confirm }) +
           `<span>${this._btn("measure-tracker", t.measure)}${this._btn("edit-tracker", t.edit)}</span>`;
       }
-      return `<div class="card">${head}<div class="card-content">${body}</div><div class="card-actions">${actions}</div></div>`;
+      return this._card("", body, actions);
     }
 
     _calibrationSheet() {
@@ -624,7 +719,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         const rows = plan.scanners
           .map((s) => `<tr><td>${esc(s.name)}</td><td class="n">${active.counts?.[s.key] || 0}</td></tr>`)
           .join("");
-        run = this._card(`${esc(t.measure)} · ${esc(t.running)}`,
+        run = this._card(`${t.measure} · ${t.running}`,
           this._kv([
             [t.tracker, `<span class="dot" style="background:${trackerColor(plan, active.tracker)}"></span>${esc(name(active.tracker))}`],
             [t.runAt, `${fmt(active.x, 2)} / ${fmt(active.y, 2)} m · ${esc(t.height)} ${fmt(active.height, 2)} m`],
@@ -640,9 +735,21 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         const ready = m.x != null;
         run = this._card(t.newRun,
-          this._select("measure:tracker", t.pickTracker, plan.trackers.map((x) => [x.key, x.name]), m.tracker) +
-          `<div class="fields">${this._field("measure:height", `${t.height} (m)`, m.height)}</div>` +
-          (ready ? this._kv([[t.runAt, `${fmt(m.x, 2)} / ${fmt(m.y, 2)} m`]]) : `<div class="alert info">${esc(t.hintMeasure)}</div>`),
+          this._formSlot("measure", [
+            { name: "tracker", label: t.pickTracker, required: true, selector: { select: { mode: "dropdown", options: plan.trackers.map((x) => ({ value: x.key, label: x.name })) } } },
+            this._num("height", t.height, "m"),
+          ], { tracker: m.tracker, height: m.height }, (v) => {
+            if (v.tracker !== m.tracker) {
+              // Another tracker: its height is the start
+              m.tracker = v.tracker;
+              m.height = plan.trackers.find((x) => x.key === v.tracker)?.height ?? 1;
+              this._redraw = true;
+              this._render();
+              return;
+            }
+            m.height = v.height ?? m.height;
+          }) +
+          (ready ? this._kv([[t.runAt, `${fmt(m.x, 2)} / ${fmt(m.y, 2)} m`]]) : this._alert("info", t.hintMeasure)),
           `<span></span>${this._btn("cal-start", t.start, { kind: "filled", disabled: !ready })}`);
       }
       const runs = this._calibration.runs;
@@ -652,7 +759,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         const length = r.running ? esc(t.running) : `${Math.round(r.duration)} s`;
         return `<tr class="${r.running ? "live" : ""}"><td class="nowrap"><span class="dot" style="background:${trackerColor(plan, r.tracker)}"></span>${esc(name(r.tracker))}</td>` +
           `<td class="n">${fmt(r.x)} / ${fmt(r.y)}</td><td class="n">${length}</td>${counts}` +
-          `<td><button class="icon-button small" data-act="cal-delete" data-key="${esc(r.id)}" title="${esc(t.delete)}"${this._busy ? " disabled" : ""}>${icon("delete")}</button></td></tr>`;
+          `<td>${iconButton("delete", t.delete, `class="small" data-act="cal-delete" data-key="${esc(r.id)}"${this._busy ? " disabled" : ""}`)}</td></tr>`;
       }).join("");
       const table = runs.length
         ? `<div class="scroll"><table class="data runs"><tr><th>${esc(t.tracker)}</th><th class="n">x / y</th><th class="n">${esc(t.duration)}</th>${cols}<th></th></tr>${rows}</table></div>`
@@ -681,8 +788,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       const advanced = this._card(t.advanced,
         `<div class="muted">${esc(t.advancedHint)}</div>` +
-        `<label class="setting"><span class="text"><span class="headline">${esc(t.fitExponent)}</span></span>` +
-        `<input type="checkbox" class="switch" data-f="cal:fitN"${this._cal.fitN ? " checked" : ""}></label>${preview}`,
+        this._formSlot("fit", [{ name: "fitN", label: t.fitExponent, selector: { boolean: {} } }], { fitN: this._cal.fitN }, (v) => {
+          this._cal.fitN = !!v.fitN;
+        }) + preview,
         `<span></span><span>${this._btn("cal-solve", t.compute, { disabled: !finished })}` +
         `${pr ? this._btn("cal-apply", t.apply, { kind: "filled", disabled: !!active }) : ""}</span>`);
       return run + this._card(t.runs, `<div class="muted small">${esc(t.calHint)}</div>${table}`) + advanced;
@@ -694,15 +802,17 @@ if (!customElements.get("ble-floorplan-panel")) {
       const f = this._settings || plan.settings;
       const sections = {};
       for (const [sec, key, label, kind] of SETTING_FIELDS) {
-        const control = kind === "bool"
-          ? `<input type="checkbox" class="switch" data-f="setting:${key}"${f[key] ? " checked" : ""}>`
-          : `<input type="text" class="num" inputmode="decimal" data-f="setting:${key}" value="${esc(fieldNumber(this._hass, f[key]))}">`;
-        sections[sec] = (sections[sec] || "") +
-          `<label class="setting"><span class="text"><span class="headline">${esc(t[label])}</span></span>${control}</label>`;
+        (sections[sec] ||= []).push(
+          kind === "bool" ? { name: key, label: t[label], selector: { boolean: {} } } : this._num(key, t[label], null)
+        );
       }
+      const form = (sec) => this._formSlot(`settings-${sec}`, sections[sec], f, (v) => {
+        this._settings = { ...(this._settings || plan.settings) };
+        for (const field of sections[sec]) this._settings[field.name] = v[field.name] ?? null;
+      });
       const save = `<span></span>${this._btn("save-settings", t.save, { kind: "filled" })}`;
       return ["engine", "motion", "roomRules", "robust", "timeline"]
-        .map((id) => this._card(t[id], sections[id] + (id === "timeline" ? `<div class="muted small">${esc(t.timelineHint)}</div>` : ""), save))
+        .map((id) => this._card(t[id], form(id) + (id === "timeline" ? `<div class="muted small">${esc(t.timelineHint)}</div>` : ""), save))
         .join("");
     }
 
@@ -744,6 +854,13 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         if (e.target.closest?.("#map")) this._mapClick(e);
       });
+      // A list item opens with Enter or Space, as a button would
+      root.addEventListener("keydown", (e) => {
+        const item = e.target.closest?.(".item[data-act]");
+        if (!item || e.target !== item || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        this._act(item.dataset.act, item);
+      });
       root.addEventListener("input", (e) => this._input(e.target));
       root.addEventListener("change", (e) => {
         const el = e.target;
@@ -754,40 +871,13 @@ if (!customElements.get("ble-floorplan-panel")) {
           return;
         }
         this._input(el);
-        // A select keeps the focus after the choice, the page would not redraw
-        if (el.tagName === "SELECT") {
-          el.blur();
-          this._render();
-        }
-        if (el.type === "checkbox") this._render();
       });
       root.addEventListener("pointerdown", (e) => this._dragStart(e));
     }
 
+    // The floor plan as YAML; every other field is an ha-form with its own handler
     _input(el) {
-      const name = el.dataset?.f;
-      if (!name) return;
-      const v = el.type === "checkbox" ? el.checked : el.value;
-      const [group, key, sub] = name.split(":");
-      if (group === "layout") this._layout = v;
-      else if (group === "form") {
-        if (key === "pair") this._form.pairs[sub] = numOrNull(v);
-        else this._form[key] = numOrNull(v);
-      } else if (group === "setting") {
-        if (!this._settings) this._settings = { ...this._plan.settings };
-        this._settings[key] = el.type === "checkbox" ? v : numOrNull(v);
-      } else if (group === "add") {
-        if (key === "scanner" || key === "tracker") {
-          this._add[key] = v;
-          if (key === "tracker") this._add.name = null;
-        } else if (key === "name") this._add.name = v;
-        else this._add[key] = numOrNull(v);
-      } else if (group === "measure") {
-        if (key === "tracker") {
-          this._measure.tracker = v;
-          this._measure.height = this._plan.trackers.find((x) => x.key === v)?.height ?? 1;
-        } else this._measure.height = numOrNull(v) ?? this._measure.height;
-      } else if (group === "cal") this._cal.fitN = v;
+      if (el.dataset?.f === "layout") this._layout = el.value;
     }
 
     _mapClick(e) {
@@ -868,9 +958,6 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._note = { kind: "ok", text: t.saved };
       };
       switch (act) {
-        case "menu":
-          this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
-          return;
         case "rotate":
           this._rot = (this._rot + 90) % 360;
           keep(ROT_KEY, String(this._rot));
@@ -889,6 +976,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._mode = null;
           this._dragPos = null;
           this._note = null;
+          this._confirm = null;
           if (window.location.search) window.history.replaceState(null, "", `${PANEL_PATH}/${this._tab}`);
           break;
         case "sel-scanner":
@@ -966,11 +1054,22 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         case "remove-scanner":
         case "remove-tracker": {
-          const isScanner = act === "remove-scanner";
-          const k = isScanner ? this._selScanner : this._selTracker;
-          const item = (isScanner ? plan.scanners : plan.trackers).find((x) => x.key === k);
-          if (!window.confirm(t.confirmRemove.replace("{name}", item?.name || k))) return;
-          this._call({ type: `ble_floorplan/${act.replace("-", "_")}`, key: k }, () => {
+          const k = act === "remove-scanner" ? this._selScanner : this._selTracker;
+          const item = (act === "remove-scanner" ? plan.scanners : plan.trackers).find((x) => x.key === k);
+          this._confirm = { act, key: k, name: item?.name || k };
+          this._note = null;
+          break;
+        }
+        case "confirm-cancel":
+          this._confirm = null;
+          break;
+        case "confirm-ok": {
+          const c = this._confirm;
+          if (!c) return;
+          this._confirm = null;
+          const isScanner = c.act === "remove-scanner";
+          const k = c.key;
+          this._call({ type: `ble_floorplan/${c.act.replace("-", "_")}`, key: k }, () => {
             this._candidates = null;
             if (isScanner) this._selScanner = null;
             else this._selTracker = null;
@@ -1191,9 +1290,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       return `<div class="tl">
         <div class="tlhead">
           <div class="tldate" id="tldate"></div>
-          <div class="tlrow"><button class="icon-button small" data-zoom="-10" title="${esc(t.zoomOut)}">−</button><input id="tlzoom" type="range" min="0" max="100" value="${v}"><button class="icon-button small" data-zoom="10" title="${esc(t.zoomIn)}">+</button></div>
-          <div class="tlrow"><button class="icon-button small" id="tlplay"></button><select id="tlspeed" title="${esc(t.speed)}">${speeds}</select></div>
-          <button id="tllive" class="btn small">${esc(t.backToLive)}</button>
+          <div class="tlrow">${iconButton("minus", t.zoomOut, 'class="small" data-tlzoom="-10"')}<input id="tlzoom" type="range" min="0" max="100" value="${v}">${iconButton("plus", t.zoomIn, 'class="small" data-tlzoom="10"')}</div>
+          <div class="tlrow">${iconButton("play", t.play, 'class="small" id="tlplay"')}<select id="tlspeed" title="${esc(t.speed)}">${speeds}</select></div>
+          <ha-button size="small" appearance="plain" id="tllive">${esc(t.backToLive)}</ha-button>
         </div>
         <div class="tlaxis" id="tlaxis"></div>
       </div>`;
@@ -1301,8 +1400,8 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (date) date.textContent = new Date((tl.cursor ?? nowS()) * 1000).toLocaleDateString(lang, { weekday: "short", day: "numeric", month: "short" });
       const play = root.getElementById("tlplay");
       if (play) {
-        play.innerHTML = icon(tl.playing ? "pause" : "play");
-        play.title = tl.playing ? t.pause : t.play;
+        play.path = MDI[tl.playing ? "pause" : "play"];
+        play.label = tl.playing ? t.pause : t.play;
         play.disabled = tl.cursor == null;
       }
       const live = root.getElementById("tllive");
@@ -1375,13 +1474,14 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._tlZoom(SPP_MAX * Math.pow(SPP_MIN / SPP_MAX, zoom.value / 100), false);
         this._tlFrame();
       });
-      root.querySelectorAll("button[data-zoom]").forEach((b) => b.addEventListener("click", () => {
-        const v = Math.min(100, Math.max(0, Number(zoom.value) + Number(b.dataset.zoom)));
+      root.querySelectorAll("[data-tlzoom]").forEach((b) => b.addEventListener("click", () => {
+        const v = Math.min(100, Math.max(0, Number(zoom.value) + Number(b.dataset.tlzoom)));
         zoom.value = v;
         this._tlZoom(SPP_MAX * Math.pow(SPP_MIN / SPP_MAX, v / 100), false);
         this._tlFrame();
       }));
       root.getElementById("tlplay")?.addEventListener("click", () => {
+        if (tl.cursor == null) return;
         if (tl.playing) this._tlPause();
         else this._tlPlay();
         this._tlFrame();
@@ -1391,6 +1491,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         e.target.blur();
       });
       root.getElementById("tllive")?.addEventListener("click", () => {
+        if (tl.cursor == null) return;
         this._tlPause();
         tl.cursor = null;
         this._svgHtml = null;
@@ -1405,33 +1506,40 @@ if (!customElements.get("ble-floorplan-panel")) {
     }
   }
 
-  // Home Assistant's look: toolbar and tabs of the settings pages, cards, list
-  // items, filled text fields, switches; the colours of the active theme
+  // Home Assistant's elements bring their own look; this lays them out and
+  // draws what Home Assistant has no element for (tabs, tables, the timeline),
+  // in the colours and sizes of the active theme
   const STYLE = `
     /* The panel's own container has no height of its own: the page takes the window */
     :host { display: block; height: 100vh; height: 100dvh; background: var(--primary-background-color); color: var(--primary-text-color);
-      font-family: var(--ha-font-family-body, Roboto, Noto, sans-serif); font-size: 14px; line-height: 1.5;
+      font-family: var(--ha-font-family-body, Roboto, Noto, sans-serif); font-size: var(--ha-font-size-m, 14px); line-height: 1.5;
       -webkit-font-smoothing: antialiased; }
     * { box-sizing: border-box; }
-    .app { display: flex; flex-direction: column; height: 100%; }
-    .toolbar { display: flex; align-items: center; flex: none; height: var(--header-height, 56px); padding: 0 12px;
-      background: var(--sidebar-background-color); color: var(--sidebar-text-color, var(--primary-text-color));
-      border-bottom: 1px solid var(--divider-color); }
-    .menu-button { color: var(--sidebar-icon-color, var(--secondary-text-color)); margin-right: 12px; }
-    .main-title { font-size: 20px; font-weight: 400; line-height: 32px; margin-left: 12px; white-space: nowrap; }
-    .menu-button + .main-title { margin-left: 0; }
-    .tabs { display: flex; height: 100%; margin-left: 24px; overflow-x: auto; scrollbar-width: none; }
+    /* Like the settings and other panels: the header in the sidebar's colour, with a line */
+    ha-top-app-bar-fixed { height: 100%;
+      --app-header-background-color: var(--sidebar-background-color, var(--card-background-color));
+      --app-header-text-color: var(--sidebar-text-color, var(--primary-text-color));
+      --app-header-border-bottom: 1px solid var(--divider-color); }
+    /* The tabs continue the header; the line moves below them */
+    ha-top-app-bar-fixed.with-tabs { --app-header-border-bottom: none; }
+    .app { display: flex; flex-direction: column;
+      height: calc(100vh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px));
+      height: calc(100dvh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px)); }
+    .tabs { display: flex; flex: none; height: 48px; padding: 0 12px; overflow-x: auto; scrollbar-width: none;
+      background: var(--sidebar-background-color, var(--card-background-color)); border-bottom: 1px solid var(--divider-color); }
     .tab { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0 20px; position: relative;
-      color: var(--sidebar-text-color, var(--primary-text-color)); text-decoration: none; font-weight: 500; white-space: nowrap; opacity: 0.8; }
+      color: var(--sidebar-text-color, var(--primary-text-color)); text-decoration: none; font-weight: var(--ha-font-weight-medium, 500);
+      white-space: nowrap; opacity: 0.8; }
     .tab:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
     .tab.active { color: var(--primary-color); opacity: 1; }
     .tabs .tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--primary-color); }
-    .bottom-tabs { display: flex; flex: none; justify-content: space-around; background: var(--sidebar-background-color);
+    .bottom-tabs { display: flex; flex: none; justify-content: space-around; background: var(--sidebar-background-color, var(--card-background-color));
       border-top: 1px solid var(--divider-color); padding-bottom: env(safe-area-inset-bottom); }
-    .bottom-tabs .tab { flex: 1 1 0; flex-direction: column; gap: 2px; height: 56px; padding: 6px 2px 4px; font-size: 11px; min-width: 0; }
+    .bottom-tabs .tab { flex: 1 1 0; flex-direction: column; gap: 2px; height: 56px; padding: 6px 2px 4px;
+      font-size: var(--ha-font-size-xs, 11px); min-width: 0; }
     .bottom-tabs .tab span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-    .bottom-tabs .tab .mdi { padding: 2px 12px; border-radius: 14px; box-sizing: content-box; }
-    .bottom-tabs .tab.active .mdi { background: color-mix(in srgb, var(--primary-color) 15%, transparent); }
+    .bottom-tabs .tab ha-svg-icon { padding: 2px 12px; border-radius: 14px; box-sizing: content-box; }
+    .bottom-tabs .tab.active ha-svg-icon { background: color-mix(in srgb, var(--primary-color) 15%, transparent); }
     .content { flex: 1 1 auto; min-height: 0; display: flex; }
     .stage { flex: 1 1 auto; min-width: 0; display: flex; gap: 12px; padding: 16px; }
     .map { flex: 1 1 auto; height: 100%; display: flex; flex-direction: column; padding: 4px 8px 12px; background: var(--card-background-color);
@@ -1439,64 +1547,53 @@ if (!customElements.get("ble-floorplan-panel")) {
     #svg { flex: 1 1 auto; min-height: 0; }
     .maptools { display: flex; justify-content: flex-end; flex: none; }
     .menuwrap { position: relative; }
-    .sheet { flex: 0 0 min(420px, 45%); overflow-y: auto; padding: 16px 16px 16px 0; }
-    .content:not(.withmap) .sheet { flex: 1 1 auto; padding: 16px; }
+    .sheet { flex: 0 0 min(420px, 45%); overflow-y: auto; padding: 16px 16px 0 0; }
+    .content:not(.withmap) .sheet { flex: 1 1 auto; padding: 16px 16px 0; }
     .content.settings .sheet > *, .content:not(.withmap) .sheet > * { max-width: 720px; margin-left: auto; margin-right: auto; }
+    .content.nosheet { flex-direction: column; }
+    .content.nosheet .stage { min-height: 0; padding-bottom: 0; }
+    .about { text-align: center; color: var(--secondary-text-color); font-size: var(--ha-font-size-s, 12px); padding: 8px 0 24px; }
+    .content.nosheet .about { flex: none; padding: 8px 0; }
     .narrow .content { display: block; overflow-y: auto; }
     .narrow .stage { padding: 8px 8px 0; }
     .narrow .map { height: auto; }
     .narrow .map svg:not(.mdi) { height: auto; max-height: 62vh; }
-    .narrow .content.nosheet .stage { height: 100%; }
+    .narrow .content.nosheet { display: flex; overflow: hidden; }
+    .narrow .content.nosheet .stage { flex: 1 1 auto; }
     .narrow .content.nosheet .map { height: 100%; }
     .narrow .content.nosheet .map svg:not(.mdi) { height: 100%; max-height: none; }
-    .narrow .sheet { padding: 8px; overflow: visible; }
-    .card { background: var(--card-background-color); color: var(--primary-text-color);
-      border-radius: var(--ha-card-border-radius, 12px); border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color));
-      box-shadow: var(--ha-card-box-shadow, none); margin-bottom: 16px; overflow: hidden; }
-    .narrow .card { margin-bottom: 8px; }
-    .card h2 { margin: 0; padding: 20px 16px 8px; font-size: 20px; font-weight: 400; line-height: 28px; }
-    .card-head { display: flex; align-items: center; gap: 4px; padding: 12px 16px 4px 8px; font-size: 20px; line-height: 28px; }
-    .card-head .dot { margin-left: 8px; }
+    .narrow .sheet { padding: 8px 8px 0; overflow: visible; }
+    ha-card { display: block; margin-bottom: 16px; overflow: hidden; }
+    .narrow ha-card { margin-bottom: 8px; }
     .card-content { padding: 0 16px 16px; }
-    .card.list .card-content { padding: 0 0 8px; }
+    .card-content.top { padding-top: 16px; }
+    ha-card.list .card-content { padding: 0 0 8px; }
     .card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px;
       border-top: 1px solid var(--divider-color); }
-    .card-actions > span { display: flex; gap: 8px; }
-    .btn { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border: 0;
-      border-radius: 18px; background: none; color: var(--primary-color); font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap; }
-    .btn:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
-    .btn.filled { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-    .btn.filled:hover { background: color-mix(in srgb, var(--primary-color) 88%, #000); }
-    .btn.danger { color: var(--error-color); }
-    .btn.danger:hover { background: color-mix(in srgb, var(--error-color) 10%, transparent); }
-    .btn.small { height: 28px; padding: 0 8px; font-size: 12px; }
-    .btn:disabled, .icon-button:disabled { opacity: 0.4; cursor: default; background: none; }
-    .btn.filled:disabled { background: var(--disabled-color, #bdbdbd); color: var(--card-background-color); }
-    .icon-button.small { width: 32px; height: 32px; }
-    .icon-button.small .mdi { width: 20px; height: 20px; }
+    .card-actions > span { display: flex; gap: 8px; flex-wrap: wrap; }
+    ha-alert { display: block; margin-bottom: 16px; }
+    ha-card ha-alert { margin: 0 0 12px; }
+    ha-alert ha-button { margin-inline-start: 8px; }
+    ha-icon-button.small { --mdc-icon-button-size: 32px; --mdc-icon-size: 20px; }
+    .haform + .subhead { margin-top: 16px; }
     .item { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 64px; padding: 8px 16px; border: 0;
       background: none; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; }
-    .item:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
-    .icon-bg { display: flex; padding: 8px; border-radius: 50%; color: #fff; background: var(--primary-color); flex: none; }
-    .icon-bg .mdi { width: 20px; height: 20px; }
+    .item:hover { background: var(--secondary-background-color); }
+    .icon-bg { display: flex; padding: 8px; border-radius: 50%; color: var(--text-primary-color, #fff); background: var(--primary-color); flex: none;
+      --mdc-icon-size: 20px; }
     .text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
-    .headline { line-height: 20px; }
-    .supporting { font-size: 12px; line-height: 16px; color: var(--secondary-text-color); margin-top: 2px; }
+    .headline { font-size: var(--ha-font-size-l, 16px); line-height: 24px; }
+    .supporting { font-size: var(--ha-font-size-m, 14px); line-height: 20px; color: var(--secondary-text-color); }
     .next { color: var(--secondary-text-color); }
     .muted { color: var(--secondary-text-color); }
-    .small { font-size: 12px; line-height: 16px; margin-top: 8px; }
-    .status { color: var(--secondary-text-color); margin-bottom: 8px; }
-    .subhead { margin: 16px 0 4px; font-weight: 500; }
-    .alert { display: block; padding: 12px 16px; margin-bottom: 16px; border-radius: 8px; line-height: 20px;
-      background: color-mix(in srgb, var(--info-color, #039be5) 12%, transparent); }
-    .card .alert { margin: 8px 0; }
-    .alert.ok { background: color-mix(in srgb, var(--success-color, #43a047) 14%, transparent); }
-    .alert.err { background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent); }
+    .small { font-size: var(--ha-font-size-s, 12px); line-height: 16px; margin-top: 8px; }
+    .status { display: flex; align-items: center; color: var(--secondary-text-color); margin-bottom: 8px; }
+    .subhead { margin: 16px 0 4px; font-weight: var(--ha-font-weight-medium, 500); }
     table { border-collapse: collapse; width: 100%; }
     table.kv th { width: 40%; text-align: left; font-weight: 400; color: var(--secondary-text-color); padding: 8px 16px 8px 0; vertical-align: top; }
     table.kv td { padding: 8px 0; }
     table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--divider-color); }
-    table.data th { text-align: left; font-size: 12px; font-weight: 500; padding: 8px 12px 8px 0; white-space: nowrap; }
+    table.data th { text-align: left; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-medium, 500); padding: 8px 12px 8px 0; white-space: nowrap; }
     table.data td { padding: 6px 12px 6px 0; border-top: 1px solid var(--divider-color); }
     table.data td:last-child, table.data th:last-child { padding-right: 0; }
     .n { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1505,48 +1602,23 @@ if (!customElements.get("ble-floorplan-panel")) {
     tr.live td { color: var(--primary-color); }
     .runs th { max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
     .runs td { vertical-align: middle; }
-    .diff tr.sec td { color: var(--secondary-text-color); font-size: 12px; padding-top: 12px; border: 0; }
+    .diff tr.sec td { color: var(--secondary-text-color); font-size: var(--ha-font-size-s, 12px); padding-top: 12px; border: 0; }
     .diff tr.changed td:nth-child(3) { font-weight: 600; color: var(--primary-color); }
     .scroll { overflow-x: auto; }
     td .dot, .nowrap .dot { vertical-align: -1px; }
-    .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 12px; margin-top: 12px; }
-    .field { display: flex; flex-direction: column; min-width: 0; padding: 6px 12px 4px; border-radius: 4px 4px 0 0;
-      background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color) 5%, transparent));
-      border-bottom: 1px solid var(--input-idle-line-color, var(--secondary-text-color)); }
-    .field.wide { margin-top: 8px; }
-    .field:hover { border-bottom-color: var(--input-hover-line-color, var(--primary-text-color)); }
-    .field:focus-within { border-bottom: 2px solid var(--primary-color); padding-bottom: 3px; }
-    .field > span { font-size: 12px; line-height: 16px; color: var(--input-label-ink-color, var(--secondary-text-color));
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .field:focus-within > span { color: var(--primary-color); }
-    .field input, .field select { border: 0; outline: 0; background: none; padding: 2px 0; width: 100%; min-width: 0;
-      color: var(--input-ink-color, var(--primary-text-color)); font: inherit; font-size: 16px; }
-    .field select option { background: var(--card-background-color); color: var(--primary-text-color); }
+    /* The floor plan as YAML: Home Assistant's code colours, without loading its editor */
     textarea { width: 100%; min-height: 240px; padding: 12px; border: 0; border-radius: 4px 4px 0 0; resize: vertical; outline: 0;
       background: var(--code-editor-background-color, var(--secondary-background-color)); color: var(--primary-text-color);
       border-bottom: 1px solid var(--input-idle-line-color, var(--secondary-text-color));
       font-family: var(--ha-font-family-code, var(--code-font-family, monospace)); font-size: 13px; line-height: 1.5; white-space: pre; }
     textarea:focus { border-bottom: 2px solid var(--primary-color); }
-    .setting { display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 4px 0; cursor: pointer; }
-    .setting + .setting { border-top: 1px solid var(--divider-color); }
-    .setting .text { flex: 1 1 auto; }
-    .setting input.num { flex: 0 0 96px; width: 96px; padding: 6px 8px; text-align: right; border: 0; outline: 0; border-radius: 4px 4px 0 0;
-      background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color) 5%, transparent)); color: var(--primary-text-color);
-      border-bottom: 1px solid var(--input-idle-line-color, var(--secondary-text-color)); font: inherit; font-size: 16px; }
-    .setting input.num:focus { border-bottom: 2px solid var(--primary-color); }
-    input.switch { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 36px; height: 14px; margin: 0 4px;
-      border-radius: 7px; cursor: pointer; background: var(--switch-unchecked-track-color, #9e9e9e); opacity: 1; }
-    input.switch::before { content: ""; position: absolute; top: -3px; left: -4px; width: 20px; height: 20px; border-radius: 50%;
-      background: var(--switch-unchecked-button-color, #fafafa); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.15s; }
-    input.switch:checked { background: color-mix(in srgb, var(--switch-checked-track-color, var(--primary-color)) 50%, transparent); }
-    input.switch:checked::before { transform: translateX(20px); background: var(--switch-checked-button-color, var(--primary-color)); }
     .tl { flex: 0 0 calc(75px + var(--tlx, 37px)); display: flex; flex-direction: column; font-size: 12px; overflow: hidden; user-select: none; -webkit-user-select: none;
       background: var(--card-background-color); border-radius: var(--ha-card-border-radius, 12px);
       border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color)); }
     .tlhead { padding: 8px 6px 6px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--divider-color); }
     .tldate { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
     .tlrow { display: flex; gap: 2px; align-items: center; }
-    .tlrow .icon-button { flex: none; font-size: 18px; color: var(--primary-text-color); }
+    .tlrow ha-icon-button { flex: none; color: var(--primary-text-color); }
     .tlrow input[type=range] { flex: 1 1 auto; min-width: 0; width: 30px; margin: 0; accent-color: var(--primary-color); }
     .tlrow select { font: inherit; flex: 1 1 auto; min-width: 0; padding: 2px; border-radius: 4px; border: 0;
       background: var(--input-fill-color, color-mix(in srgb, var(--primary-text-color) 5%, transparent)); color: var(--primary-text-color); }

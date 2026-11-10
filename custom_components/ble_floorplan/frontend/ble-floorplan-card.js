@@ -4,6 +4,7 @@
 // or a scanner shows its readings, a tracker with its circles. Setting up,
 // calibrating and the timeline live in the panel BLE Floorplan in the sidebar.
 import {
+  LiveSubscription,
   PLAN_CSS,
   PlanZoom,
   VERSION,
@@ -12,14 +13,14 @@ import {
   detailHtml,
   esc,
   formatter,
-  icon,
+  iconButton,
   keep,
   loadLabels,
   loadRot,
   planInfo,
   planSvg,
   texts,
-} from "./ble-floorplan-plan.js?v=0.12.0";
+} from "./ble-floorplan-plan.js?v=0.13.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
@@ -55,18 +56,35 @@ if (!customElements.get("ble-floorplan-card")) {
       this._render();
     }
 
+    // Home Assistant sets hass on every state change; the subscription tries
+    // again after a failure only once its wait is over
     set hass(hass) {
-      const first = !this._hass;
       this._hass = hass;
-      if (first || !this._unsub) this._subscribe();
+      this._live.ensure(hass);
     }
 
     connectedCallback() {
-      if (this._hass && !this._unsub) this._subscribe();
+      this._live.ensure(this._hass);
     }
 
     disconnectedCallback() {
-      this._unsubscribe();
+      this._live.close();
+    }
+
+    get _live() {
+      if (!this._liveSub) {
+        this._liveSub = new LiveSubscription(
+          this,
+          (event) => this._onEvent(event),
+          (err) => {
+            const error = !err ? null : err.code === "not_loaded" ? texts(this._hass).notLoaded : String(err.message || err);
+            if (error === this._error) return;
+            this._error = error;
+            this._render();
+          }
+        );
+      }
+      return this._liveSub;
     }
 
     getCardSize() {
@@ -79,31 +97,6 @@ if (!customElements.get("ble-floorplan-card")) {
 
     static getStubConfig() {
       return {};
-    }
-
-    async _subscribe() {
-      if (this._subscribing || !this._hass) return;
-      this._subscribing = true;
-      try {
-        this._unsub = await this._hass.connection.subscribeMessage(
-          (event) => this._onEvent(event),
-          { type: "ble_floorplan/subscribe" }
-        );
-        this._error = null;
-      } catch (err) {
-        this._error = err?.code === "not_loaded" ? texts(this._hass).notLoaded : String(err?.message || err);
-        this._render();
-      } finally {
-        this._subscribing = false;
-      }
-    }
-
-    _unsubscribe() {
-      if (this._unsub) {
-        const unsub = this._unsub;
-        this._unsub = null;
-        unsub().catch(() => {});
-      }
     }
 
     _onEvent(event) {
@@ -161,12 +154,12 @@ if (!customElements.get("ble-floorplan-card")) {
             .map(([k, l]) => `<label><input type="checkbox" data-toggle="${k}"${this._labels[k] ? " checked" : ""}>${esc(l)}</label>`)
             .join("")}</div>`
         : "";
-      const btns = `<button id="rotate" class="icon-button" title="${esc(t.rotate)}">${icon("rotate")}</button>` +
-        `<span class="menuwrap"><button id="labels" class="icon-button${this._labelMenu ? " on" : ""}" title="${esc(t.labels)}">${icon("label")}</button>${labelMenu}</span>`;
+      const btns = iconButton("rotate", t.rotate, 'id="rotate"') +
+        `<span class="menuwrap">${iconButton("label", t.labels, `id="labels"${this._labelMenu ? ' class="on"' : ""}`)}${labelMenu}</span>`;
       const btnsEl = root.getElementById("btns");
       if (btnsEl.innerHTML !== btns) btnsEl.innerHTML = btns;
       root.getElementById("info").innerHTML = sel
-        ? `<div class="info"><button id="close" class="icon-button" title="${esc(t.close)}">${icon("close")}</button>` +
+        ? `<div class="info">${iconButton("close", t.close, 'id="close"')}` +
           `${detailHtml(this._info, sel.kind, sel.key, t, fmt)}</div>`
         : "";
       this._refreshTip?.();
@@ -214,7 +207,7 @@ if (!customElements.get("ble-floorplan-card")) {
         .map { margin-top: 8px; }
         .map svg:not(.mdi) { max-height: 85vh; }
         .info { position: relative; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider-color); font-size: 13px; }
-        .info .icon-button { position: absolute; right: -8px; top: 4px; }
+        .info ha-icon-button { position: absolute; right: -8px; top: 0; }
         .hint { color: var(--secondary-text-color); margin-top: 8px; }`;
     }
   }

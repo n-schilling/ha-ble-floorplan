@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.12.0";
+export const VERSION = "0.13.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -54,6 +54,7 @@ const TEXTS = {
     planSaved: "Floor plan saved.",
     tabPlan: "Floor plan", tabScanners: "Scanners", tabTrackers: "Trackers", tabCalibration: "Calibration",
     tabTimeline: "Timeline", tabSettings: "Settings", menu: "Menu",
+    about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · commit {commit}",
   },
   de: {
     title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -96,6 +97,7 @@ const TEXTS = {
     planSaved: "Grundriss gespeichert.",
     tabPlan: "Grundriss", tabScanners: "Scanner", tabTrackers: "Tracker", tabCalibration: "Kalibrierung",
     tabTimeline: "Verlauf", tabSettings: "Einstellungen", menu: "Menü",
+    about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · Commit {commit}",
   },
 };
 
@@ -423,8 +425,8 @@ export class PlanZoom {
     this._buttons();
     btns.addEventListener("click", (e) => {
       e.stopPropagation();
-      const b = e.target.closest("button");
-      if (!b) return;
+      const b = e.target.closest("[data-zoom]");
+      if (!b || b.disabled) return;
       if (b.dataset.zoom === "fit") this.reset();
       else this.zoomBy(b.dataset.zoom === "in" ? 1.5 : 1 / 1.5);
     });
@@ -514,7 +516,7 @@ export class PlanZoom {
     const t = this.texts();
     const k = this.view?.k || 1;
     const btn = (z, name, title, off) =>
-      `<button class="icon-button" data-zoom="${z}" title="${esc(title)}"${off ? " disabled" : ""}>${icon(name)}</button>`;
+      iconButton(name, title, `data-zoom="${z}"${off ? " disabled" : ""}`);
     const html = btn("in", "plus", t.zoomIn, k >= 10) + btn("out", "minus", t.zoomOut, k <= 1) +
       (this.view ? btn("fit", "fit", t.fit, false) : "");
     if (this.btns.innerHTML !== html) this.btns.innerHTML = html;
@@ -582,7 +584,7 @@ export class PlanZoom {
 }
 
 // Material Design Icons, as Home Assistant draws them
-const MDI = {
+export const MDI = {
   menu: "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z",
   plus: "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
   minus: "M19,13H5V11H19V13Z",
@@ -606,7 +608,77 @@ const MDI = {
   settings: "M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z",
 };
 
-export const icon = (name) => `<svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="${MDI[name]}"/></svg>`;
+// Home Assistant's own icon and icon button, with the paths above: nothing to load
+export const icon = (name) => `<ha-svg-icon path="${MDI[name]}"></ha-svg-icon>`;
+export const iconButton = (name, label, attrs = "") =>
+  `<ha-icon-button path="${MDI[name]}" label="${esc(label)}"${attrs ? ` ${attrs}` : ""}></ha-icon-button>`;
+
+// How long a failed subscription waits before it tries again (ms)
+const RETRY_MS = 30000;
+
+// The live subscription of the card and the page: one at a time, none left
+// behind by an element that went away while it was being set up, and after a
+// failure (the integration not loaded, say) a new try only every RETRY_MS
+export class LiveSubscription {
+  constructor(host, onEvent, onError) {
+    this._host = host;
+    this._onEvent = onEvent;
+    this._onError = onError;
+    this._unsub = null;
+    // Bumped by close(): a subscription that arrives for an older one is dropped
+    this._gen = 0;
+    this._pending = -1;
+    this._retryAt = 0;
+    this._timer = null;
+  }
+
+  get active() {
+    return !!this._unsub;
+  }
+
+  // Subscribe unless subscribed, on the way, waiting for a retry or the host is gone
+  ensure(hass) {
+    this._hass = hass;
+    if (!hass || this._unsub || this._pending === this._gen || !this._host.isConnected) return;
+    if (Date.now() < this._retryAt) return;
+    const gen = (this._pending = this._gen);
+    hass.connection
+      .subscribeMessage((event) => this._onEvent(event), { type: "ble_floorplan/subscribe" })
+      .then(
+        (unsub) => {
+          if (this._pending === gen) this._pending = -1;
+          if (gen !== this._gen || !this._host.isConnected) {
+            unsub().catch(() => {});
+            if (gen !== this._gen) this.ensure(this._hass);
+            return;
+          }
+          this._unsub = unsub;
+          this._retryAt = 0;
+          this._onError(null);
+        },
+        (err) => {
+          if (this._pending === gen) this._pending = -1;
+          if (gen !== this._gen) return;
+          this._retryAt = Date.now() + RETRY_MS;
+          clearTimeout(this._timer);
+          this._timer = setTimeout(() => this.ensure(this._hass), RETRY_MS);
+          this._onError(err);
+        }
+      );
+  }
+
+  close() {
+    this._gen += 1;
+    this._retryAt = 0;
+    clearTimeout(this._timer);
+    this._timer = null;
+    if (this._unsub) {
+      const unsub = this._unsub;
+      this._unsub = null;
+      unsub().catch(() => {});
+    }
+  }
+}
 
 // The floor plan, its tooltip and the icon buttons on it
 export const PLAN_CSS = `
@@ -617,7 +689,7 @@ export const PLAN_CSS = `
   .map.panning svg:not(.mdi) { cursor: grabbing; }
   .zoombtns { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 2px; z-index: 1;
     background: var(--card-background-color); border-radius: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
-  .zoombtns .icon-button:disabled { opacity: 0.35; cursor: default; background: none; }
+  .zoombtns ha-icon-button { color: var(--secondary-text-color); }
   .map.aim svg:not(.mdi) { cursor: crosshair; }
   .room { fill: var(--card-background-color); stroke: var(--primary-text-color); stroke-width: 0.08; stroke-linejoin: miter; }
   .room.outdoor { fill: none; stroke-width: 0.04; stroke-dasharray: 0.25 0.15; opacity: 0.6; }
@@ -650,11 +722,8 @@ export const PLAN_CSS = `
   .tip td.num, .info td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .tip tr.ign, .info tr.ign { color: var(--secondary-text-color); }
   .dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
-  svg.mdi { width: 24px; height: 24px; fill: currentColor; flex: none; display: block; }
-  .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0;
-    border: 0; border-radius: 50%; background: none; color: var(--secondary-text-color); cursor: pointer; font: inherit; }
-  .icon-button:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
-  .icon-button.on { color: var(--primary-color); }
+  ha-icon-button { color: var(--secondary-text-color); }
+  ha-icon-button.on { color: var(--primary-color); }
   .menu { position: absolute; right: 0; top: 44px; z-index: 4; display: flex; flex-direction: column; padding: 4px 0;
     background: var(--card-background-color); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); white-space: nowrap; }
   .menu label { display: flex; align-items: center; gap: 12px; padding: 8px 16px; cursor: pointer; color: var(--primary-text-color); }
