@@ -9,7 +9,15 @@ import struct
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "custom_components" / "ble_floorplan"
-SKIPPED_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"}
+SKIPPED_DIRS = {
+    ".git",
+    ".venv",
+    ".venv-panel",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+}
 TEXT_SUFFIXES = {".py", ".json", ".yaml", ".yml", ".md", ".txt", ".toml", ".ini", ".sh", ".js"}
 
 MAC = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
@@ -19,7 +27,8 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Only made-up addresses belong in the repository: the test prefix and the
 # documentation ranges of RFC 5737
 ALLOWED_MAC_PREFIX = "AA:BB:CC:DD:EE:"
-ALLOWED_IPV4_PREFIXES = ("192.0.2.", "198.51.100.", "203.0.113.")
+# Documentation ranges, and the loopback address the page checks listen on
+ALLOWED_IPV4_PREFIXES = ("192.0.2.", "198.51.100.", "203.0.113.", "127.0.0.1")
 ALLOWED_MAIL_DOMAINS = ("users.noreply.github.com", "example.com")
 # File names that merely look like an address
 NOT_MAILS = ("icon@2x.png",)
@@ -162,7 +171,7 @@ def test_images_carry_no_metadata() -> None:
         and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
         and not SKIPPED_DIRS & set(path.relative_to(ROOT).parts)
     ]
-    assert any(p.suffix == ".gif" for p in images), "the animation is checked"
+    assert any(p.parent.name == "screenshots" for p in images), "the screenshots are checked"
     for path in images:
         data = path.read_bytes()
         assert path.suffix in {".png", ".gif"}, f"{path}: only PNG and GIF, so they can be checked"

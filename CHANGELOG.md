@@ -2,6 +2,33 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-11-10
+
+### Added
+
+- The page shows the version at the bottom, and for a test deployment the commit (`scripts/deploy.sh` writes it).
+- Page checks in a real browser against a throwaway Home Assistant with a made-up flat and made-up scanners (`scripts/panel/check_panel.py`), in `scripts/check.sh` and as the CI job *Page*; they also render the screenshots of the README.
+- `scripts/check.sh` runs locally what CI runs; `scripts/deploy.sh` copies the integration to a Home Assistant OS host for a test before a release.
+
+### Changed
+
+- The page is built from Home Assistant's own elements: top app bar with the menu button, cards, buttons, icon buttons, alerts and forms with Home Assistant's selectors. A scanner or a tracker opens as a subpage with a back arrow, and removing one asks first in the page instead of a browser dialog.
+- The scripts of the page and the card are loaded with a hash of their content, so a browser fetches every change.
+- Requires Home Assistant 2026.11. The tests run on `pytest-homeassistant` 2026.11.1; the README follows the Marketplace and has the screenshots in `docs/screenshots`.
+- Changing a setting other than *Days kept* no longer prunes the timeline.
+
+### Fixed
+
+- NaN and infinity are refused in every number; storage kept them as null, and the integration then no longer started.
+- A file in `.storage` that cannot be read stops the setup with its name and leaves it as it is; a timeline day that cannot be read is left out with a warning.
+- Turning the timeline off deletes today's track for good; a write scheduled before could bring it back.
+- A tracker of a Private BLE Device is found again after its device tracker was renamed or created anew.
+- A calibration run that a reload ends (adding a tracker, say) saves the tracker's values, as a stop does.
+- Removing the integration removes the card's dashboard resource; adding it again brings it back.
+- Devices of trackers taken off the plan are removed the way Home Assistant 2026.11 expects.
+- The card and the page leave no subscription behind when they are closed while it is set up, and after a failure (integration not loaded) try again every 30 seconds instead of with every state change or never.
+- The layout YAML is limited to 200,000 characters.
+
 ## [0.12.0] - 2026-11-02
 
 ### Added
