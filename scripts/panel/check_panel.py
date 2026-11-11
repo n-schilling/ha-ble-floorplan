@@ -28,6 +28,7 @@ import json
 import math
 from pathlib import Path
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -51,6 +52,9 @@ USER = ("user", "panel-check-user")
 PANEL = "ble-floorplan-panel"
 CARD = "ble-floorplan-card"
 DASHBOARD = "dashboard-plan"
+# The header's cog: Home Assistant's own page of the integration
+INTEGRATION_PAGE = "/config/integrations/integration/ble_floorplan"
+STAMP = re.compile(r"^As of \d{2}:\d{2}:\d{2}$")
 
 # The made-up flat, the same as in the tests: addresses of the example range only
 ROOMS: list[dict[str, Any]] = [
@@ -548,9 +552,41 @@ async def _title(page: Page) -> str:
     return (await page.locator(f"{PANEL} [slot=title]").inner_text()).strip()
 
 
+async def _header(page: Page) -> None:
+    """The header of every page and subpage: stamp, refresh, settings, in this order."""
+    bar = page.locator(f"{PANEL} ha-top-app-bar-fixed")
+    order = await bar.evaluate(
+        "bar => [...bar.querySelectorAll(':scope > [slot=actionItems]')].map(el => el.id)"
+    )
+    expect(order == ["stamp", "refresh", "integration"], f"header actions {order}")
+    stamp = page.locator(f"{PANEL} #stamp")
+    await _until(lambda: _stamp_ok(stamp), "the stamp 'As of HH:MM:SS' in the header", seconds=10)
+    for button, path, label in (
+        ("refresh", "M17.65,6.35", "Refresh"),
+        ("integration", "M12,8A4,4", "Settings"),
+    ):
+        el = page.locator(f"{PANEL} ha-icon-button#{button}")
+        expect(await el.is_visible(), f"{button} button not visible")
+        expect((await el.get_attribute("path") or "").startswith(path), f"{button}: wrong icon")
+        expect(await el.get_attribute("label") == label, f"{button}: label")
+
+
+async def _stamp_ok(stamp: Any) -> bool:
+    return await stamp.is_visible() and bool(STAMP.match((await stamp.inner_text()).strip()))
+
+
 async def _plan(api: Api, instance: Instance) -> dict[str, Any]:
     reply = await api.ws(instance.token, {"type": "ble_floorplan/get_floorplan"})
     return dict(reply["result"]["floorplan"])
+
+
+async def _has(field: Any, text: str) -> bool:
+    return text in await field.input_value()
+
+
+async def _not_loading(page: Page) -> bool:
+    classes = await page.locator(f"{PANEL} ha-icon-button#refresh").get_attribute("class")
+    return "loading" not in (classes or "")
 
 
 async def _settle(page: Page) -> None:
@@ -578,6 +614,86 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("floor plan with the YAML and the version at the bottom", plan_and_version)
 
+    async def header_on_every_tab() -> None:
+        for tab in ("plan", "scanners", "trackers", "calibration", "timeline", "settings"):
+            await _goto(page, instance, tab)
+            try:
+                await _header(page)
+            except AssertionError as err:
+                raise AssertionError(f"{tab}: {err}") from err
+
+    await checks.run("every tab has the header: stamp, refresh, settings", header_on_every_tab)
+
+    async def refresh_fetches_again() -> None:
+        await _goto(page, instance, "plan")
+        textarea = page.locator(f"{PANEL} textarea")
+        await _until(lambda: _has(textarea, "Living room"), "the floor plan as YAML", seconds=10)
+        # The YAML on the page is fetched once; a change made elsewhere shows after a refresh
+        before = (await api.ws(instance.token, {"type": "ble_floorplan/get_layout"}))["result"]
+        changed = before["yaml"].replace("name: Kitchen", "name: Kitchenette", 1)
+        expect(changed != before["yaml"], "no kitchen in the YAML to rename")
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/set_layout", "yaml": changed})
+        expect(reply["success"], str(reply))
+        try:
+            await page.wait_for_timeout(500)
+            expect("Kitchenette" not in await textarea.input_value(), "the YAML came by itself")
+            await page.evaluate("window.__noReload = true")
+            panel = page.locator(PANEL)
+            await panel.evaluate(
+                """el => {
+                  const b = el.shadowRoot.getElementById('refresh');
+                  window.__spun = false;
+                  new MutationObserver(() => {
+                    if (b.classList.contains('loading')) window.__spun = true;
+                  }).observe(b, { attributes: true });
+                }"""
+            )
+            stamp = page.locator(f"{PANEL} #stamp")
+            # The stamp shows seconds: one later, a new stamp has to differ
+            await page.wait_for_timeout(1100)
+            await page.locator(f"{PANEL} ha-icon-button#refresh").click()
+            await _until(lambda: _has(textarea, "Kitchenette"), "the new YAML after Refresh")
+            expect(await page.evaluate("window.__spun === true"), "the button did not spin")
+            await _until(
+                lambda: _not_loading(page), "the refresh button to stop spinning", seconds=10
+            )
+            after = (await stamp.inner_text()).strip()
+            expect(bool(STAMP.match(after)), f"stamp after refresh: {after!r}")
+            now = datetime.now(TIME_ZONE)
+            shown = datetime.strptime(after.removeprefix("As of "), "%H:%M:%S").time()
+            gap = (now.hour * 3600 + now.minute * 60 + now.second) - (
+                shown.hour * 3600 + shown.minute * 60 + shown.second
+            )
+            expect(0 <= gap % 86400 <= 5, f"stamp {after} is not the time of the refresh")
+            expect(await page.evaluate("window.__noReload === true"), "Refresh reloaded the page")
+        finally:
+            await api.ws(
+                instance.token, {"type": "ble_floorplan/set_layout", "yaml": before["yaml"]}
+            )
+
+    await checks.run(
+        "Refresh fetches the data again over the WebSocket, spins, sets the stamp",
+        refresh_fetches_again,
+    )
+
+    async def cog_opens_integration_page() -> None:
+        await _goto(page, instance, "trackers")
+        await page.evaluate("window.__noReload = true")
+        await page.locator(f"{PANEL} ha-icon-button#integration").click()
+        await page.wait_for_url(f"**{INTEGRATION_PAGE}")
+        await page.locator("ha-config-integration-page").wait_for(timeout=30000)
+        expect(
+            await page.evaluate("window.__noReload === true"),
+            "the cog loaded the whole page instead of navigating in the app",
+        )
+        await page.go_back()
+        await page.locator(f"{PANEL} .item[data-key='tag']").wait_for()
+
+    await checks.run(
+        "the cog opens Home Assistant's page of the integration in the app",
+        cog_opens_integration_page,
+    )
+
     async def trackers_where_they_are() -> None:
         await _goto(page, instance, "trackers")
 
@@ -597,6 +713,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await page.locator(f"{PANEL} ha-menu-button[slot=navigationIcon]").wait_for(
             state="detached"
         )
+        await _header(page)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "tracker.png"))
@@ -628,6 +745,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await _goto(page, instance, "scanners")
         await page.locator(f"{PANEL} .item[data-key='hall']").click()
         await page.locator(f"{PANEL} ha-icon-button[data-act='back']").wait_for()
+        await _header(page)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "scanner.png"))
@@ -720,6 +838,13 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             )
             await _goto(phone, instance, "trackers")
             await phone.locator(f"{PANEL} .bottom-tabs").wait_for()
+            # On a phone the stamp makes room; refresh and settings stay
+            await phone.locator(f"{PANEL} ha-icon-button#refresh").wait_for()
+            await phone.locator(f"{PANEL} ha-icon-button#integration").wait_for()
+            expect(
+                not await phone.locator(f"{PANEL} #stamp").is_visible(),
+                f"{scheme}: the stamp shows at phone width",
+            )
             overflow = await phone.evaluate(
                 "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
             )

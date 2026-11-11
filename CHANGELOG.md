@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-11-11
+
+### Added
+
+- The same header on every tab and subpage of the page as on Nico's other integrations and apps: *As of HH:MM:SS* (when the page last got its data, left out on a phone), **Refresh** (fetches the plan, the positions, the floor plan YAML, the scanners on offer and the timeline again over the WebSocket, without reloading the page; a floor plan typed but not saved stays) and the cog, which opens the integration on *Settings → Devices & services* inside the app.
+- The page checks test the header on every tab and subpage, that Refresh fetches again, spins and sets the stamp, and that the cog opens the integration's page without reloading.
+
 ## [0.13.0] - 2026-11-10
 
 ### Added

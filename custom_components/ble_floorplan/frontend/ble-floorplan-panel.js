@@ -5,7 +5,9 @@
 // calibration run is tapped on it. Everything comes from the integration over
 // the WebSocket API. The page is built from Home Assistant's own elements (top
 // app bar, cards, buttons, icon buttons, alerts and ha-form with selectors);
-// a scanner or a tracker opens as a subpage with a back arrow.
+// a scanner or a tracker opens as a subpage with a back arrow. The header of
+// every page: when the page last got its data, refresh, and the cog to Home
+// Assistant's page of the integration.
 import {
   COLORS,
   LiveSubscription,
@@ -33,10 +35,12 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.13.0";
+} from "./ble-floorplan-plan.js?v=0.14.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
+  // Home Assistant's own page of the integration, behind the cog in the header
+  const INTEGRATION_PATH = "/config/integrations/integration/ble_floorplan";
   const LABELS_KEY = "ble-floorplan-panel-labels";
 
   // Tab, icon, text
@@ -125,6 +129,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._confirm = null;
       // Shown at the bottom: {version, commit}
       this._about = null;
+      // The header: when the page last got its data, a refresh on the way
+      this._stamp = null;
+      this._refreshing = false;
       this._live = new LiveSubscription(
         this,
         (event) => this._onEvent(event),
@@ -185,6 +192,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     }
 
     _onEvent(event) {
+      this._stamp = new Date();
       if (event.floorplan) {
         this._plan = event.floorplan;
         this._bounds = computeBounds(this._plan);
@@ -244,6 +252,39 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._loadingCandidates = false;
         this._render();
       }
+    }
+
+    // The refresh button: everything the page shows fetched again over the
+    // WebSocket API, no reload of the page. A floor plan typed but not saved stays.
+    async _refresh() {
+      if (!this._hass || this._refreshing) return;
+      this._refreshing = true;
+      this._render();
+      try {
+        const jobs = [this._hass.callWS({ type: "ble_floorplan/get_floorplan" }).then((snap) => this._onEvent(snap))];
+        if (!this._layoutEdited) {
+          jobs.push(this._hass.callWS({ type: "ble_floorplan/get_layout" }).then((r) => { this._layout = r.yaml; }));
+        }
+        if (this._candidates != null || this._tab === "scanners" || this._tab === "trackers") {
+          jobs.push(this._hass.callWS({ type: "ble_floorplan/candidates" }).then((r) => { this._candidates = r; }));
+        }
+        // The timeline fetches the days it shows again
+        this._tl.days = {};
+        await Promise.all(jobs);
+        this._error = null;
+      } catch (err) {
+        this._note = { kind: "err", text: err?.code === "not_loaded" ? this._t.notLoaded : String(err?.message || err?.code || err) };
+      }
+      // A subscription that failed tries again now
+      this._live.ensure(this._hass);
+      this._refreshing = false;
+      this._render();
+    }
+
+    _stampText() {
+      if (!this._stamp) return "";
+      const time = this._stamp.toLocaleTimeString(this._hass?.language || "en", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      return this._t.asOf.replace("{time}", time);
     }
 
     // One call of the API; the result goes to `then`, an error to the page
@@ -322,6 +363,9 @@ if (!customElements.get("ble-floorplan-panel")) {
         <ha-top-app-bar-fixed class="${topTabs ? "with-tabs" : ""}">
           ${nav}
           <div slot="title">${esc(sub ? sub.name : "BLE Floorplan")}</div>
+          <span class="stamp" slot="actionItems" id="stamp"></span>
+          ${iconButton("refresh", t.refresh, 'slot="actionItems" id="refresh" data-act="refresh"')}
+          ${iconButton("cog", t.integrationSettings, 'slot="actionItems" id="integration" data-act="integration"')}
           <div class="app${this._narrow ? " narrow" : ""}">
             ${topTabs ? `<nav class="tabs">${tabs}</nav>` : ""}
             <div class="content ${this._tab}${showMap ? " withmap" : ""}${showSheet ? "" : " nosheet"}">${stage}${sheet}</div>
@@ -376,6 +420,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       const about = root.getElementById("about");
       if (about) about.textContent = this._aboutText();
+      const stamp = root.getElementById("stamp");
+      if (stamp) stamp.textContent = this._stampText();
+      root.getElementById("refresh")?.classList.toggle("loading", this._refreshing);
       this._tlFrame();
     }
 
@@ -877,7 +924,10 @@ if (!customElements.get("ble-floorplan-panel")) {
 
     // The floor plan as YAML; every other field is an ha-form with its own handler
     _input(el) {
-      if (el.dataset?.f === "layout") this._layout = el.value;
+      if (el.dataset?.f === "layout") {
+        this._layout = el.value;
+        this._layoutEdited = true;
+      }
     }
 
     _mapClick(e) {
@@ -958,6 +1008,12 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._note = { kind: "ok", text: t.saved };
       };
       switch (act) {
+        case "refresh":
+          this._refresh();
+          break;
+        case "integration":
+          navigate(INTEGRATION_PATH);
+          break;
         case "rotate":
           this._rot = (this._rot + 90) % 360;
           keep(ROT_KEY, String(this._rot));
@@ -995,6 +1051,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         case "save-layout":
           this._call({ type: "ble_floorplan/set_layout", yaml: this._layout }, (result) => {
             this._layout = result.yaml;
+            this._layoutEdited = false;
             this._note = { kind: "ok", text: t.planSaved };
           });
           return;
@@ -1522,6 +1579,13 @@ if (!customElements.get("ble-floorplan-panel")) {
       --app-header-border-bottom: 1px solid var(--divider-color); }
     /* The tabs continue the header; the line moves below them */
     ha-top-app-bar-fixed.with-tabs { --app-header-border-bottom: none; }
+    /* The header's actions, as on every page of Nico's apps and integrations: stamp,
+       refresh, settings */
+    .stamp { color: var(--secondary-text-color); font-size: var(--ha-font-size-m, 14px);
+      white-space: nowrap; align-self: center; margin-inline-end: 4px; }
+    #refresh.loading { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 600px) { .stamp { display: none; } }
     .app { display: flex; flex-direction: column;
       height: calc(100vh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px));
       height: calc(100dvh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px)); }
