@@ -377,7 +377,7 @@ They use an installed Google Chrome, otherwise Playwright's Chromium (`.venv-pan
 .venv-panel/bin/python -I scripts/panel/check_panel.py --browser chromium --screenshots docs/screenshots
 ```
 
-Releases: CI on `main` tags the version from `manifest.json` and publishes a GitHub release with its CHANGELOG section; the Marketplace offers it as an update.
+Releases: CI runs on `dev`; once it is green, push that commit to `main`. CI does not run again there: the release workflow checks that CI passed for the commit, then tags the version from `manifest.json` and publishes a GitHub release with its CHANGELOG section; the Marketplace offers it as an update.
 
 For testing on a Home Assistant OS host before a release (copies the files, writes the deployed commit for the page and restarts Home Assistant):
 
