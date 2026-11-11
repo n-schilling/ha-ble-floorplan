@@ -105,7 +105,7 @@ flowchart LR
 
 1. **Draw the floor plan** on the *Floor plan* tab. The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
 2. **Add the scanners** on the *Scanners* tab. *Add scanner* offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. The page goes straight on to placing it: tap the plan where it is, or drag it, and **Save**.
-3. **Add the trackers** on the *Trackers* tab. *Add tracker* offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its sensors appear right away.
+3. **Add the trackers** on the *Trackers* tab. *Add tracker* offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its device and entities appear right away, without a reload; **Remove** takes them away again.
 4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time. Without calibration the positions are rough.
 5. **Tune if needed.** The defaults of the [settings](#settings) suit a flat.
 
@@ -154,7 +154,7 @@ sequenceDiagram
     Page->>BF: calibration/solve, calibration/apply
 ```
 
-1. On the *Calibration* tab, choose the tracker under *New run* (or tap it on the plan) and set its height for this run. Tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the page shows what was saved and the error before and after. A run that a reload of the integration ends (for example by adding a tracker) is saved the same way.
+1. On the *Calibration* tab, choose the tracker under *New run* (or tap it on the plan) and set its height for this run. Tap the plan where it lies and **Start run**. Leave it there for a minute or two, then **Stop run**. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the page shows what was saved and the error before and after. A run that a reload of the integration ends (for example by changing the option or replacing the whole plan) is saved the same way.
 2. Repeat at other places and with the other trackers. A scanner needs at least three samples in a run to count. Deleting a run saves the tracker's values from the runs that are left; without a run left, they stay.
 3. To adjust the scanners too, **Compute** under *Scanner offsets and exponent*. Fitting the exponent needs runs at different distances from a scanner. The proposal lists the current and the proposed value of every parameter and the error before and after.
 4. **Apply** writes the proposal into the plan. The offsets of the scanners and the exponent hold for every tracker, so they change only here.
@@ -283,6 +283,8 @@ automation:
 - **The card says BLE Floorplan is not set up:** the integration is not loaded; the card tries again every 30 seconds.
 - **The integration does not start and names a file in `.storage`:** that file cannot be read. BLE Floorplan leaves it as it is; correct or remove it and reload the integration.
 - **An old page or card after an update:** reload the page; the Companion app keeps its own cache (*Settings → Companion app → Debugging → Reset frontend cache*).
+- **A repair issue says a tracker has no device:** its Private BLE Device was removed. Take the tracker off the plan and add it again with the new device.
+- **Something else:** download the diagnostics (**Settings → Devices & services → BLE Floorplan → ⋮ → Download diagnostics**) and attach them to an issue. They show the settings, the scanners and trackers as "Scanner 1", "Tracker 1" with their readings, and no names, addresses, device ids, rooms, areas or timeline.
 
 ## Interface
 
@@ -327,6 +329,14 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room], …]}`, x and y null while not seen) and the stored `days`. |
 
 Every number must be finite: NaN and infinity are refused.
+
+### Repairs
+
+A tracker whose Private BLE Device was removed from Home Assistant raises a repair issue; it goes once the device is back or the tracker is off the plan.
+
+### Quality scale
+
+`custom_components/ble_floorplan/quality_scale.yaml` lists every rule of Home Assistant's integration quality scale up to Platinum as done or exempt with a reason; `tests/test_quality_scale.py` checks it.
 
 ### Store
 

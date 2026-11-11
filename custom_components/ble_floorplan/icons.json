@@ -9,6 +9,17 @@
       },
       "position_y": {
         "default": "mdi:axis-y-arrow"
+      },
+      "active_scanners": {
+        "default": "mdi:bluetooth"
+      }
+    },
+    "device_tracker": {
+      "presence": {
+        "default": "mdi:home-account",
+        "state": {
+          "not_home": "mdi:home-export-outline"
+        }
       }
     }
   }

@@ -9,6 +9,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The page shows the version at the bottom, and for a test deployment the commit (`scripts/deploy.sh` writes it).
 - Page checks in a real browser against a throwaway Home Assistant with a made-up flat and made-up scanners (`scripts/panel/check_panel.py`), in `scripts/check.sh` and as the CI job *Page*; they also render the screenshots of the README.
 - `scripts/check.sh` runs locally what CI runs; `scripts/deploy.sh` copies the integration to a Home Assistant OS host for a test before a release.
+- Diagnostics: settings, scanners and trackers as "Scanner 1", "Tracker 1" with their readings, without names, addresses, device ids, rooms, areas or the timeline.
+- A repair issue for a tracker whose Private BLE Device was removed.
+- Icons for *Active scanners* and *Presence*.
+- `quality_scale.yaml`: every rule of the quality scale up to Platinum, done or exempt with a reason, checked by a test.
 
 ### Changed
 
@@ -16,6 +20,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - The scripts of the page and the card are loaded with a hash of their content, so a browser fetches every change.
 - Requires Home Assistant 2026.11. The tests run on `pytest-homeassistant` 2026.11.1; the README follows the Marketplace and has the screenshots in `docs/screenshots`.
 - Changing a setting other than *Days kept* no longer prunes the timeline.
+- Adding or removing a tracker on the page no longer reloads the integration: its device and entities come and go at once.
 
 ### Fixed
 

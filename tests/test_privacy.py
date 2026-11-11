@@ -102,11 +102,6 @@ def test_frontend_talks_to_home_assistant_only() -> None:
         assert "https://" not in code, path
 
 
-def test_no_diagnostics() -> None:
-    """There is nothing to download: the integration offers no diagnostics."""
-    assert not (PACKAGE / "diagnostics.py").exists()
-
-
 # Images carry pixels only: no text chunks, no EXIF, no colour profile with a name
 IMAGE_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
 # A GIF may carry its frames, their timing and the loop count, nothing else

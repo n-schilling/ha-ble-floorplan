@@ -613,7 +613,7 @@ async def ws_add_scanner(
 async def ws_add_tracker(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Put a device on the plan as a tracker; the entry reloads for its sensors."""
+    """Put a device on the plan as a tracker; its device and entities follow without a reload."""
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -635,7 +635,7 @@ async def ws_add_tracker(
     except probatio.Invalid as err:
         connection.send_error(msg["id"], ERR_INVALID, str(err))
         return
-    await _async_replace(hass, runtime, plan)
+    await runtime.store.async_save(plan)
     connection.send_result(msg["id"], tracker.as_dict())
 
 
@@ -666,14 +666,14 @@ async def ws_remove_scanner(
 async def ws_remove_tracker(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Take a tracker off the plan; the entry reloads and removes its sensors."""
+    """Take a tracker off the plan; its device and entities go without a reload."""
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
     if runtime.store.plan.tracker(msg["key"]) is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no tracker {msg['key']}")
         return
-    await _async_replace(hass, runtime, remove_tracker(runtime.store.plan, msg["key"]))
+    await runtime.store.async_save(remove_tracker(runtime.store.plan, msg["key"]))
     connection.send_result(msg["id"])
 
 

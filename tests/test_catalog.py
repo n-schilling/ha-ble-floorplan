@@ -215,7 +215,8 @@ async def test_add_and_remove_tracker(
     devices: str,
     hass_ws_client: WebSocketGenerator,
 ) -> None:
-    """A tracker gets its sensors with the reload; twice or without a device is refused."""
+    """A tracker gets its device and entities without a reload; twice or without a device is refused."""
+    coordinator = entry.runtime_data.coordinator
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {"type": WS_ADD_TRACKER, "address": KEYS.lower(), "name": "Keys"}
@@ -225,6 +226,8 @@ async def test_add_and_remove_tracker(
     assert msg["result"] == {"key": "keys", "name": "Keys", "address": KEYS, "height": 1.0}
     await hass.async_block_till_done()
     assert hass.states.get("sensor.keys_room") is not None
+    assert hass.states.get("device_tracker.keys_presence") is not None
+    assert entry.runtime_data.coordinator is coordinator
 
     await client.send_json_auto_id(
         {"type": WS_ADD_TRACKER, "device_id": devices, "name": "Watch", "height": 1.2}
@@ -252,6 +255,20 @@ async def test_add_and_remove_tracker(
     assert msg["success"]
     await hass.async_block_till_done()
     assert hass.states.get("sensor.keys_room") is None
+    assert hass.states.get("device_tracker.keys_presence") is None
+    registry = dr.async_get(hass)
+    assert (
+        registry.async_get_device_by_identifier(("ble_floorplan", "keys"), entry.entry_id) is None
+    )
+    assert entry.runtime_data.coordinator is coordinator
+    # Put back: the entities come again
+    await client.send_json_auto_id({"type": WS_ADD_TRACKER, "address": KEYS, "name": "Keys"})
+    msg = await client.receive_json()
+    assert msg["success"]
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.keys_room") is not None
+    await client.send_json_auto_id({"type": WS_REMOVE_TRACKER, "key": "keys"})
+    await client.receive_json()
     await client.send_json_auto_id({"type": WS_REMOVE_TRACKER, "key": "keys"})
     msg = await client.receive_json()
     assert msg["error"]["code"] == "not_found"

@@ -46,5 +46,11 @@
     "invalid_storage": {
       "message": "BLE Floorplan cannot read {file}: {error}. The file is left as it is; correct or remove it and reload the integration."
     }
+  },
+  "issues": {
+    "tracker_device_missing": {
+      "title": "Tracker {name} has no device",
+      "description": "The Bluetooth device of the tracker {name} was removed from Home Assistant, so BLE Floorplan can no longer find it. On the page BLE Floorplan, take the tracker off the plan and add it again with its new device, or set up the device again."
+    }
   }
 }

@@ -8,10 +8,9 @@ from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_POSITION_SENSORS,
@@ -20,15 +19,18 @@ from .const import (
     NAME,
     SCANNER_ACTIVE_SECONDS,
 )
-from .coordinator import FloorplanCoordinator, TrackerPosition
+from .coordinator import FloorplanCoordinator
+from .entity import HUB, TrackerEntity, async_follow_trackers, async_remove_stale_devices
 from .model import Floorplan, Tracker
 
 if TYPE_CHECKING:
     from . import FloorplanConfigEntry
 
+# The coordinator updates every entity; nothing to limit
+PARALLEL_UPDATES = 0
+
 KINDS = ("room", "presence")
 POSITION_KINDS = ("position_x", "position_y")
-HUB = "hub"
 ACTIVE_SCANNERS = "active_scanners"
 # Decimals of the position sensors
 POSITION_DIGITS = 1
@@ -39,18 +41,20 @@ async def async_setup_entry(
     entry: FloorplanConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create the sensors of every tracker and drop those no longer wanted."""
+    """Create the sensors of every tracker, also of one added later, and drop those no longer wanted."""
     coordinator = entry.runtime_data.coordinator
-    plan = coordinator.plan
     positions = entry.options.get(CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS)
     kinds = KINDS + POSITION_KINDS if positions else KINDS
-    _async_remove_stale(hass, entry.entry_id, plan, kinds)
-    entities: list[SensorEntity] = [ActiveScannersSensor(coordinator)]
-    for tracker in plan.trackers:
-        entities.append(RoomSensor(coordinator, tracker))
+    _async_remove_stale(hass, entry.entry_id, coordinator.plan, kinds)
+    async_add_entities([ActiveScannersSensor(coordinator)])
+
+    def _create(tracker: Tracker) -> list[SensorEntity]:
+        entities: list[SensorEntity] = [RoomSensor(coordinator, tracker)]
         if positions:
             entities.extend(PositionSensor(coordinator, tracker, kind) for kind in POSITION_KINDS)
-    async_add_entities(entities)
+        return entities
+
+    async_follow_trackers(entry, async_add_entities, _create)
 
 
 @callback
@@ -63,33 +67,7 @@ def _async_remove_stale(
     for entry in er.async_entries_for_config_entry(entities, entry_id):
         if entry.unique_id not in wanted_ids:
             entities.async_remove(entry.entity_id)
-    wanted_devices = {(DOMAIN, t.key) for t in plan.trackers} | {(DOMAIN, HUB)}
-    devices = dr.async_get(hass)
-    for device in dr.async_entries_for_config_entry(devices, entry_id):
-        if not device.identifiers & wanted_devices:
-            devices.async_remove_device(device.id)
-
-
-class TrackerEntity(CoordinatorEntity[FloorplanCoordinator]):
-    """A sensor of one tracker."""
-
-    _attr_has_entity_name = True
-
-    def __init__(self, coordinator: FloorplanCoordinator, tracker: Tracker, kind: str) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._key = tracker.key
-        self._attr_unique_id = f"{tracker.key}_{kind}"
-        self._attr_translation_key = kind
-        connections = {(CONNECTION_BLUETOOTH, tracker.address)} if tracker.address else set()
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, tracker.key)}, connections=connections, name=tracker.name
-        )
-
-    @property
-    def position(self) -> TrackerPosition | None:
-        """Return the computed position of the tracker."""
-        return self.coordinator.data.get(self._key)
+    async_remove_stale_devices(hass, entry_id, plan)
 
 
 class RoomSensor(TrackerEntity, SensorEntity):

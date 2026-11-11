@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -23,6 +24,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .coordinator import FloorplanCoordinator
+from .entity import async_remove_stale_devices
 from .frontend import (
     async_about,
     async_register_frontend,
@@ -31,6 +33,7 @@ from .frontend import (
     async_unregister_panel,
 )
 from .history import HistoryStore
+from .issues import async_check_trackers, async_clear_issues
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
 
@@ -90,13 +93,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
     def _stop(event: Event) -> None:
         history.close(dt_util.utcnow().timestamp())
 
+    @callback
+    def _plan_changed() -> None:
+        """A tracker taken off the plan loses its device; a missing device is a repair issue."""
+        async_remove_stale_devices(hass, entry.entry_id, store.plan)
+        async_check_trackers(hass, store.plan)
+
+    @callback
+    def _device_changed(event: Event[dr.EventDeviceRegistryUpdatedData]) -> None:
+        async_check_trackers(hass, store.plan)
+
     entry.async_on_unload(store.async_add_listener(_prune))
+    entry.async_on_unload(store.async_add_listener(_plan_changed))
+    entry.async_on_unload(hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _device_changed))
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop))
     await coordinator.async_config_entry_first_refresh()
     await async_register_frontend(hass)
     await async_register_panel(hass)
     async_register_websocket(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    async_check_trackers(hass, store.plan)
     # Cards and pages subscribed before a reload follow to this coordinator
     async_rebind_subscriptions(hass, entry.runtime_data)
     return True
@@ -114,8 +130,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> None:
-    """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs and the timeline with the entry."""
+    """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs, the timeline and the repair issues with the entry."""
     async_unregister_panel(hass)
+    async_clear_issues(hass)
     await async_remove_resource(hass)
     store: Store[dict[str, object]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     await store.async_remove()
