@@ -92,6 +92,15 @@ jobs:
         run: |
           python -m venv .venv-panel
           .venv-panel/bin/pip install -r requirements_panel.txt
-          .venv-panel/bin/python -m playwright install --with-deps chromium
+      # The runner's Google Chrome needs no apt; Playwright's Chromium only without it
+      - name: Browser
+        id: browser
+        run: |
+          if google-chrome --version; then
+            echo "name=chrome" >> "$GITHUB_OUTPUT"
+          else
+            .venv-panel/bin/python -m playwright install --with-deps chromium
+            echo "name=chromium" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check the page and the card in a browser
-        run: .venv-panel/bin/python -I scripts/panel/check_panel.py --browser chromium
+        run: .venv-panel/bin/python -I scripts/panel/check_panel.py --browser "${{ steps.browser.outputs.name }}"
