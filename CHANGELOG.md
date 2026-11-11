@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-11-11
+
+### Changed
+
+- One header row like on Nico's other pages: the integration's icon (from its brand folder, as Home Assistant serves it), the name and right after it the tabs; the second row with the tabs is gone, so the plan gets more room. Subpages keep the back arrow and their name. On a phone the tabs stay at the bottom.
+- The page checks test the header row on every tab: the icon loads, it sits left of the name, the tabs in the same row right after the name, no icon and no tabs on subpages, icon and name without tabs on a phone.
+
 ## [0.14.0] - 2026-11-11
 
 ### Added

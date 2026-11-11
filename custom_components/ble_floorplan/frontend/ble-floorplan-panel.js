@@ -5,7 +5,8 @@
 // calibration run is tapped on it. Everything comes from the integration over
 // the WebSocket API. The page is built from Home Assistant's own elements (top
 // app bar, cards, buttons, icon buttons, alerts and ha-form with selectors);
-// a scanner or a tracker opens as a subpage with a back arrow. The header of
+// a scanner or a tracker opens as a subpage with a back arrow. The header is
+// one row: the integration's icon, its name and the tabs; at its end on
 // every page: when the page last got its data, refresh, and the cog to Home
 // Assistant's page of the integration.
 import {
@@ -35,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.14.0";
+} from "./ble-floorplan-plan.js?v=0.15.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -150,9 +151,23 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (first) {
         this._load();
         this._render();
+        this._loadBrand();
       }
       // The menu button follows the sidebar itself; the forms need the new hass
       for (const el of this.shadowRoot.querySelectorAll("ha-menu-button, ha-form")) el.hass = hass;
+    }
+
+    // The integration's icon from its brand folder, as Home Assistant serves it to
+    // the frontend: an image link needs the brands access token
+    async _loadBrand() {
+      try {
+        const { token } = await this._hass.callWS({ type: "brands/access_token" });
+        this._brandSrc = `/api/brands/integration/ble_floorplan/icon.png?token=${encodeURIComponent(token)}`;
+        const img = this.shadowRoot.getElementById("brand");
+        if (img) img.src = this._brandSrc;
+      } catch {
+        // Without the icon the name still says which page this is
+      }
     }
 
     set narrow(narrow) {
@@ -357,17 +372,19 @@ if (!customElements.get("ble-floorplan-panel")) {
           `<div class="tip"></div></div>${this._tlOn ? this._tlHtml() : ""}</div>`
         : "";
       const sheet = showSheet ? `<div class="sheet" id="sheet"></div>` : `<div class="about" id="about"></div>`;
+      // One header row: the integration's icon, its name and the tabs right after it;
+      // a subpage has the back arrow and the name of what it shows instead
       const topTabs = !this._narrow && !sub;
+      const brand = sub ? "" : `<img class="brand" id="brand" alt="" width="24" height="24"${this._brandSrc ? ` src="${esc(this._brandSrc)}"` : ""}>`;
       this.shadowRoot.innerHTML = `
         <style>${PLAN_CSS}${STYLE}</style>
-        <ha-top-app-bar-fixed class="${topTabs ? "with-tabs" : ""}">
+        <ha-top-app-bar-fixed>
           ${nav}
-          <div slot="title">${esc(sub ? sub.name : "BLE Floorplan")}</div>
+          <div slot="title" class="head">${brand}<span class="name">${esc(sub ? sub.name : "BLE Floorplan")}</span>${topTabs ? `<nav class="tabs">${tabs}</nav>` : ""}</div>
           <span class="stamp" slot="actionItems" id="stamp"></span>
           ${iconButton("refresh", t.refresh, 'slot="actionItems" id="refresh" data-act="refresh"')}
           ${iconButton("cog", t.integrationSettings, 'slot="actionItems" id="integration" data-act="integration"')}
           <div class="app${this._narrow ? " narrow" : ""}">
-            ${topTabs ? `<nav class="tabs">${tabs}</nav>` : ""}
             <div class="content ${this._tab}${showMap ? " withmap" : ""}${showSheet ? "" : " nosheet"}">${stage}${sheet}</div>
             ${this._narrow && !sub ? `<nav class="bottom-tabs">${tabs}</nav>` : ""}
           </div>
@@ -1577,8 +1594,10 @@ if (!customElements.get("ble-floorplan-panel")) {
       --app-header-background-color: var(--sidebar-background-color, var(--card-background-color));
       --app-header-text-color: var(--sidebar-text-color, var(--primary-text-color));
       --app-header-border-bottom: 1px solid var(--divider-color); }
-    /* The tabs continue the header; the line moves below them */
-    ha-top-app-bar-fixed.with-tabs { --app-header-border-bottom: none; }
+    /* One header row: icon, name, tabs; the tabs fill the bar's height for their line */
+    .head { display: flex; align-items: center; height: var(--header-height, 56px); min-width: 0; }
+    .brand { width: 24px; height: 24px; flex: none; margin-inline-end: 12px; object-fit: contain; }
+    .name { flex: none; white-space: nowrap; }
     /* The header's actions, as on every page of Nico's apps and integrations: stamp,
        refresh, settings */
     .stamp { color: var(--secondary-text-color); font-size: var(--ha-font-size-m, 14px);
@@ -1589,8 +1608,8 @@ if (!customElements.get("ble-floorplan-panel")) {
     .app { display: flex; flex-direction: column;
       height: calc(100vh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px));
       height: calc(100dvh - var(--header-height, 56px) - var(--safe-area-inset-top, 0px)); }
-    .tabs { display: flex; flex: none; height: 48px; padding: 0 12px; overflow-x: auto; scrollbar-width: none;
-      background: var(--sidebar-background-color, var(--card-background-color)); border-bottom: 1px solid var(--divider-color); }
+    .tabs { display: flex; flex: 0 1 auto; min-width: 0; height: 100%; margin-inline-start: 24px; overflow-x: auto; scrollbar-width: none;
+      font-size: var(--ha-font-size-m, 14px); line-height: 1.5; }
     .tab { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0 20px; position: relative;
       color: var(--sidebar-text-color, var(--primary-text-color)); text-decoration: none; font-weight: var(--ha-font-weight-medium, 500);
       white-space: nowrap; opacity: 0.8; }

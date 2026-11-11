@@ -549,7 +549,55 @@ async def _goto(page: Page, instance: Instance, tab: str) -> None:
 
 
 async def _title(page: Page) -> str:
-    return (await page.locator(f"{PANEL} [slot=title]").inner_text()).strip()
+    return (await page.locator(f"{PANEL} [slot=title] .name").inner_text()).strip()
+
+
+async def _header_row(page: Page, *, tabs: bool, brand: bool = True) -> None:
+    """One header row: the integration's icon, the name, the tabs right after it."""
+    row = await page.locator(PANEL).evaluate(
+        """el => {
+          const root = el.shadowRoot;
+          const box = (x) => x && x.getBoundingClientRect();
+          const img = root.querySelector('[slot=title] img.brand');
+          const name = box(root.querySelector('[slot=title] .name'));
+          const nav = root.querySelector('[slot=title] nav.tabs');
+          return {
+            brand: img ? { width: img.naturalWidth, shown: box(img).width, top: box(img).top,
+              bottom: box(img).bottom, right: box(img).right } : null,
+            name: { top: name.top, bottom: name.bottom, left: name.left, right: name.right },
+            tabs: nav ? { top: box(nav).top, bottom: box(nav).bottom, left: box(nav).left,
+              count: nav.querySelectorAll('a.tab').length,
+              active: nav.querySelectorAll('a.tab.active').length } : null,
+            second: !!root.querySelector('.app > nav.tabs'),
+          };
+        }"""
+    )
+    middle = (row["name"]["top"] + row["name"]["bottom"]) / 2
+    if brand:
+        icon = row["brand"]
+        expect(icon is not None, "no integration icon in the header")
+        expect(icon["width"] > 0, "the integration icon did not load")
+        expect(icon["shown"] == 24, f"icon {icon['shown']} px wide")
+        expect(icon["right"] <= row["name"]["left"], "the icon is not left of the name")
+        expect(
+            abs((icon["top"] + icon["bottom"]) / 2 - middle) <= 2, "icon and name not in one row"
+        )
+    else:
+        expect(row["brand"] is None, "an icon next to the back arrow")
+    expect(not row["second"], "a second header row for the tabs")
+    if tabs:
+        nav = row["tabs"]
+        expect(nav is not None, "no tabs in the header row")
+        expect(
+            nav["count"] == 6 and nav["active"] == 1, f"{nav['count']} tabs, {nav['active']} active"
+        )
+        expect(nav["left"] >= row["name"]["right"], "the tabs are not right of the name")
+        expect(
+            abs((nav["top"] + nav["bottom"]) / 2 - middle) <= 2,
+            f"tabs {nav['top']}-{nav['bottom']} not in the name's row {row['name']}",
+        )
+    else:
+        expect(row["tabs"] is None, "tabs in the header")
 
 
 async def _header(page: Page) -> None:
@@ -569,6 +617,14 @@ async def _header(page: Page) -> None:
         expect(await el.is_visible(), f"{button} button not visible")
         expect((await el.get_attribute("path") or "").startswith(path), f"{button}: wrong icon")
         expect(await el.get_attribute("label") == label, f"{button}: label")
+
+
+async def _brand_loaded(page: Page) -> bool:
+    return bool(
+        await page.locator(PANEL).evaluate(
+            "el => (el.shadowRoot.querySelector('img.brand')?.naturalWidth || 0) > 0"
+        )
+    )
 
 
 async def _stamp_ok(stamp: Any) -> bool:
@@ -619,10 +675,15 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await _goto(page, instance, tab)
             try:
                 await _header(page)
+                await _until(lambda: _brand_loaded(page), "the icon in the header", seconds=10)
+                await _header_row(page, tabs=True)
             except AssertionError as err:
                 raise AssertionError(f"{tab}: {err}") from err
 
-    await checks.run("every tab has the header: stamp, refresh, settings", header_on_every_tab)
+    await checks.run(
+        "every tab has one header row: icon, name, tabs, stamp, refresh, settings",
+        header_on_every_tab,
+    )
 
     async def refresh_fetches_again() -> None:
         await _goto(page, instance, "plan")
@@ -714,6 +775,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             state="detached"
         )
         await _header(page)
+        await _header_row(page, tabs=False, brand=False)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "tracker.png"))
@@ -746,6 +808,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await page.locator(f"{PANEL} .item[data-key='hall']").click()
         await page.locator(f"{PANEL} ha-icon-button[data-act='back']").wait_for()
         await _header(page)
+        await _header_row(page, tabs=False, brand=False)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "scanner.png"))
@@ -838,6 +901,13 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             )
             await _goto(phone, instance, "trackers")
             await phone.locator(f"{PANEL} .bottom-tabs").wait_for()
+            # The header keeps icon and name; the tabs are the bar at the bottom
+            await _until(
+                lambda: _brand_loaded(phone),  # noqa: B023 awaited right here
+                f"{scheme}: the icon in the header",
+                seconds=10,
+            )
+            await _header_row(phone, tabs=False)
             # On a phone the stamp makes room; refresh and settings stay
             await phone.locator(f"{PANEL} ha-icon-button#refresh").wait_for()
             await phone.locator(f"{PANEL} ha-icon-button#integration").wait_for()
