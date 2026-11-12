@@ -3,7 +3,7 @@
 # integrations it uses (bluetooth, usb, hassio), and Playwright
 homeassistant==2026.11.1
 home-assistant-frontend==20261028.5
-bleak==3.0.2
+bleak==3.1.0
 bleak-retry-connector==4.7.1
 bluetooth-adapters==2.4.0
 bluetooth-auto-recovery==1.6.4
@@ -12,5 +12,5 @@ dbus-fast==5.0.22
 habluetooth==7.1.2
 aiousbwatcher==1.1.2
 serialx==1.15.1
-aiohasupervisor==0.8.1
+aiohasupervisor==0.10.0
 playwright==1.64.1

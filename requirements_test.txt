@@ -5,8 +5,8 @@ pytest-homeassistant==2026.11.1
 dbus-fast==5.0.22
 aiousbwatcher==1.1.2
 serialx==1.15.1
-aiohasupervisor==0.8.1
+aiohasupervisor==0.10.0
 ruff==0.17.4
 mypy==2.4.1
-types-PyYAML==6.0.12.20261030
+types-PyYAML==6.0.12.20261103
 pytest-cov==7.1.0
