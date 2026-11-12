@@ -24,7 +24,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .coordinator import FloorplanCoordinator
-from .entity import async_remove_stale_devices
+from .entity import async_name_devices, async_remove_stale_devices
 from .frontend import (
     async_about,
     async_register_frontend,
@@ -95,8 +95,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
 
     @callback
     def _plan_changed() -> None:
-        """A tracker taken off the plan loses its device; a missing device is a repair issue."""
+        """A tracker taken off the plan loses its device, a renamed one renames it; a missing device is a repair issue."""
         async_remove_stale_devices(hass, entry.entry_id, store.plan)
+        async_name_devices(hass, entry.entry_id, store.plan)
         async_check_trackers(hass, store.plan)
 
     @callback

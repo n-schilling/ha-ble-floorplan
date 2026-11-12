@@ -86,3 +86,16 @@ def async_remove_stale_devices(hass: HomeAssistant, entry_id: str, plan: Floorpl
     for device in dr.async_entries_for_config_entry(devices, entry_id):
         if not device.identifiers & wanted:
             devices.async_remove_device(device.id)
+
+
+@callback
+def async_name_devices(hass: HomeAssistant, entry_id: str, plan: Floorplan) -> None:
+    """Give the devices of renamed trackers their new names; the entities follow.
+
+    A name the user gave the device in Home Assistant stays on top of it.
+    """
+    devices = dr.async_get(hass)
+    for tracker in plan.trackers:
+        device = devices.async_get_device_by_identifier((DOMAIN, tracker.key), entry_id)
+        if device is not None and device.name != tracker.name:
+            devices.async_update_device(device.id, name=tracker.name)

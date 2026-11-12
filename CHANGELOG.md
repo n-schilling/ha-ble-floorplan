@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Renaming a scanner or a tracker on the page: *Edit* has a **Name** field. The key stays, and with it the entity ids, the pair corrections and the calibration runs; a tracker's device and its entities take the new name without a reload, and a name given to the device in Home Assistant stays on top of it.
+- `ble_floorplan/set_tracker` and `ble_floorplan/set_scanner` take `name` (1 to 80 characters, spaces around it are cut).
+- The page checks rename a tracker in the form.
+
 ## [0.15.0] - 2026-11-11
 
 ### Changed

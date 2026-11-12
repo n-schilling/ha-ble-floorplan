@@ -11,8 +11,10 @@ from pytest_homeassistant.common import MockConfigEntry
 from pytest_homeassistant.typing import WebSocketGenerator
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from custom_components.ble_floorplan.const import (
+    DOMAIN,
     WS_CALIBRATION_APPLY,
     WS_CALIBRATION_DELETE,
     WS_CALIBRATION_FIT,
@@ -726,3 +728,86 @@ async def test_calibration_delete_refits(
     assert msg["result"]["fit"]["ref_power"]["new"] == -62.0
     tag = runtime.store.plan.tracker("tag")
     assert tag is not None and tag.ref_power == -62.0
+
+
+async def test_rename_tracker(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """A new name keeps the key and the entity ids; the device follows without a reload."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": WS_SET_SCANNER, "key": "living", "pair_offsets": {"tag": 1.5}}
+    )
+    assert (await client.receive_json())["success"]
+    runtime = entry.runtime_data
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "name": "  Key ring "})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["key"] == "tag"
+    assert msg["result"]["name"] == "Key ring"
+    assert msg["result"]["height"] == 0.3
+    assert msg["result"]["pair_offsets"] == {"living": 1.5}
+    await hass.async_block_till_done()
+    # No reload: the same coordinator, the same entity, its name from the device
+    assert entry.runtime_data is runtime
+    device = device_registry.async_get_device_by_identifier((DOMAIN, "tag"), entry.entry_id)
+    assert device is not None and device.name == "Key ring"
+    state = hass.states.get("sensor.tag_room")
+    assert state is not None and state.attributes["friendly_name"] == "Key ring Room"
+    assert hass.states.get("device_tracker.tag_presence") is not None
+    # The other tracker keeps its device name
+    other = device_registry.async_get_device_by_identifier((DOMAIN, "phone"), entry.entry_id)
+    assert other is not None and other.name == "Phone"
+
+    # A name the user gave the device stays on top
+    device_registry.async_update_device(device.id, name_by_user="Mine")
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "name": "Keys"})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    device = device_registry.async_get_device_by_identifier((DOMAIN, "tag"), entry.entry_id)
+    assert device is not None and (device.name, device.name_by_user) == ("Keys", "Mine")
+    state = hass.states.get("sensor.tag_room")
+    assert state is not None and state.attributes["friendly_name"] == "Mine Room"
+
+    # Empty, blank or overlong names are refused and nothing changes
+    for name in ("", "   ", "x" * 81):
+        await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "name": name})
+        msg = await client.receive_json()
+        assert msg["error"]["code"] == "invalid_format", name
+    tag = entry.runtime_data.store.plan.tracker("tag")
+    assert tag is not None and tag.name == "Keys"
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "name": "x" * 80})
+    assert (await client.receive_json())["success"]
+
+
+async def test_rename_scanner(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """A new name keeps the key, the place and the pairs of a scanner."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": WS_SET_SCANNER, "key": "living", "pair_offsets": {"tag": 1.5}}
+    )
+    assert (await client.receive_json())["success"]
+    await client.send_json_auto_id({"type": WS_SET_SCANNER, "key": "living", "name": " Sofa plug "})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"] == {
+        "key": "living",
+        "name": "Sofa plug",
+        "source": SCANNER_LIVING,
+        "x": 1.0,
+        "y": 1.0,
+        "z": 0.8,
+        "rssi_offset": 0.0,
+        "pair_offsets": {"tag": 1.5},
+    }
+    living = entry.runtime_data.store.plan.scanner("living")
+    assert living is not None and living.name == "Sofa plug"
+    for name in ("", " ", "x" * 81):
+        await client.send_json_auto_id({"type": WS_SET_SCANNER, "key": "living", "name": name})
+        msg = await client.receive_json()
+        assert msg["error"]["code"] == "invalid_format", name

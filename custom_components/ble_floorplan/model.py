@@ -93,6 +93,11 @@ def _unique_keys(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return items
 
 
+# The name of a scanner or a tracker as the page sets it: not empty, and short
+# enough for a device name
+NAME_MAX = 80
+NAME = probatio.All(cv.string, probatio.Strip, probatio.Length(min=1, max=NAME_MAX))
+
 ROOM_SCHEMA = probatio.All(
     probatio.Schema(
         {

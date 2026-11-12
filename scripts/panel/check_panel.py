@@ -789,6 +789,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await _goto(page, instance, "trackers")
         await page.locator(f"{PANEL} .item[data-key='phone']").click()
         await page.locator(f"{PANEL} ha-button[data-act='edit-tracker']").click()
+        await page.get_by_role("textbox", name="Name").fill("Work phone")
         height = page.get_by_role("spinbutton", name="Height")
         await height.fill("1.4")
         await page.locator(f"{PANEL} ha-button[data-act='save-tracker']").click()
@@ -796,10 +797,16 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         async def saved() -> bool:
             plan = await _plan(api, instance)
             phone = next(t for t in plan["trackers"] if t["key"] == "phone")
-            return bool(phone["height"] == 1.4)
+            return bool(phone["height"] == 1.4 and phone["name"] == "Work phone")
 
-        await _until(saved, "the new height in the integration")
+        await _until(saved, "the new name and height in the integration")
         await page.locator(f"{PANEL} ha-alert[alert-type='success']").wait_for()
+        expect(await _title(page) == "Work phone", await _title(page))
+        # Back to the name the other checks and the screenshots show
+        reply = await api.ws(
+            instance.token, {"type": "ble_floorplan/set_tracker", "key": "phone", "name": "Phone"}
+        )
+        expect(reply["success"], str(reply))
 
     await checks.run("editing a tracker in ha-form reaches the integration", edit_tracker)
 

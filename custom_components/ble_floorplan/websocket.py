@@ -59,6 +59,7 @@ from .const import (
 )
 from .history import to_wire
 from .model import (
+    NAME,
     NUMBER,
     Floorplan,
     replace_scanner,
@@ -250,6 +251,7 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
     {
         probatio.Required("type"): WS_SET_SCANNER,
         probatio.Required("key"): cv.string,
+        probatio.Optional("name"): NAME,
         probatio.Optional("x"): NUMBER,
         probatio.Optional("y"): NUMBER,
         probatio.Optional("z"): NUMBER,
@@ -261,7 +263,10 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
 async def ws_set_scanner(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a scanner: position, height, offset, its pairs; what is not given stays."""
+    """Change a scanner: name, position, height, offset, its pairs; what is not given stays.
+
+    The key stays with a new name, and with it the pairs and the calibration runs.
+    """
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -276,6 +281,8 @@ async def ws_set_scanner(
     changed = with_scanner_position(
         scanner, msg.get("x", scanner.x), msg.get("y", scanner.y), msg.get("z")
     )
+    if "name" in msg:
+        changed = replace(changed, name=msg["name"])
     if "rssi_offset" in msg:
         changed = replace(changed, rssi_offset=msg["rssi_offset"])
     plan = replace_scanner(plan, changed)
@@ -293,6 +300,7 @@ async def ws_set_scanner(
     {
         probatio.Required("type"): WS_SET_TRACKER,
         probatio.Required("key"): cv.string,
+        probatio.Optional("name"): NAME,
         probatio.Optional("height"): NUMBER,
         probatio.Optional("ref_power"): probatio.Any(None, NUMBER),
         probatio.Optional("pair_offsets"): PAIRS,
@@ -302,7 +310,11 @@ async def ws_set_scanner(
 async def ws_set_tracker(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a tracker: height, reference power (null for the default), its pairs per scanner."""
+    """Change a tracker: name, height, reference power (null for the default), its pairs per scanner.
+
+    The key stays with a new name, and with it the entity ids, the pairs and the
+    calibration runs; the tracker's device takes the name without a reload.
+    """
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -315,6 +327,8 @@ async def ws_set_tracker(
         connection.send_error(msg["id"], ERR_NOT_FOUND, problem)
         return
     changed = tracker
+    if "name" in msg:
+        changed = replace(changed, name=msg["name"])
     if "height" in msg:
         changed = replace(changed, height=msg["height"])
     if "ref_power" in msg:

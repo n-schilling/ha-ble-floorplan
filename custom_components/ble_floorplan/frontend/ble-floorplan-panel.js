@@ -525,6 +525,11 @@ if (!customElements.get("ble-floorplan-panel")) {
       return { name, label, selector: { number: { mode: "box", step: "any", ...(unit ? { unit_of_measurement: unit } : {}), ...extra } } };
     }
 
+    // The name of a scanner or a tracker; the integration takes up to 80 characters
+    _nameField(label) {
+      return { name: "name", label, required: true, selector: { text: {} } };
+    }
+
     // An ha-form with Home Assistant's selectors; drawn after the sheet's HTML.
     // The data is part of the placeholder, so a change from outside redraws it
     _formSlot(id, schema, data, onChange) {
@@ -685,9 +690,10 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (this._form) {
         const f = this._form;
         body = this._formSlot("scanner", [
+          this._nameField(t.name),
           { type: "grid", name: "", schema: [this._num("x", "x", "m"), this._num("y", "y", "m"), this._num("z", t.height, "m"), this._num("rssi_offset", t.offset, "dB")] },
         ], f, (v) => {
-          for (const k of ["x", "y", "z", "rssi_offset"]) f[k] = v[k] ?? null;
+          for (const k of ["name", "x", "y", "z", "rssi_offset"]) f[k] = v[k] ?? null;
         }) +
           `<div class="subhead">${esc(t.pairs)}</div>` +
           this._formSlot("scanner-pairs", [
@@ -742,11 +748,13 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (this._form) {
         const f = this._form;
         body = this._formSlot("tracker", [
+          this._nameField(t.name),
           { type: "grid", name: "", schema: [
             this._num("height", t.height, "m"),
             { ...this._num("ref_power", t.refPower, "dBm"), helper: `${t.default} ${fmt(plan.settings.ref_power_default, 0)} dBm` },
           ] },
         ], f, (v) => {
+          f.name = v.name ?? null;
           f.height = v.height ?? null;
           f.ref_power = v.ref_power ?? null;
         }) +
@@ -1091,7 +1099,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const pairs = {};
           for (const tr of plan.trackers) pairs[tr.key] = plan.pair_offsets?.[s.key]?.[tr.key] ?? null;
-          this._form = { x: s.x, y: s.y, z: s.z, rssi_offset: s.rssi_offset, pairs };
+          this._form = { name: s.name, x: s.x, y: s.y, z: s.z, rssi_offset: s.rssi_offset, pairs };
           this._note = null;
           break;
         }
@@ -1099,7 +1107,8 @@ if (!customElements.get("ble-floorplan-panel")) {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const f = this._form;
           this._call({
-            type: "ble_floorplan/set_scanner", key: s.key, x: f.x ?? s.x, y: f.y ?? s.y, z: f.z ?? s.z,
+            type: "ble_floorplan/set_scanner", key: s.key, name: (f.name ?? "").trim() || s.name,
+            x: f.x ?? s.x, y: f.y ?? s.y, z: f.z ?? s.z,
             rssi_offset: f.rssi_offset ?? s.rssi_offset, pair_offsets: f.pairs,
           }, saved);
           return;
@@ -1108,7 +1117,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           const tr = plan.trackers.find((x) => x.key === this._selTracker);
           const pairs = {};
           for (const s of plan.scanners) pairs[s.key] = plan.pair_offsets?.[s.key]?.[tr.key] ?? null;
-          this._form = { height: tr.height, ref_power: tr.ref_power ?? null, pairs };
+          this._form = { name: tr.name, height: tr.height, ref_power: tr.ref_power ?? null, pairs };
           this._note = null;
           break;
         }
@@ -1116,7 +1125,8 @@ if (!customElements.get("ble-floorplan-panel")) {
           const tr = plan.trackers.find((x) => x.key === this._selTracker);
           const f = this._form;
           this._call({
-            type: "ble_floorplan/set_tracker", key: tr.key, height: f.height ?? tr.height, ref_power: f.ref_power, pair_offsets: f.pairs,
+            type: "ble_floorplan/set_tracker", key: tr.key, name: (f.name ?? "").trim() || tr.name,
+            height: f.height ?? tr.height, ref_power: f.ref_power, pair_offsets: f.pairs,
           }, saved);
           return;
         }

@@ -112,8 +112,8 @@ flowchart LR
 A scanner or a tracker is taken off the plan with **Remove** in its details, after a confirmation.
 
 - **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from tab to tab.
-- **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its values.
-- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them, **Calibration run** takes it to the calibration with this tracker chosen.
+- **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its name and its values.
+- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to the calibration with this tracker chosen.
 - **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
 - The buttons above the plan rotate it and switch the labels of rooms, scanners and trackers, per browser. Hovering a scanner or a tracker shows its readings.
 
@@ -316,8 +316,8 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |
 | `ble_floorplan/remove_tracker` | admins | `key`: takes a tracker off the plan, with its pair corrections. |
-| `ble_floorplan/set_scanner` | admins | `key` and any of `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair). |
-| `ble_floorplan/set_tracker` | admins | `key` and any of `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`). |
+| `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
+| `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`: starts a run (one at a time). |
 | `ble_floorplan/calibration/stop` | admins | Stops the run and saves the tracker's values; returns the run and `fit` (null when no scanner has three samples). |
