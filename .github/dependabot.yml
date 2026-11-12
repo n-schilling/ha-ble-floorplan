@@ -29,3 +29,7 @@ updates:
       - dependency-name: dbus-fast
       - dependency-name: aiousbwatcher
       - dependency-name: serialx
+      # Home Assistant itself, its frontend and test harness: moved by hand with each HA release
+      - dependency-name: homeassistant
+      - dependency-name: home-assistant-frontend
+      - dependency-name: pytest-homeassistant
