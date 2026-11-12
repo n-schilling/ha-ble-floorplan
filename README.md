@@ -363,7 +363,7 @@ uv venv --python 3.14 && uv pip install -r requirements_test.txt
 scripts/check.sh
 ```
 
-`scripts/check.sh` runs what CI runs: ruff, the changelog and translation checks, mypy, the tests with full coverage, the page checks and hassfest in Docker.
+`scripts/check.sh` runs what CI runs: ruff, the changelog and translation checks, mypy, the tests with full coverage, the page checks and hassfest in Docker. The page check is not part of CI: run `scripts/check.sh` before a release that changes the page.
 
 The page checks start a throwaway Home Assistant with a made-up flat, reachable from this machine only. Made-up scanners (`scripts/panel/demo_ble`) hear made-up trackers, so the plan shows them where they are; no Bluetooth radio is touched. The checks drive the page and the card in a headless browser (plan and version, the header row with the icon, the name and the tabs in it, its stamp, Refresh and the cog on every tab and subpage, trackers, subpages, ha-form edits, the confirmation before removing, settings, calibration, timeline, the card, phone width, dark mode, no page and no addresses for non-administrators) and stop Home Assistant again. They need their own environment:
 
