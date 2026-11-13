@@ -17,6 +17,7 @@ from homeassistant.util import dt as dt_util
 
 from .calibration import CalibrationRun, CalibrationStore
 from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
+from .coverage import CoverageStore
 from .engine import (
     Measurement,
     RoomTracker,
@@ -111,6 +112,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         store: FloorplanStore,
         calibration: CalibrationStore,
         history: HistoryStore,
+        coverage: CoverageStore,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -124,6 +126,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self.store = store
         self.calibration = calibration
         self.history = history
+        self.coverage = coverage
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
         self._rooms = RoomTracker()
@@ -139,11 +142,12 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         return self.store.plan
 
     async def _async_update_data(self) -> Positions:
-        """Compute the positions and add them to the timeline."""
+        """Compute the positions and add them to the timeline and the coverage."""
         positions = self.compute(MONOTONIC_TIME())
-        await self.history.async_record(
-            positions, dt_util.utcnow().timestamp(), self.plan.settings.history_days
-        )
+        now = dt_util.utcnow().timestamp()
+        days = self.plan.settings.history_days
+        await self.history.async_record(positions, now, days)
+        self.coverage.record(self.plan, positions, now, days)
         return positions
 
     def compute(self, now: float) -> Positions:

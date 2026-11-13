@@ -18,12 +18,14 @@ from .calibration import CalibrationStore
 from .const import (
     CALIBRATION_STORAGE_KEY,
     CALIBRATION_STORAGE_VERSION,
+    COVERAGE_STORAGE_KEY,
     DOMAIN,
     HISTORY_STORAGE_KEY,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
 from .coordinator import FloorplanCoordinator
+from .coverage import CoverageStore
 from .entity import async_name_devices, async_remove_stale_devices
 from .frontend import (
     async_about,
@@ -47,6 +49,7 @@ class RuntimeData:
     store: FloorplanStore
     calibration: CalibrationStore
     history: HistoryStore
+    coverage: CoverageStore
     coordinator: FloorplanCoordinator
     # Shown at the bottom of the page: the version, and the commit of a test deployment
     about: dict[str, str | None]
@@ -60,6 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
     store = FloorplanStore(hass)
     calibration = CalibrationStore(hass)
     history = HistoryStore(hass)
+    coverage = CoverageStore(hass)
     key = STORAGE_KEY
     try:
         await store.async_load()
@@ -67,6 +71,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
         await calibration.async_load()
         key = HISTORY_STORAGE_KEY
         await history.async_load(dt_util.utcnow().timestamp(), store.plan.settings.history_days)
+        key = COVERAGE_STORAGE_KEY
+        await coverage.async_load(dt_util.utcnow().timestamp(), store.plan.settings.history_days)
     except probatio.Invalid as err:
         # Nothing is replaced: the file stays as it is for a look or a repair by hand
         raise ConfigEntryError(
@@ -74,24 +80,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
             translation_key="invalid_storage",
             translation_placeholders={"file": f".storage/{key}", "error": str(err)},
         ) from err
-    coordinator = FloorplanCoordinator(hass, entry, store, calibration, history)
+    coordinator = FloorplanCoordinator(hass, entry, store, calibration, history, coverage)
     entry.runtime_data = RuntimeData(
-        store, calibration, history, coordinator, await async_about(hass)
+        store, calibration, history, coverage, coordinator, await async_about(hass)
     )
     kept_days = store.plan.settings.history_days
 
     @callback
     def _prune() -> None:
-        """Drop the days a shorter timeline no longer keeps; only when the days change."""
+        """Drop the days a shorter timeline no longer keeps, from it and the coverage; only when the days change."""
         nonlocal kept_days
         if (days := store.plan.settings.history_days) == kept_days:
             return
         kept_days = days
-        entry.async_create_task(hass, history.async_prune(dt_util.utcnow().timestamp(), days))
+        now = dt_util.utcnow().timestamp()
+        entry.async_create_task(hass, history.async_prune(now, days))
+        entry.async_create_task(hass, coverage.async_prune(now, days))
 
     @callback
     def _stop(event: Event) -> None:
         history.close(dt_util.utcnow().timestamp())
+        coverage.close()
 
     @callback
     def _plan_changed() -> None:
@@ -127,11 +136,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
     if entry.runtime_data.calibration.active is not None:
         await entry.runtime_data.coordinator.async_stop_calibration()
     await entry.runtime_data.history.async_close(dt_util.utcnow().timestamp())
+    await entry.runtime_data.coverage.async_close()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> None:
-    """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs, the timeline and the repair issues with the entry."""
+    """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs, the timeline, the coverage and the repair issues with the entry."""
     async_unregister_panel(hass)
     async_clear_issues(hass)
     await async_remove_resource(hass)
@@ -142,3 +152,4 @@ async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
     )
     await calibration.async_remove()
     await HistoryStore(hass).async_remove()
+    await CoverageStore(hass).async_remove()

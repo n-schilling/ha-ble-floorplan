@@ -30,6 +30,10 @@ Calibration runs, each a dot on the plan where it was taken:
 
 <img src="docs/screenshots/calibration.png" alt="The Calibration tab: a form for a new run and the list of two finished runs" width="700">
 
+The coverage: the model of the made-up flat, with a probe scanner placed in the middle:
+
+<img src="docs/screenshots/coverage.png" alt="The Coverage tab: the plan covered with coloured cells, the legend and a probe scanner P1" width="700">
+
 The timeline, dragged back to an earlier moment:
 
 <img src="docs/screenshots/timeline.png" alt="The Timeline tab: the plan with the trackers of that moment and a vertical time axis with a bar per tracker" width="700">
@@ -101,7 +105,7 @@ flowchart LR
 
 ### The page
 
-**BLE Floorplan** in the sidebar, for administrators only, is built from Home Assistant's own elements. Its tabs are *Floor plan*, *Scanners*, *Trackers*, *Calibration*, *Timeline* and *Settings*; all but the settings show the plan with the trackers live, and the details next to it. The header is one row: the integration's icon, its name and right after it the tabs. Its right end has on every tab and subpage, as on Home Assistant's own pages, the time the page last got its data (*As of …*, left out on a phone), **Refresh**, which fetches everything the page shows again without reloading it, and the cog, which opens the integration on *Settings → Devices & services*. A scanner or a tracker opens as a subpage with a back arrow. On a phone the plan sits on top and the tabs at the bottom. The version of the integration is at the bottom of the page.
+**BLE Floorplan** in the sidebar, for administrators only, is built from Home Assistant's own elements. Its tabs are *Floor plan*, *Scanners*, *Trackers*, *Calibration*, *Coverage*, *Timeline* and *Settings*; all but the settings show the plan with the trackers live, and the details next to it. The header is one row: the integration's icon, its name and right after it the tabs. Its right end has on every tab and subpage, as on Home Assistant's own pages, the time the page last got its data (*As of …*, left out on a phone), **Refresh**, which fetches everything the page shows again without reloading it, and the cog, which opens the integration on *Settings → Devices & services*. A scanner or a tracker opens as a subpage with a back arrow. On a phone the plan sits on top and the tabs at the bottom. The version of the integration is at the bottom of the page.
 
 1. **Draw the floor plan** on the *Floor plan* tab. The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
 2. **Add the scanners** on the *Scanners* tab. *Add scanner* offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. The page goes straight on to placing it: tap the plan where it is, or drag it, and **Save**.
@@ -114,6 +118,7 @@ A scanner or a tracker is taken off the plan with **Remove** in its details, aft
 - **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from tab to tab.
 - **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its name and its values.
 - **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to the calibration with this tracker chosen.
+- **Coverage:** where the scanners can place a tracker well and where not, as coloured cells of half a metre over the plan, and a table of the rooms, worst first. See [Coverage](#coverage).
 - **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
 - The buttons above the plan rotate it and switch the labels of rooms, scanners and trackers, per browser. Hovering a scanner or a tracker shows its readings.
 
@@ -162,6 +167,15 @@ sequenceDiagram
 How a tracker's values follow from its runs: the scanner offsets and the exponent stay as they are. Per scanner, the runs give the tracker's reference power plus the pair's correction; the reference power is the mean of that over the scanners, each scanner counting once, and what a scanner differs from it becomes the pair's correction.
 
 How the fit over all runs works: for each run and scanner, the median signal strength is one observation, and its true distance follows from the positions and heights of the run and the scanner. A least-squares fit over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(distance)` gives the reference power of every tracker and the offset of every scanner, made to average zero. What the fit leaves per pair becomes the pair's correction.
+
+### Coverage
+
+The *Coverage* tab shows two maps, each for one tracker or for all of them:
+
+- **Model:** predicted from the scanners' places and heights, their offsets and pair corrections, the tracker's reference power and height (or the default reference power and 1 m) and the path loss exponent, as the engine computes distances, only backwards. Walls have no term of their own: the exponent and the offsets from the calibration already hold what a wall typically takes. **Probe scanners:** tap the plan to place up to five scanners that are only thought of, 1 m high, with the median offset of the scanners on the plan; the cells they make better are outlined. Nothing is saved.
+- **Measured:** what the scanners received where the trackers really were. Every second, a seen tracker adds a sample to its grid cell: how many scanners received it well, how they lay around it, and how far their distance circles missed the raw position. A cell shows once it has 30 seconds of samples; rooms are weighted by time. The measurement is recorded only while the timeline is on and kept as many days; **Start anew** forgets it, for after a scanner moved or came in. The page fetches it again every minute.
+
+A scanner receives a tracker *well* from −85 dBm on. A place is **good** with three such scanners or more that lie around it rather than in a line (HDOP at most 2), **fair** with two, **poor** with one or none. Where a position is poor, it is also less accurate, so the measured map shows the poor places a little blurred.
 
 ### Timeline
 
@@ -228,7 +242,7 @@ A room with `area` gives its *Room* sensor the attribute `area_id`; an area Home
 
 ### Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs and, when *Days kept* is above 0, the timeline in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs and, when *Days kept* is above 0, the timeline and the measured coverage in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. The measured coverage holds per tracker and day how long it was in which half-metre cell; it follows the same rules. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Examples
 
@@ -326,6 +340,9 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/calibration/fit` | admins | `tracker`: saves the tracker's values from its runs again and returns the `fit`. |
 | `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent too. Returns the proposal; nothing is written. |
 | `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers`, `scanners`, `pairs`, each optional: writes them into the plan. |
+| `ble_floorplan/coverage/model` | admins | Optionally `tracker` and `probes` (up to 5 of `{x, y, z}`, z 1 m by default): returns `cells` (`[ix, iy, level, good scanners, HDOP]`, with probes also the level without them), `rooms` (`{name, cells: [poor, fair, good]}`), `cell` (m), `good_rssi`, `max_hdop`, `probe_offset`. Level 0 poor, 1 fair, 2 good. |
+| `ble_floorplan/coverage/measured` | admins | Optionally `tracker`: returns `cells` (`[ix, iy, level, mean good scanners, mean miss in m, seconds]`), `rooms` (`{name, level, good, seconds}`), `days` and `recording`. |
+| `ble_floorplan/coverage/reset` | admins | Forgets the measured coverage. |
 | `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room], …]}`, x and y null while not seen) and the stored `days`. |
 
 Every number must be finite: NaN and infinity are refused.
@@ -340,7 +357,7 @@ A tracker whose Private BLE Device was removed from Home Assistant raises a repa
 
 ### Store
 
-`.storage/ble_floorplan.floorplan` (the plan), `.storage/ble_floorplan.calibration` (the runs), `.storage/ble_floorplan.history` and one `.storage/ble_floorplan.history.<day>` per kept day (the timeline).
+`.storage/ble_floorplan.floorplan` (the plan), `.storage/ble_floorplan.calibration` (the runs), `.storage/ble_floorplan.history` and one `.storage/ble_floorplan.history.<day>` per kept day (the timeline), `.storage/ble_floorplan.coverage` (the measured coverage).
 
 ## Installation
 

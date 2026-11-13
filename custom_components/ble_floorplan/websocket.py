@@ -45,6 +45,9 @@ from .const import (
     WS_CALIBRATION_START,
     WS_CALIBRATION_STOP,
     WS_CANDIDATES,
+    WS_COVERAGE_MEASURED,
+    WS_COVERAGE_MODEL,
+    WS_COVERAGE_RESET,
     WS_GET_FLOORPLAN,
     WS_GET_LAYOUT,
     WS_HISTORY,
@@ -57,6 +60,7 @@ from .const import (
     WS_SET_TRACKER,
     WS_SUBSCRIBE,
 )
+from .coverage import model, parse_probes
 from .history import to_wire
 from .model import (
     NAME,
@@ -121,6 +125,9 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_calibration_apply)
     async_register_command(hass, ws_calibration_fit)
     async_register_command(hass, ws_history)
+    async_register_command(hass, ws_coverage_model)
+    async_register_command(hass, ws_coverage_measured)
+    async_register_command(hass, ws_coverage_reset)
 
 
 def _runtime(hass: HomeAssistant) -> RuntimeData | None:
@@ -746,3 +753,82 @@ async def ws_history(
     connection.send_result(
         msg["id"], {"day": day, "days": runtime.history.days, "tracks": to_wire(tracks)}
     )
+
+
+# Probe scanners a page may place at once
+MAX_PROBES = 5
+PROBE = probatio.Schema(
+    {
+        probatio.Required("x"): NUMBER,
+        probatio.Required("y"): NUMBER,
+        probatio.Optional("z"): NUMBER,
+    }
+)
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_COVERAGE_MODEL,
+        probatio.Optional("tracker"): cv.slug,
+        probatio.Optional("probes", default=list): probatio.All(
+            [PROBE], probatio.Length(max=MAX_PROBES)
+        ),
+    }
+)
+@callback
+def ws_coverage_model(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return the predicted coverage for a tracker or the default values, with probe scanners."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    plan = runtime.store.plan
+    tracker = None
+    if "tracker" in msg and (tracker := plan.tracker(msg["tracker"])) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"No tracker {msg['tracker']}")
+        return
+    connection.send_result(msg["id"], model(plan, tracker, parse_probes(msg["probes"])))
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_COVERAGE_MEASURED,
+        probatio.Optional("tracker"): cv.slug,
+    }
+)
+@callback
+def ws_coverage_measured(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return the measured coverage of one tracker or all, over the days kept."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    plan = runtime.store.plan
+    if "tracker" in msg and plan.tracker(msg["tracker"]) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"No tracker {msg['tracker']}")
+        return
+    connection.send_result(
+        msg["id"],
+        {
+            **runtime.coverage.measured(plan, msg.get("tracker")),
+            "recording": plan.settings.history_days > 0,
+        },
+    )
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_COVERAGE_RESET})
+@async_response
+async def ws_coverage_reset(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Forget the measured coverage, after a scanner moved or came in."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    await runtime.coverage.async_reset()
+    connection.send_result(msg["id"], {})

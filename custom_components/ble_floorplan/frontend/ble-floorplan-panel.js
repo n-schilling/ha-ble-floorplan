@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.16.0";
+} from "./ble-floorplan-plan.js?v=0.17.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -50,6 +50,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     ["scanners", "scanner", "tabScanners"],
     ["trackers", "tracker", "tabTrackers"],
     ["calibration", "calibration", "tabCalibration"],
+    ["coverage", "coverage", "tabCoverage"],
     ["timeline", "timeline", "tabTimeline"],
     ["settings", "settings", "tabSettings"],
   ];
@@ -89,6 +90,12 @@ if (!customElements.get("ble-floorplan-panel")) {
   const TRAIL = 120;
   // Today's tracks are fetched again after this long (s)
   const REFETCH = 30;
+  // Probe scanners a page may place at once, as the integration takes them
+  const MAX_PROBES = 5;
+  // Every tracker (measured) or the default values (model): no key of a tracker
+  const ANY = "*";
+  // The measurement is fetched again this often while it is shown (ms)
+  const MEASURED_REFETCH_MS = 60000;
   const utcDay = (t) => new Date(t * 1000).toISOString().slice(0, 10);
   const dayStart = (d) => Date.parse(`${d}T00:00:00Z`) / 1000;
   const nowS = () => Date.now() / 1000;
@@ -119,6 +126,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       // The next calibration run: tracker, height, true position
       this._measure = { tracker: null, height: null, x: null, y: null };
       this._cal = { fitN: false, proposal: null };
+      // The coverage: the map shown, for which tracker, the probe scanners, the
+      // result and what it was fetched for; `stamp` asks for a fresh measurement
+      this._cov = { mode: "model", tracker: ANY, probes: [], data: null, key: null, loading: false, stamp: 0, confirm: false };
       this._note = null;
       this._busy = false;
       this._frameKey = null;
@@ -190,12 +200,17 @@ if (!customElements.get("ble-floorplan-panel")) {
 
     connectedCallback() {
       this._live.ensure(this._hass);
+      // The measurement on the coverage page is fetched again even while no tracker moves
+      this._covTimer = window.setInterval(() => {
+        if (this._tab === "coverage" && this._cov.mode === "measured") this._render();
+      }, MEASURED_REFETCH_MS / 4);
       this._render();
     }
 
     disconnectedCallback() {
       this._live.close();
       this._tlPause();
+      window.clearInterval(this._covTimer);
     }
 
     get _t() {
@@ -228,6 +243,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._form = null;
         this._note = null;
         this._confirm = null;
+        this._cov.confirm = false;
         this._labelMenu = false;
       }
       if (tab === "scanners" && key) this._selScanner = key;
@@ -283,8 +299,9 @@ if (!customElements.get("ble-floorplan-panel")) {
         if (this._candidates != null || this._tab === "scanners" || this._tab === "trackers") {
           jobs.push(this._hass.callWS({ type: "ble_floorplan/candidates" }).then((r) => { this._candidates = r; }));
         }
-        // The timeline fetches the days it shows again
+        // The timeline fetches the days it shows again, the coverage its map
         this._tl.days = {};
+        this._cov.stamp += 1;
         await Promise.all(jobs);
         this._error = null;
       } catch (err) {
@@ -338,6 +355,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     _render() {
       if (!this._hass) return;
       const plan = this._plan;
+      if (this._tab === "coverage") this._covLoad();
       const showMap = this._tab !== "settings" && !!plan?.rooms.length;
       const showSheet = !this._tlOn;
       const sub = this._subpage;
@@ -462,6 +480,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     // The map takes a tap for a place: a new run's true position, a scanner's new place
     get _aiming() {
       if (this._tab === "calibration") return !this._calibration.active && !!this._measure.tracker;
+      if (this._tab === "coverage") return this._cov.mode === "model" && this._cov.probes.length < MAX_PROBES;
       return this._tab === "scanners" && this._mode === "move";
     }
 
@@ -479,6 +498,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         if (active) marks += crosshair(active.x, active.y, true);
         else if (this._measure.x != null) marks += crosshair(this._measure.x, this._measure.y, false);
       }
+      if (tab === "coverage") marks = this._covMarks();
       return planSvg(plan, {
         bounds: this._bounds || computeBounds(plan),
         rot: this._rot,
@@ -598,6 +618,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         scanners: () => this._scannersSheet(),
         trackers: () => this._trackersSheet(),
         calibration: () => this._calibrationSheet(),
+        coverage: () => this._coverageSheet(),
         timeline: () => this._card(t.timeline, `<div class="muted">${esc(t.timelineOff)}</div>`,
           `<span></span>${this._btn("go-settings", t.tabSettings)}`),
         settings: () => this._settingsSheet(),
@@ -907,6 +928,172 @@ if (!customElements.get("ble-floorplan-panel")) {
       return { kind: "ok", text };
     }
 
+    // ---- Coverage ----
+
+    // What the map shown depends on: for the model the scanners and the
+    // engine's values, for the measurement a refresh, a reset or the minute
+    _covKey() {
+      const c = this._cov;
+      const plan = this._plan;
+      const tracker = c.tracker === ANY ? null : c.tracker;
+      // The measurement grows while the page is open: fetched again every minute
+      if (c.mode === "measured") return JSON.stringify(["measured", tracker, c.stamp, Math.floor(Date.now() / MEASURED_REFETCH_MS)]);
+      return JSON.stringify(["model", tracker, c.probes, c.stamp, plan.scanners, plan.trackers, plan.settings, plan.pair_offsets, plan.rooms]);
+    }
+
+    async _covLoad() {
+      const c = this._cov;
+      if (!this._plan || c.loading) return;
+      if (c.tracker !== ANY && !this._plan.trackers.some((x) => x.key === c.tracker)) c.tracker = ANY;
+      const key = this._covKey();
+      if (key === c.key) return;
+      c.loading = true;
+      const msg = { type: `ble_floorplan/coverage/${c.mode}` };
+      if (c.tracker !== ANY) msg.tracker = c.tracker;
+      if (c.mode === "model") msg.probes = c.probes;
+      try {
+        c.data = { mode: c.mode, ...(await this._hass.callWS(msg)) };
+      } catch (err) {
+        c.data = null;
+        this._note = { kind: "err", text: String(err?.message || err?.code || err) };
+      }
+      c.key = key;
+      c.loading = false;
+      // Changed meanwhile: _render fetches again
+      this._render();
+    }
+
+    _covMarks() {
+      const d = this._cov.data;
+      const t = this._t;
+      const fmt = this._fmt;
+      let out = "";
+      if (d && d.mode === this._cov.mode) {
+        const size = d.cell;
+        out = d.cells.map((c) => {
+          const [ix, iy, lvl] = c;
+          let tip;
+          let up = false;
+          if (d.mode === "model") {
+            tip = t.covCellModel.replace("{good}", c[3]).replace("{hdop}", c[4] == null ? t.unknown : fmt(c[4], 1));
+            up = c.length > 5 && lvl > c[5];
+          } else {
+            tip = t.covCellMeasured.replace("{good}", fmt(c[3], 1)).replace("{miss}", fmt(c[4], 1)).replace("{time}", this._covTime(c[5]));
+          }
+          return `<rect class="cov l${lvl}${up ? " up" : ""}" x="${ix * size}" y="${iy * size}" width="${size}" height="${size}"><title>${esc(tip)}</title></rect>`;
+        }).join("");
+      }
+      if (this._cov.mode === "model") {
+        out += this._cov.probes.map((p, i) =>
+          `<g class="probe"><rect x="${p.x - 0.25}" y="${p.y - 0.25}" width="0.5" height="0.5" rx="0.08"/>` +
+          `<text x="${p.x}" y="${p.y}">P${i + 1}</text></g>`).join("");
+      }
+      return out;
+    }
+
+    // Seconds as minutes or hours, for a cell or a room of the measurement
+    _covTime(s) {
+      const fmt = this._fmt;
+      return s >= 3600 ? `${fmt(s / 3600, 1)} h` : `${Math.max(1, Math.round(s / 60))} min`;
+    }
+
+    _covSwatch(lvl) {
+      return `<span class="covsw l${lvl}"></span>`;
+    }
+
+    _coverageSheet() {
+      const t = this._t;
+      const fmt = this._fmt;
+      const plan = this._plan;
+      const c = this._cov;
+      const d = c.data && c.data.mode === c.mode ? c.data : null;
+      const options = [{ value: ANY, label: c.mode === "model" ? t.covDefault : t.covAll }, ...plan.trackers.map((x) => ({ value: x.key, label: x.name }))];
+      const form = this._formSlot("coverage", [
+        { name: "mode", label: t.covMode, required: true, selector: { select: { mode: "box", options: [{ value: "model", label: t.covModel }, { value: "measured", label: t.covMeasured }] } } },
+        { name: "tracker", label: t.tracker, required: true, selector: { select: { mode: "dropdown", options } } },
+      ], { mode: c.mode, tracker: c.tracker }, (v) => {
+        c.mode = v.mode || c.mode;
+        c.tracker = v.tracker || ANY;
+        this._redraw = true;
+        this._render();
+      });
+      const legend = `<div class="covlegend">` +
+        [[2, t.covGood], [1, t.covFair], [0, t.covPoor]].map(([l, label]) => `<div>${this._covSwatch(l)}${esc(label)}</div>`).join("") +
+        (c.mode === "model" && c.probes.length ? `<div><span class="covsw up"></span>${esc(t.covUp)}</div>` : "") + `</div>`;
+      const hint = c.mode === "model"
+        ? t.covModelHint.replace("{rssi}", fmt(d?.good_rssi ?? -85))
+        : t.covMeasuredHint;
+      let summary = "";
+      if (d && d.mode === "model" && d.cells.length) {
+        const n = [0, 0, 0];
+        for (const cell of d.cells) n[cell[2]] += 1;
+        const pct = (k) => Math.round((100 * n[k]) / d.cells.length);
+        summary = `<div class="subhead">${esc(t.covSummary.replace("{good}", pct(2)).replace("{fair}", pct(1)).replace("{poor}", pct(0)))}</div>`;
+      }
+      const main = this._card(t.coverage, form + summary + legend + `<div class="muted small">${esc(hint)}</div>`);
+      return main + (c.mode === "model" ? this._probesCard(d) : this._measuredCard(d)) + this._covRoomsCard(d);
+    }
+
+    _probesCard(d) {
+      const t = this._t;
+      const fmt = this._fmt;
+      const c = this._cov;
+      const rows = c.probes.map((p, i) =>
+        `<tr><td>P${i + 1}</td><td class="n">${fmt(p.x, 2)} / ${fmt(p.y, 2)} m</td>` +
+        `<td>${iconButton("delete", t.remove, `class="small" data-act="cov-probe-del" data-key="${i}"`)}</td></tr>`).join("");
+      const body = (c.probes.length < MAX_PROBES ? this._alert("info", t.probeHint) : "") +
+        (rows ? `<table class="data"><tr><th></th><th class="n">x / y</th><th></th></tr>${rows}</table>` : "") +
+        (d ? `<div class="muted small">${esc(t.probeOffset.replace("{offset}", fmt(d.probe_offset, 1)))}</div>` : "");
+      return this._card(t.probes, body, c.probes.length ? `<span></span>${this._btn("cov-probes-clear", t.removeAll)}` : "");
+    }
+
+    _measuredCard(d) {
+      const t = this._t;
+      const c = this._cov;
+      let body = "";
+      if (d && !d.recording) body += this._alert("info", t.covOff);
+      if (d) {
+        body += d.days.length
+          ? `<div>${esc(t.covDays.replace("{n}", d.days.length).replace("{first}", new Date(`${d.days[0]}T00:00:00Z`).toLocaleDateString(this._hass.language)))}</div>`
+          : `<div class="muted">${esc(t.covNone)}</div>`;
+      } else {
+        body += `<div class="muted">…</div>`;
+      }
+      if (c.confirm) {
+        body += `<ha-alert alert-type="warning">${esc(t.covResetAsk)}` +
+          `<ha-button slot="action" appearance="plain" data-act="cov-reset-cancel">${esc(t.cancel)}</ha-button>` +
+          `<ha-button slot="action" variant="danger" data-act="cov-reset-ok">${esc(t.covReset)}</ha-button></ha-alert>`;
+      }
+      const actions = d && !d.recording ? `<span></span>${this._btn("go-settings", t.tabSettings)}` : "";
+      return this._card(t.covMeasured, body,
+        `${actions || "<span></span>"}${this._btn("cov-reset", t.covReset, { kind: "danger", disabled: !d?.days.length || c.confirm })}`);
+    }
+
+    _covRoomsCard(d) {
+      const t = this._t;
+      const fmt = this._fmt;
+      if (!d || !d.rooms.length) return "";
+      let rows;
+      let head;
+      if (d.mode === "model") {
+        // Worst first: the share of poor cells, then of fair ones
+        const rooms = d.rooms.map((r) => {
+          const total = r.cells[0] + r.cells[1] + r.cells[2];
+          return { name: r.name, p: r.cells.map((k) => Math.round((100 * k) / total)) };
+        }).sort((a, b) => b.p[0] - a.p[0] || b.p[1] - a.p[1]);
+        head = `<tr><th>${esc(t.room)}</th>${[2, 1, 0].map((l) => `<th class="n">${this._covSwatch(l)}</th>`).join("")}</tr>`;
+        rows = rooms.map((r) => `<tr><td>${esc(r.name)}</td>${[2, 1, 0].map((l) => `<td class="n">${r.p[l]} %</td>`).join("")}</tr>`).join("");
+      } else {
+        const rooms = [...d.rooms].sort((a, b) => a.level - b.level);
+        head = `<tr><th>${esc(t.room)}</th><th>${esc(t.covLevel)}</th><th class="n">${esc(t.covGoodScanners)}</th><th class="n">${esc(t.covTime)}</th></tr>`;
+        rows = rooms.map((r) => {
+          const lvl = r.level >= 1.5 ? 2 : r.level >= 0.5 ? 1 : 0;
+          return `<tr><td>${esc(r.name)}</td><td>${this._covSwatch(lvl)}</td><td class="n">${fmt(r.good, 1)}</td><td class="n">${this._covTime(r.seconds)}</td></tr>`;
+        }).join("");
+      }
+      return this._card(t.covRooms, `<div class="scroll"><table class="data">${head}${rows}</table></div>`);
+    }
+
     // ---- Input ----
 
     // One listener each on the shadow root: the content under it is redrawn
@@ -963,6 +1150,8 @@ if (!customElements.get("ble-floorplan-panel")) {
         if (this._tab === "calibration") {
           this._measure.x = snap(x);
           this._measure.y = snap(y);
+        } else if (this._tab === "coverage") {
+          this._cov.probes = [...this._cov.probes, { x: snap(x), y: snap(y) }];
         } else {
           this._dragPos = { [this._selScanner]: [snap(x), snap(y)] };
         }
@@ -1197,6 +1386,28 @@ if (!customElements.get("ble-floorplan-panel")) {
         case "cal-stop":
           this._call({ type: "ble_floorplan/calibration/stop" }, (result) => {
             this._note = this._fitNote(result.fit);
+          });
+          return;
+        case "cov-probe-del":
+          this._cov.probes = this._cov.probes.filter((_, i) => String(i) !== key);
+          this._render();
+          return;
+        case "cov-probes-clear":
+          this._cov.probes = [];
+          this._render();
+          return;
+        case "cov-reset":
+          this._cov.confirm = true;
+          this._render();
+          return;
+        case "cov-reset-cancel":
+          this._cov.confirm = false;
+          this._render();
+          return;
+        case "cov-reset-ok":
+          this._cov.confirm = false;
+          this._call({ type: "ble_floorplan/coverage/reset" }, () => {
+            this._cov.stamp += 1;
           });
           return;
         case "cal-delete":
@@ -1699,6 +1910,14 @@ if (!customElements.get("ble-floorplan-panel")) {
     .diff tr.changed td:nth-child(3) { font-weight: 600; color: var(--primary-color); }
     .scroll { overflow-x: auto; }
     td .dot, .nowrap .dot { vertical-align: -1px; }
+    .covlegend { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 8px; }
+    .covlegend div { display: flex; align-items: center; }
+    .covsw { display: inline-block; flex: none; width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; vertical-align: -2px; opacity: 0.75; }
+    .covsw.l0 { background: var(--error-color, #db4437); }
+    .covsw.l1 { background: var(--warning-color, #ffa600); }
+    .covsw.l2 { background: var(--success-color, #43a047); }
+    .covsw.up { background: none; border: 1px dashed var(--primary-text-color); }
+    th .covsw { margin-right: 0; }
     /* The floor plan as YAML: Home Assistant's code colours, without loading its editor */
     textarea { width: 100%; min-height: 240px; padding: 12px; border: 0; border-radius: 4px 4px 0 0; resize: vertical; outline: 0;
       background: var(--code-editor-background-color, var(--secondary-background-color)); color: var(--primary-text-color);

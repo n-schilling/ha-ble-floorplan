@@ -589,7 +589,7 @@ async def _header_row(page: Page, *, tabs: bool, brand: bool = True) -> None:
         nav = row["tabs"]
         expect(nav is not None, "no tabs in the header row")
         expect(
-            nav["count"] == 6 and nav["active"] == 1, f"{nav['count']} tabs, {nav['active']} active"
+            nav["count"] == 7 and nav["active"] == 1, f"{nav['count']} tabs, {nav['active']} active"
         )
         expect(nav["left"] >= row["name"]["right"], "the tabs are not right of the name")
         expect(
@@ -645,6 +645,15 @@ async def _not_loading(page: Page) -> bool:
     return "loading" not in (classes or "")
 
 
+async def _count_at_least(locator: Any, n: int) -> bool:
+    return bool(await locator.count() >= n)
+
+
+async def rows_at_least(locator: Any, n: int) -> None:
+    """Wait until the locator matches at least n elements."""
+    await _until(lambda: _count_at_least(locator, n), f"{n} rows")
+
+
 async def _settle(page: Page) -> None:
     """Let animations end before a picture."""
     await page.wait_for_timeout(600)
@@ -671,7 +680,15 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("floor plan with the YAML and the version at the bottom", plan_and_version)
 
     async def header_on_every_tab() -> None:
-        for tab in ("plan", "scanners", "trackers", "calibration", "timeline", "settings"):
+        for tab in (
+            "plan",
+            "scanners",
+            "trackers",
+            "calibration",
+            "coverage",
+            "timeline",
+            "settings",
+        ):
             await _goto(page, instance, tab)
             try:
                 await _header(page)
@@ -876,6 +893,49 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await page.screenshot(path=str(shots / "timeline.png"))
 
     await checks.run("the timeline plays back the made-up tracks", timeline)
+
+    async def coverage() -> None:
+        await _goto(page, instance, "coverage")
+        cells = page.locator(f"{PANEL} #svg rect.cov")
+        await cells.first.wait_for(state="attached")
+        expect(await cells.count() > 100, f"{await cells.count()} model cells drawn")
+        rooms = page.locator(f"{PANEL} ha-card table.data tr")
+        await rows_at_least(rooms, 5)
+        # A tap on the plan places a probe scanner; the model is fetched with it
+        box = await page.locator(f"{PANEL} #svg svg").bounding_box()
+        assert box is not None
+        await page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+        await page.locator(f"{PANEL} #svg g.probe").first.wait_for(state="attached")
+        await _until(
+            lambda: _count_at_least(
+                page.locator(f"{PANEL} ha-card table.data td:has-text('P1')"), 1
+            ),
+            "the probe scanner in its list",
+        )
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "coverage.png"))
+        # The measurement: the made-up trackers stayed long enough in their cells
+        await page.locator(f"{PANEL} ha-form").get_by_text("Measured", exact=True).click()
+        try:
+            await _until(
+                lambda: _count_at_least(page.locator(f"{PANEL} #svg rect.cov"), 1),
+                "measured cells",
+                seconds=90,
+            )
+        except AssertionError as err:
+            state = await page.locator(PANEL).evaluate(
+                "el => JSON.stringify({mode: el._cov.mode, key: el._cov.key,"
+                " data: el._cov.data && {mode: el._cov.data.mode, cells: el._cov.data.cells,"
+                " days: el._cov.data.days, recording: el._cov.data.recording}})"
+            )
+            raise AssertionError(f"{err}: {state}") from err
+        expect(
+            await page.locator(f"{PANEL} #svg g.probe").count() == 0,
+            "probe scanners drawn on the measurement",
+        )
+
+    await checks.run("the coverage: model, probe scanner, measurement", coverage)
 
     async def card_only_shows() -> None:
         card_page = await _open(browser, instance, ADMIN, f"/{DASHBOARD}/0")

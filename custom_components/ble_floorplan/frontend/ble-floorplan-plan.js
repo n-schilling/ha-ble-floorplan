@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.16.0";
+export const VERSION = "0.17.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -56,6 +56,20 @@ const TEXTS = {
     tabTimeline: "Timeline", tabSettings: "Settings", menu: "Menu",
     about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · commit {commit}",
     asOf: "As of {time}", refresh: "Refresh", integrationSettings: "Settings",
+    tabCoverage: "Coverage", coverage: "Coverage", covMode: "Map", covModel: "Model", covMeasured: "Measured",
+    covDefault: "Default values", covAll: "All trackers",
+    covGood: "Good: 3 or more scanners, around the place", covFair: "Fair: 2 scanners", covPoor: "Poor: 1 scanner or none",
+    covUp: "Better with the probe scanners",
+    covModelHint: "Predicted from the scanners' places, offsets and the path loss model. A scanner counts when it should receive at least {rssi} dBm.",
+    covMeasuredHint: "What the scanners received where the trackers really were, over the days the timeline keeps. Grey: no tracker was there long enough.",
+    covSummary: "{good} % of the area good, {fair} % fair, {poor} % poor.",
+    probes: "Probe scanners", probeHint: "Tap the plan to place a scanner that is only thought of (up to 5, 1 m high). Nothing is saved.",
+    probeOffset: "Probe scanners get the median offset of the scanners on the plan ({offset} dB).",
+    removeAll: "Remove all", covOff: "The measurement records only while the timeline is on: set the days it keeps in the settings.",
+    covDays: "{n} days since {first}", covNone: "No measurement yet.", covReset: "Start anew",
+    covResetAsk: "Forget the whole measurement? Useful after a scanner moved or came in.",
+    covRooms: "Rooms", covGoodScanners: "Good scanners", covLevel: "Level", covTime: "Time", covMiss: "Miss",
+    covCellModel: "{good} scanners good · HDOP {hdop}", covCellMeasured: "Ø {good} scanners good · miss {miss} m · {time}",
   },
   de: {
     title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -100,6 +114,20 @@ const TEXTS = {
     tabTimeline: "Verlauf", tabSettings: "Einstellungen", menu: "Menü",
     about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · Commit {commit}",
     asOf: "Stand {time}", refresh: "Aktualisieren", integrationSettings: "Einstellungen",
+    tabCoverage: "Abdeckung", coverage: "Abdeckung", covMode: "Karte", covModel: "Modell", covMeasured: "Gemessen",
+    covDefault: "Standardwerte", covAll: "Alle Tracker",
+    covGood: "Gut: 3 oder mehr Scanner, rundherum verteilt", covFair: "Mittel: 2 Scanner", covPoor: "Schwach: 1 Scanner oder keiner",
+    covUp: "Besser mit den Probe-Scannern",
+    covModelHint: "Berechnet aus Standorten, Offsets und dem Pfadverlust-Modell der Scanner. Ein Scanner zählt, wenn er mindestens {rssi} dBm empfangen müsste.",
+    covMeasuredHint: "Was die Scanner dort empfangen haben, wo die Tracker wirklich waren, über die Tage, die der Verlauf aufbewahrt. Grau: Dort war kein Tracker lange genug.",
+    covSummary: "{good} % der Fläche gut, {fair} % mittel, {poor} % schwach.",
+    probes: "Probe-Scanner", probeHint: "Auf den Grundriss tippen, um einen gedachten Scanner zu setzen (bis zu 5, 1 m hoch). Gespeichert wird nichts.",
+    probeOffset: "Probe-Scanner bekommen den mittleren Offset der Scanner auf dem Plan ({offset} dB).",
+    removeAll: "Alle entfernen", covOff: "Die Messung zeichnet nur auf, solange der Verlauf an ist: In den Einstellungen festlegen, wie viele Tage er aufbewahrt.",
+    covDays: "{n} Tage seit {first}", covNone: "Noch keine Messung.", covReset: "Neu beginnen",
+    covResetAsk: "Die ganze Messung vergessen? Sinnvoll, nachdem ein Scanner umgezogen oder dazugekommen ist.",
+    covRooms: "Räume", covGoodScanners: "Gute Scanner", covLevel: "Stufe", covTime: "Zeit", covMiss: "Abweichung",
+    covCellModel: "{good} Scanner gut · HDOP {hdop}", covCellMeasured: "Ø {good} Scanner gut · Abweichung {miss} m · {time}",
   },
 };
 
@@ -608,6 +636,7 @@ export const MDI = {
   scanner: "M4.93,4.93C3.12,6.74 2,9.24 2,12C2,14.76 3.12,17.26 4.93,19.07L6.34,17.66C4.89,16.22 4,14.22 4,12C4,9.79 4.89,7.78 6.34,6.34L4.93,4.93M19.07,4.93L17.66,6.34C19.11,7.78 20,9.79 20,12C20,14.22 19.11,16.22 17.66,17.66L19.07,19.07C20.88,17.26 22,14.76 22,12C22,9.24 20.88,6.74 19.07,4.93M7.76,7.76C6.67,8.85 6,10.35 6,12C6,13.65 6.67,15.15 7.76,16.24L9.17,14.83C8.45,14.11 8,13.11 8,12C8,10.89 8.45,9.89 9.17,9.17L7.76,7.76M16.24,7.76L14.83,9.17C15.55,9.89 16,10.89 16,12C16,13.11 15.55,14.11 14.83,14.83L16.24,16.24C17.33,15.15 18,13.65 18,12C18,10.35 17.33,8.85 16.24,7.76M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10Z",
   tracker: "M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z",
   calibration: "M11,2V4.07C7.38,4.53 4.53,7.38 4.07,11H2V13H4.07C4.53,16.62 7.38,19.47 11,19.93V22H13V19.93C16.62,19.47 19.47,16.62 19.93,13H22V11H19.93C19.47,7.38 16.62,4.53 13,4.07V2M11,6.08V8H13V6.09C15.5,6.5 17.5,8.5 17.92,11H16V13H17.91C17.5,15.5 15.5,17.5 13,17.92V16H11V17.91C8.5,17.5 6.5,15.5 6.08,13H8V11H6.09C6.5,8.5 8.5,6.5 11,6.08M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11Z",
+  coverage: "M3,21H6V18H3M8,21H11V14H8M13,21H16V9H13M18,21H21V3H18V21Z",
   timeline: "M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3",
   settings: "M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z",
 };
@@ -714,6 +743,13 @@ export const PLAN_CSS = `
   .truepos line { stroke: var(--primary-color); stroke-width: 0.05; }
   .truepos.live circle { stroke-dasharray: none; stroke-width: 0.08; }
   .runmark { stroke: var(--card-background-color); stroke-width: 0.04; opacity: 0.85; }
+  .cov { stroke: none; fill-opacity: 0.38; }
+  .cov.l0 { fill: var(--error-color, #db4437); }
+  .cov.l1 { fill: var(--warning-color, #ffa600); }
+  .cov.l2 { fill: var(--success-color, #43a047); }
+  .cov.up { stroke: var(--primary-text-color); stroke-width: 0.03; stroke-dasharray: 0.08 0.06; }
+  .probe rect { fill: none; stroke: var(--primary-color); stroke-width: 0.06; stroke-dasharray: 0.1 0.07; }
+  .probe text { font-size: 0.3px; font-weight: 600; fill: var(--primary-color); text-anchor: middle; dominant-baseline: middle; }
   .trail { fill: none; stroke-width: 0.08; stroke-linecap: round; stroke-linejoin: round; opacity: 0.55; }
   .tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; font-size: 12px; line-height: 1.5; display: none;
     background: var(--card-background-color); color: var(--primary-text-color);

@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] - 2026-11-13
+
+### Added
+
+- A *Coverage* tab on the page: where the scanners can place a tracker well and where not, as coloured cells of half a metre over the plan (good: three scanners or more at −85 dBm or louder that lie around the place; fair: two; poor: one or none), with a table of the rooms, worst first. For one tracker or all of them.
+- **Model:** predicted from the scanners' places, heights, offsets and pair corrections, the tracker's reference power and the path loss exponent. **Probe scanners** placed by tapping the plan (up to five, nothing saved) show what a new scanner would change; the cells they make better are outlined.
+- **Measured:** every second, a seen tracker adds to its cell how many scanners received it well, how they lay around it and how far their circles missed. Recorded while the timeline is on and kept as many days, in `.storage/ble_floorplan.coverage`; **Start anew** forgets it. The page fetches it again every minute.
+- WebSocket commands `ble_floorplan/coverage/model`, `ble_floorplan/coverage/measured` and `ble_floorplan/coverage/reset`, for administrators.
+- The page checks test the coverage: model cells, a probe scanner placed by a tap, the measured cells.
+
 ## [0.16.0] - 2026-11-12
 
 ### Added

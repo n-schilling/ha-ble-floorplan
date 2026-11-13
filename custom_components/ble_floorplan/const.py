@@ -40,6 +40,24 @@ HISTORY_MIN_INTERVAL: Final = 2.0
 # The timeline keeps at most this many days
 HISTORY_MAX_DAYS: Final = 30
 
+# The coverage: per tracker, day and grid cell, how well the scanners saw it
+# there; kept as long as the timeline, in one store
+COVERAGE_STORAGE_KEY: Final = f"{DOMAIN}.coverage"
+COVERAGE_STORAGE_VERSION: Final = 1
+# The coverage is written to storage this long after a new sample
+COVERAGE_SAVE_DELAY_SECONDS: Final = 60.0
+# Side of a grid cell (m)
+COVERAGE_CELL: Final = 0.5
+# A scanner receives a tracker well from this RSSI on (dBm)
+COVERAGE_GOOD_RSSI: Final = -85.0
+# Good scanners lie well enough around a place up to this HDOP
+COVERAGE_MAX_HDOP: Final = 2.0
+# A measured cell counts after this many seconds of samples
+COVERAGE_MIN_SECONDS: Final = 30
+# Height of a probe scanner (m), and of the tracker the model assumes without one
+COVERAGE_PROBE_HEIGHT: Final = 1.0
+COVERAGE_TRACKER_HEIGHT: Final = 1.0
+
 # How often the positions are recomputed from the advertisements Home
 # Assistant's Bluetooth scanners hold
 UPDATE_INTERVAL_SECONDS: Final = 1.0
@@ -114,3 +132,6 @@ WS_CALIBRATION_SOLVE: Final = f"{DOMAIN}/calibration/solve"
 WS_CALIBRATION_APPLY: Final = f"{DOMAIN}/calibration/apply"
 WS_CALIBRATION_FIT: Final = f"{DOMAIN}/calibration/fit"
 WS_HISTORY: Final = f"{DOMAIN}/history"
+WS_COVERAGE_MODEL: Final = f"{DOMAIN}/coverage/model"
+WS_COVERAGE_MEASURED: Final = f"{DOMAIN}/coverage/measured"
+WS_COVERAGE_RESET: Final = f"{DOMAIN}/coverage/reset"
