@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.17.0";
+} from "./ble-floorplan-plan.js?v=0.17.1";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -970,6 +970,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       let out = "";
       if (d && d.mode === this._cov.mode) {
         const size = d.cell;
+        const B = this._bounds || computeBounds(this._plan);
         out = d.cells.map((c) => {
           const [ix, iy, lvl] = c;
           let tip;
@@ -980,7 +981,12 @@ if (!customElements.get("ble-floorplan-panel")) {
           } else {
             tip = t.covCellMeasured.replace("{good}", fmt(c[3], 1)).replace("{miss}", fmt(c[4], 1)).replace("{time}", this._covTime(c[5]));
           }
-          return `<rect class="cov l${lvl}${up ? " up" : ""}" x="${ix * size}" y="${iy * size}" width="${size}" height="${size}"><title>${esc(tip)}</title></rect>`;
+          // A cell on the far edge ends at the outer wall
+          const x = ix * size;
+          const y = iy * size;
+          const w = Math.min(size, B.w - x);
+          const h = Math.min(size, B.h - y);
+          return `<rect class="cov l${lvl}${up ? " up" : ""}" x="${x}" y="${y}" width="${w}" height="${h}"><title>${esc(tip)}</title></rect>`;
         }).join("");
       }
       if (this._cov.mode === "model") {

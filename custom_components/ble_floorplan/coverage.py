@@ -124,17 +124,28 @@ def cell_key(ix: int, iy: int) -> str:
     return f"{ix},{iy}"
 
 
-def _center(ix: int, iy: int) -> Point:
-    return ((ix + 0.5) * COVERAGE_CELL, (iy + 0.5) * COVERAGE_CELL)
+def _center(extent: tuple[float, float], ix: int, iy: int) -> Point:
+    """Return the centre of the part of the cell inside the plan.
+
+    A cell on the plan's far edge reaches past the outer wall; its plain centre
+    may lie outside every room although the room fills the cell up to the wall.
+    """
+    width, height = extent
+    x0, y0 = ix * COVERAGE_CELL, iy * COVERAGE_CELL
+    return (
+        (x0 + min(x0 + COVERAGE_CELL, width)) / 2,
+        (y0 + min(y0 + COVERAGE_CELL, height)) / 2,
+    )
 
 
 def grid(plan: Floorplan) -> list[tuple[int, int]]:
     """Return the cells whose centre lies in a room, zone or outdoor area."""
-    width, height = plan.extent
+    extent = plan.extent
+    width, height = extent
     cells = []
     for iy in range(math.ceil(height / COVERAGE_CELL)):
         for ix in range(math.ceil(width / COVERAGE_CELL)):
-            cx, cy = _center(ix, iy)
+            cx, cy = _center(extent, ix, iy)
             if plan.room_of(cx, cy) is not None:
                 cells.append((ix, iy))
     return cells
@@ -207,7 +218,7 @@ def model(
     cells: list[list[Any]] = []
     rooms: dict[str, list[int]] = {}
     for ix, iy in grid(plan):
-        x, y = _center(ix, iy)
+        x, y = _center(plan.extent, ix, iy)
         lvl, good, dop = _model_cell(x, y, [*sources, *extra], ref_power, height, n)
         cell: list[Any] = [ix, iy, lvl, good, _round(dop)]
         if probes:
@@ -341,6 +352,7 @@ class CoverageStore:
                         have[i] += value
         cells_out: list[list[Any]] = []
         rooms: dict[str, list[float]] = {}
+        extent = plan.extent
         for cell, (n, good, lvl, miss) in sorted(total.items()):
             if n < COVERAGE_MIN_SECONDS:
                 continue
@@ -348,7 +360,7 @@ class CoverageStore:
             mean = lvl / n
             shown = GOOD if mean >= 1.5 else FAIR if mean >= 0.5 else POOR
             cells_out.append([ix, iy, shown, round(good / n, 1), round(miss / n, 2), int(n)])
-            if name := plan.room_at(*_center(ix, iy)):
+            if name := plan.room_at(*_center(extent, ix, iy)):
                 room = rooms.setdefault(name, [0, 0, 0])
                 room[0] += n
                 room[1] += lvl

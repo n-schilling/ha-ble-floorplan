@@ -416,3 +416,18 @@ async def test_commands_need_an_admin_and_the_entry(
         await client.send_json_auto_id(message)
         msg = await client.receive_json()
         assert msg["error"]["code"] == "not_loaded"
+
+
+async def test_edge_cells(hass: HomeAssistant) -> None:
+    """A cell over the outer wall counts for the room inside it, in the model and the measurement."""
+    plan = make_plan(rooms=[{"name": "Wide", "x": 0, "y": 0, "w": 10.2, "h": 1}])
+    cells = {(c[0], c[1]) for c in model(plan)["cells"]}
+    assert (20, 0) in cells
+    assert sum(model(plan)["rooms"][0]["cells"]) == len(cells) == 21 * 2
+    coverage = CoverageStore(hass)
+    for i in range(30):
+        coverage.record(plan, {"tag": _position(10.1, 0.5)}, NOON + i, 7)
+    result = coverage.measured(plan)
+    assert result["cells"][0][:2] == [20, 1]
+    assert (20, 1) in cells
+    assert [r["name"] for r in result["rooms"]] == ["Wide"]

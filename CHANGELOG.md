@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.17.1] - 2026-11-13
+
+### Fixed
+
+- Coverage: a cell on the plan's far edge, which reaches past the outer wall, now counts for the room inside it. Its plain centre lay outside every room, so the model left the strip along that wall out and the measurement counted the cell for no room. Such a cell is drawn up to the wall only.
+
 ## [0.17.0] - 2026-11-13
 
 ### Added
