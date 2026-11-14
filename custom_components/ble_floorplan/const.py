@@ -26,6 +26,19 @@ CALIBRATION_SAVE_DELAY_SECONDS: Final = 10.0
 CALIBRATION_MIN_SAMPLES: Final = 3
 # A run closer than this to a scanner counts as this far, so the logarithm stays finite
 CALIBRATION_MIN_DISTANCE: Final = 0.05
+# Guided runs: a scanner has enough with this many samples, or earlier with
+# CALIBRATION_GOOD_SAMPLES whose mean is known to CALIBRATION_GOOD_ERROR dB
+# (standard error); a scanner that hears the tracker less often than
+# CALIBRATION_WEAK_RATE per second does not hold the run up
+CALIBRATION_TARGET_SAMPLES: Final = 30
+CALIBRATION_GOOD_SAMPLES: Final = 15
+CALIBRATION_GOOD_ERROR: Final = 1.0
+CALIBRATION_WEAK_RATE: Final = 0.1
+# A run that ends by itself takes at least this long, and at most the maximum
+CALIBRATION_AUTO_MIN_SECONDS: Final = 45.0
+CALIBRATION_AUTO_MAX_SECONDS: Final = 300.0
+# A scanner moved by more than this since a run makes the run describe another setup
+CALIBRATION_SETUP_TOLERANCE: Final = 0.05
 
 # The timeline: one store per day (UTC) with the track of every tracker, and
 # an index of the days that are stored

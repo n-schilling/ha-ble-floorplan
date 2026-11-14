@@ -187,7 +187,7 @@ def _snapshot(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
         "offline": _offline(runtime),
     }
     if admin:
-        snapshot["calibration"] = runtime.calibration.as_event()
+        snapshot["calibration"] = runtime.calibration.as_event(runtime.store.plan)
         snapshot["about"] = runtime.about
     return snapshot
 
@@ -235,11 +235,8 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
 
         @callback
         def _send_positions() -> None:
-            event: dict[str, Any] = {"positions": _positions(runtime)}
-            # The sample counts of a going run grow with every refresh
-            if admin and runtime.calibration.active is not None:
-                event["calibration"] = runtime.calibration.as_event()
-            _send(event)
+            # A going run sends its progress itself, every refresh
+            _send({"positions": _positions(runtime)})
 
         offline = _offline(runtime)
 
@@ -247,7 +244,14 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
         def _send_plan() -> None:
             nonlocal offline
             offline = _offline(runtime)
-            _send({"floorplan": _plan(runtime.store.plan, admin), "offline": offline})
+            event: dict[str, Any] = {
+                "floorplan": _plan(runtime.store.plan, admin),
+                "offline": offline,
+            }
+            # The guide follows the scanners and rooms of the plan
+            if admin:
+                event["calibration"] = runtime.calibration.as_event(runtime.store.plan)
+            _send(event)
 
         @callback
         def _check_offline(_now: Any) -> None:
@@ -266,7 +270,7 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
         if admin:
             removers.append(
                 runtime.calibration.async_add_listener(
-                    lambda: _send({"calibration": runtime.calibration.as_event()})
+                    lambda: _send({"calibration": runtime.calibration.as_event(runtime.store.plan)})
                 )
             )
         _send(_snapshot(runtime, admin))
@@ -459,13 +463,17 @@ async def ws_set_floorplan(
         probatio.Required("x"): NUMBER,
         probatio.Required("y"): NUMBER,
         probatio.Optional("height"): NUMBER,
+        probatio.Optional("auto_stop", default=False): cv.boolean,
     }
 )
 @async_response
 async def ws_calibration_start(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Start a calibration run: the tracker sits at x, y, at the height given or its own."""
+    """Start a calibration run: the tracker sits at x, y, at the height given or its own.
+
+    With auto_stop, the run ends by itself once the scanners have enough.
+    """
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
@@ -476,7 +484,9 @@ async def ws_calibration_start(
         connection.send_error(msg["id"], ERR_RUNNING, "a calibration run is going")
         return
     height = msg.get("height", tracker.height)
-    run = await runtime.coordinator.async_start_calibration(tracker.key, msg["x"], msg["y"], height)
+    run = await runtime.coordinator.async_start_calibration(
+        tracker.key, msg["x"], msg["y"], height, msg["auto_stop"]
+    )
     connection.send_result(msg["id"], run.summary())
 
 
@@ -512,7 +522,7 @@ def ws_calibration_list(
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
-    result = runtime.calibration.as_event()
+    result = runtime.calibration.as_event(runtime.store.plan)
     if msg["samples"]:
         result["runs"] = [run.as_dict() for run in runtime.calibration.runs]
     connection.send_result(msg["id"], result)
@@ -538,7 +548,9 @@ async def ws_calibration_delete(
         return
     await runtime.calibration.async_delete(run.id)
     fit = None if run.running else await runtime.coordinator.async_fit_tracker(run.tracker)
-    connection.send_result(msg["id"], {**runtime.calibration.as_event(), "fit": fit})
+    connection.send_result(
+        msg["id"], {**runtime.calibration.as_event(runtime.store.plan), "fit": fit}
+    )
 
 
 @require_admin
@@ -552,7 +564,7 @@ async def ws_calibration_clear(
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
     await runtime.calibration.async_clear()
-    connection.send_result(msg["id"], runtime.calibration.as_event())
+    connection.send_result(msg["id"], runtime.calibration.as_event(runtime.store.plan))
 
 
 @require_admin

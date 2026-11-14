@@ -3,12 +3,18 @@
 A run is started with the tracker's true position; the coordinator adds every
 new advertisement of every scanner until the run is stopped. The runs are the
 input of the adjustment in solver.py and live in a store of their own.
+
+A guided run shows per scanner how far it is, and can end by itself once
+every scanner that hears the tracker often enough has enough samples. The
+guide tells per tracker in which rooms it was measured with the scanners as
+they stand.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+import math
 from typing import Any, Self
 
 import probatio
@@ -20,11 +26,18 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.ulid import ulid_now
 
 from .const import (
+    CALIBRATION_AUTO_MAX_SECONDS,
+    CALIBRATION_AUTO_MIN_SECONDS,
+    CALIBRATION_GOOD_ERROR,
+    CALIBRATION_GOOD_SAMPLES,
     CALIBRATION_SAVE_DELAY_SECONDS,
+    CALIBRATION_SETUP_TOLERANCE,
     CALIBRATION_STORAGE_KEY,
     CALIBRATION_STORAGE_VERSION,
+    CALIBRATION_TARGET_SAMPLES,
+    CALIBRATION_WEAK_RATE,
 )
-from .model import NUMBER
+from .model import NUMBER, Floorplan
 
 type Sample = tuple[float, float]  # (seconds since the start of the run, rssi)
 
@@ -132,6 +145,65 @@ class CalibrationRun:
         } | self._scanners_dict()
 
 
+def scanner_progress(samples: list[Sample], elapsed: float) -> dict[str, Any]:
+    """Return how far a scanner is in a run: its samples, the standard error of their mean, its state.
+
+    The state is done (enough samples, or a mean known well enough), weak
+    (hears the tracker too seldom to wait for) or collecting.
+    """
+    n = len(samples)
+    error: float | None = None
+    if n >= 2:
+        mean = sum(s[1] for s in samples) / n
+        spread = math.sqrt(sum((s[1] - mean) ** 2 for s in samples) / (n - 1))
+        error = spread / math.sqrt(n)
+    if n >= CALIBRATION_TARGET_SAMPLES or (
+        n >= CALIBRATION_GOOD_SAMPLES and error is not None and error <= CALIBRATION_GOOD_ERROR
+    ):
+        state = "done"
+    elif elapsed >= CALIBRATION_AUTO_MIN_SECONDS and n / elapsed < CALIBRATION_WEAK_RATE:
+        state = "weak"
+    else:
+        state = "collecting"
+    return {
+        "count": n,
+        "error": round(error, 2) if error is not None else None,
+        "state": state,
+    }
+
+
+def setup_matches(run: CalibrationRun, plan: Floorplan) -> bool | None:
+    """Return whether the plan's scanners stand as they did in the run; None when the run does not tell."""
+    if run.scanners is None:
+        return None
+    if {s.key for s in plan.scanners} != set(run.scanners):
+        return False
+    return all(
+        abs(a - b) <= CALIBRATION_SETUP_TOLERANCE
+        for s in plan.scanners
+        for a, b in zip(run.scanners[s.key], (s.x, s.y, s.z), strict=True)
+    )
+
+
+def guide(plan: Floorplan, runs: list[CalibrationRun]) -> dict[str, list[dict[str, Any]]]:
+    """Return per tracker every room with walls and how many of its finished runs lie there.
+
+    A run made with the scanners standing elsewhere does not count; one that
+    does not tell how they stood does.
+    """
+    names = list(dict.fromkeys(r.name for r in plan.rooms if not r.zone))
+    result: dict[str, list[dict[str, Any]]] = {}
+    for tracker in plan.trackers:
+        counts = dict.fromkeys(names, 0)
+        for run in runs:
+            if run.tracker != tracker.key or run.running or setup_matches(run, plan) is False:
+                continue
+            if (room := plan.space_of(run.x, run.y)) is not None:
+                counts[room.name] += 1
+        result[tracker.key] = [{"room": name, "runs": n} for name, n in counts.items()]
+    return result
+
+
 class CalibrationStore:
     """The runs, loaded once; a running one is written along, every other change at once."""
 
@@ -147,6 +219,11 @@ class CalibrationStore:
         self._start: float = 0.0
         # Whether a delayed write of the samples is scheduled
         self._save_pending = False
+        # Whether the active run ends by itself, and how long it has been going
+        self.auto_stop = False
+        self.elapsed = 0.0
+        # The run stopped last in this session, with the values its stop saved
+        self.stopped: dict[str, Any] | None = None
 
     async def async_load(self) -> list[CalibrationRun]:
         """Load the runs; a run that was going when Home Assistant stopped ends with its last sample."""
@@ -186,12 +263,64 @@ class CalibrationStore:
         """Return the runs that are over: what the adjustment works on."""
         return [r for r in self.runs if not r.running]
 
-    def as_event(self) -> dict[str, Any]:
-        """Return what the card shows: the active run's id and every run's summary."""
-        return {
+    def as_event(self, plan: Floorplan | None = None) -> dict[str, Any]:
+        """Return what the page shows: the active run's id and every run's summary.
+
+        While a run is going, how far it is; after a stop, what it saved; with
+        the plan, the guide.
+        """
+        event: dict[str, Any] = {
             "active": self.active.id if self.active is not None else None,
             "runs": [run.summary() for run in self.runs],
         }
+        if self.active is not None:
+            event["progress"] = self.progress()
+        if self.stopped is not None:
+            event["stopped"] = self.stopped
+        if plan is not None:
+            event["guide"] = guide(plan, self.runs)
+        return event
+
+    def progress(self) -> dict[str, Any]:
+        """Return how far the active run is: its length, whether it ends by itself, each scanner."""
+        assert self.active is not None
+        return {
+            "elapsed": round(self.elapsed, 1),
+            "auto_stop": self.auto_stop,
+            "max_seconds": CALIBRATION_AUTO_MAX_SECONDS if self.auto_stop else None,
+            "target": CALIBRATION_TARGET_SAMPLES,
+            "scanners": {
+                key: scanner_progress(samples, self.elapsed)
+                for key, samples in self.active.samples.items()
+            },
+        }
+
+    def tick(self, now: float) -> bool:
+        """Note the monotonic time now; returns whether the active run should end by itself.
+
+        The listeners hear of every tick of a going run, whether or not a
+        position changed. It ends after the shortest time once one scanner has
+        enough and every other is done or hears the tracker too seldom, and at
+        the latest after the longest time.
+        """
+        if self.active is None:
+            return False
+        self.elapsed = max(now - self._start, 0.0)
+        self._notify()
+        if not self.auto_stop:
+            return False
+        if self.elapsed >= CALIBRATION_AUTO_MAX_SECONDS:
+            return True
+        if self.elapsed < CALIBRATION_AUTO_MIN_SECONDS:
+            return False
+        states = [p["state"] for p in self.progress()["scanners"].values()]
+        return "done" in states and all(state in ("done", "weak") for state in states)
+
+    @callback
+    def note_stopped(self, run: CalibrationRun, fit: dict[str, Any] | None, auto: bool) -> None:
+        """Keep what the stop of the run saved, for the page to show, and tell the listeners."""
+        self.stopped = {"run": run.id, "auto": auto, "fit": fit}
+        self._notify()
 
     async def async_start(
         self,
@@ -201,10 +330,12 @@ class CalibrationStore:
         height: float,
         now: float,
         scanners: dict[str, tuple[float, float, float]] | None = None,
+        auto_stop: bool = False,
     ) -> CalibrationRun:
         """Start a run at the monotonic time now, with where the scanners stand.
 
-        Raises RuntimeError while one is going.
+        With auto_stop, tick tells when it has enough. Raises RuntimeError
+        while one is going.
         """
         if self.active is not None:
             raise RuntimeError("a calibration run is going")
@@ -214,6 +345,9 @@ class CalibrationStore:
         self.runs.append(run)
         self.active = run
         self._start = now
+        self.auto_stop = auto_stop
+        self.elapsed = 0.0
+        self.stopped = None
         await self._async_save()
         self._notify()
         return run
@@ -230,14 +364,18 @@ class CalibrationStore:
             self._save_pending = True
             self._store.async_delay_save(self._delayed_data, CALIBRATION_SAVE_DELAY_SECONDS)
 
-    async def async_stop(self, now: float) -> CalibrationRun:
-        """Stop the active run at the monotonic time now; raises RuntimeError without one."""
+    async def async_stop(self, now: float, notify: bool = True) -> CalibrationRun:
+        """Stop the active run at the monotonic time now; raises RuntimeError without one.
+
+        Without notify, the listeners hear of it with note_stopped.
+        """
         if (run := self.active) is None:
             raise RuntimeError("no calibration run is going")
         run.duration = max(now - self._start, 0.0)
         self.active = None
         await self._async_save()
-        self._notify()
+        if notify:
+            self._notify()
         return run
 
     async def async_delete(self, run_id: str) -> bool:
@@ -255,6 +393,7 @@ class CalibrationStore:
         """Delete every run, the active one included."""
         self.runs = []
         self.active = None
+        self.stopped = None
         await self._async_save()
         self._notify()
 

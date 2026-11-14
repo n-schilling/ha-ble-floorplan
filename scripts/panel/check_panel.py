@@ -1000,6 +1000,53 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("the calibration runs are listed", calibration_runs)
 
+    async def calibration_guide() -> None:
+        await _goto(page, instance, "calibration")
+        guide = page.locator(f"{PANEL} table.guide")
+        await guide.wait_for()
+        # The key tag: a run in the living room and one of unknown setup in the bedroom;
+        # the one in the hall was made with the scanners standing elsewhere
+        rows = guide.locator("tr")
+        living = await rows.nth(1).inner_text()
+        expect(living.split()[:3] == ["Living", "room", "1"], living)
+        hall = guide.locator("tr", has_text="Hall").locator("td").nth(1)
+        expect(await hall.get_attribute("class") == "n missing", "the hall not marked missing")
+        expect("2 of 5 rooms" in await rows.last.inner_text(), await rows.last.inner_text())
+
+    await checks.run(
+        "the guide shows per room and tracker where runs are missing", calibration_guide
+    )
+
+    async def guided_run() -> None:
+        await _goto(page, instance, "calibration")
+        await page.locator(f"{PANEL} ha-button[data-act='cal-height'][data-key='0.75']").click()
+        box = await page.locator(f"{PANEL} #svg svg").bounding_box()
+        assert box is not None
+        await page.mouse.click(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.3)
+        await page.locator(f"{PANEL} ha-button[data-act='cal-start']:not([disabled])").click()
+        # Each scanner gets a bar; with the made-up steady signals they fill quickly
+        await page.locator(f"{PANEL} table.progress tr.prog").first.wait_for()
+        await page.locator(f"{PANEL} table.progress tr.prog.done").first.wait_for(timeout=30000)
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "calibration-run.png"))
+        # It ends by itself after the shortest time and says what it saved
+        await page.locator(
+            f"{PANEL} ha-alert[alert-type='success']", has_text="ended by itself"
+        ).wait_for(timeout=90000)
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/calibration/list"})
+        result = reply["result"]
+        run = result["runs"][-1]
+        expect(result["active"] is None, "the run still going")
+        expect(run["height"] == 0.75, f"height {run['height']}")
+        expect(45 <= run["duration"] < 120, f"duration {run['duration']}")
+        expect(result["stopped"]["auto"] is True, str(result.get("stopped")))
+        await api.ws(
+            instance.token, {"type": "ble_floorplan/calibration/delete", "run_id": run["id"]}
+        )
+
+    await checks.run("a guided run shows its progress and ends by itself", guided_run)
+
     async def clear_runs() -> None:
         # Delete all asks first; Cancel keeps the runs
         await _goto(page, instance, "calibration")

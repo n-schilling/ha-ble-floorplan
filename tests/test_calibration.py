@@ -114,7 +114,17 @@ async def test_start_record_stop(
     assert run.running
     assert run.summary()["running"]
     assert run.started.endswith("+00:00")
-    assert store.as_event() == {"active": run.id, "runs": [run.summary()]}
+    assert store.as_event() == {
+        "active": run.id,
+        "runs": [run.summary()],
+        "progress": {
+            "elapsed": 0.0,
+            "auto_stop": False,
+            "max_seconds": None,
+            "target": 30,
+            "scanners": {},
+        },
+    }
     listener.assert_called_once_with()
     stored = hass_storage[CALIBRATION_STORAGE_KEY]["data"]["runs"]
     assert stored[0]["duration"] is None

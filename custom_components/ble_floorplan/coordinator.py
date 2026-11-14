@@ -145,7 +145,10 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
 
     async def _async_update_data(self) -> Positions:
         """Compute the positions and add them to the timeline and the coverage."""
-        positions = self.compute(MONOTONIC_TIME())
+        monotonic = MONOTONIC_TIME()
+        positions = self.compute(monotonic)
+        if self.calibration.tick(monotonic):
+            await self.async_stop_calibration(auto=True)
         now = dt_util.utcnow().timestamp()
         days = self.plan.settings.history_days
         await self.history.async_record(positions, now, days)
@@ -193,18 +196,25 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         return positions
 
     async def async_start_calibration(
-        self, tracker_key: str, x: float, y: float, height: float
+        self, tracker_key: str, x: float, y: float, height: float, auto_stop: bool = False
     ) -> CalibrationRun:
         """Start recording the tracker's advertisements at its true position."""
         scanners = {s.key: (s.x, s.y, s.z) for s in self.plan.scanners}
         return await self.calibration.async_start(
-            tracker_key, x, y, height, MONOTONIC_TIME(), scanners
+            tracker_key, x, y, height, MONOTONIC_TIME(), scanners, auto_stop
         )
 
-    async def async_stop_calibration(self) -> tuple[CalibrationRun, dict[str, Any] | None]:
-        """Stop the recording and save the tracker's values from its runs, as fit_tracker does."""
-        run = await self.calibration.async_stop(MONOTONIC_TIME())
-        return run, await self.async_fit_tracker(run.tracker)
+    async def async_stop_calibration(
+        self, auto: bool = False
+    ) -> tuple[CalibrationRun, dict[str, Any] | None]:
+        """Stop the recording and save the tracker's values from its runs, as fit_tracker does.
+
+        auto tells that the run ended by itself; the page shows what was saved either way.
+        """
+        run = await self.calibration.async_stop(MONOTONIC_TIME(), notify=False)
+        fit = await self.async_fit_tracker(run.tracker)
+        self.calibration.note_stopped(run, fit, auto)
+        return run, fit
 
     async def async_fit_tracker(self, tracker_key: str) -> dict[str, Any] | None:
         """Save the tracker's reference power and pair corrections from all of its runs.

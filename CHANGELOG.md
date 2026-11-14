@@ -2,6 +2,20 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.23.0] - 2026-11-14
+
+### Added
+
+- Guided calibration: a going run shows per scanner a bar, its samples, how well their mean is known (± dB) and whether it has enough, hears the tracker too seldom to wait for, or hears nothing, and how long the run has been going.
+- A run can end by itself (on by default on the page): after at least 45 s once one scanner has enough and every other has enough or hears the tracker too seldom, at the latest after 5 minutes. A scanner has enough with 30 samples, or with 15 whose mean is known to 1 dB. The page then says that it ended and what the stop saved.
+- Typical heights for a run in one tap: floor, table, pocket or wrist, in the hand.
+- *Where to measure*: per room and tracker the runs that fit the scanners as they stand, the rooms without one marked, and per tracker how many rooms are measured.
+- `ble_floorplan/calibration/start` takes `auto_stop`; the calibration event carries `progress` while a run goes, `stopped` after a stop, and `guide`.
+
+### Changed
+
+- While a run goes, its progress is sent every second, also when no position changes.
+
 ## [0.22.0] - 2026-11-14
 
 ### Added

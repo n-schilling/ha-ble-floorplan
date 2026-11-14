@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import timedelta
 import math
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -190,7 +190,8 @@ async def test_subscribe_tells_silent_scanners(
         await hass.async_block_till_done()
         await entry.runtime_data.store.async_save(make_plan(settings={"max_distance": 9}))
         msg = await client.receive_json()
-        assert set(msg["event"]) == {"floorplan", "offline"}
+        # An admin gets the calibration along: its guide follows the plan
+        assert set(msg["event"]) == {"floorplan", "offline", "calibration"}
         assert msg["event"]["offline"] == ["living"]
 
 
@@ -478,7 +479,7 @@ async def test_calibration_list_and_delete(
     await client.send_json_auto_id({"type": WS_CALIBRATION_DELETE, "run_id": active.id})
     msg = await client.receive_json()
     assert msg["success"], msg
-    assert msg["result"] == {"active": None, "runs": [run.summary()], "fit": None}
+    assert msg["result"] == {"active": None, "runs": [run.summary()], "fit": None, "guide": ANY}
     assert calibration.active is None
 
 
@@ -576,24 +577,43 @@ async def test_subscribe_calibration(
     msg = await client.receive_json()
     assert msg["success"]
     msg = await client.receive_json()
-    assert msg["event"]["calibration"] == {"active": None, "runs": []}
+    assert msg["event"]["calibration"] == {"active": None, "runs": [], "guide": ANY}
 
     clock(1000.0)
     run = await entry.runtime_data.coordinator.async_start_calibration("tag", 2.0, 2.0, 0.3)
     msg = await client.receive_json()
-    assert msg["event"] == {"calibration": {"active": run.id, "runs": [run.summary()]}}
+    assert msg["event"] == {
+        "calibration": {
+            "active": run.id,
+            "runs": [run.summary()],
+            "progress": {
+                "elapsed": 0.0,
+                "auto_stop": False,
+                "max_seconds": None,
+                "target": 30,
+                "scanners": {},
+            },
+            "guide": ANY,
+        }
+    }
 
     scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -60, 1001.0)]
     clock(1002.0)
     await entry.runtime_data.coordinator.async_refresh()
+    # The run's progress comes with every refresh, before the positions
+    msg = await client.receive_json()
+    assert msg["event"]["calibration"]["runs"][0]["counts"] == {"living": 1}
+    assert msg["event"]["calibration"]["progress"]["elapsed"] == 2.0
     msg = await client.receive_json()
     assert msg["event"]["positions"]["tag"]["room"] == "Living room"
-    assert msg["event"]["calibration"]["runs"][0]["counts"] == {"living": 1}
 
     await entry.runtime_data.coordinator.async_stop_calibration()
     msg = await client.receive_json()
     assert msg["event"]["calibration"]["active"] is None
     assert msg["event"]["calibration"]["runs"][0]["duration"] == 2.0
+    # The page learns what the stop saved: one run, so the tracker's values
+    assert msg["event"]["calibration"]["stopped"]["run"] == run.id
+    assert msg["event"]["calibration"]["stopped"]["auto"] is False
 
     scanner_devices[TAG] = [scanner_device(scanners["living"], TAG, -61, 1003.0)]
     clock(1004.0)
@@ -673,7 +693,7 @@ async def test_subscribe_follows_a_reload(
     # The save reaches the old listener, the reload sends a new snapshot
     events = [await client.receive_json() for _ in range(3)]
     kinds = [set(e["event"]) for e in events if e["type"] == "event"]
-    assert {"floorplan", "offline"} in kinds
+    assert {"floorplan", "offline", "calibration"} in kinds
     assert {"floorplan", "positions", "offline", "calibration", "about"} in kinds
     await hass.async_block_till_done()
     assert entry.runtime_data.coordinator is not old_coordinator
@@ -879,6 +899,6 @@ async def test_calibration_keeps_the_scanners_and_clears(
 
     await client.send_json_auto_id({"type": WS_CALIBRATION_CLEAR})
     msg = await client.receive_json()
-    assert msg["result"] == {"active": None, "runs": []}
+    assert msg["result"] == {"active": None, "runs": [], "guide": ANY}
     assert entry.runtime_data.calibration.active is None
     assert entry.runtime_data.calibration.runs == []

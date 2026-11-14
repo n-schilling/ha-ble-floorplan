@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.22.0";
+} from "./ble-floorplan-plan.js?v=0.23.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -100,6 +100,8 @@ if (!customElements.get("ble-floorplan-panel")) {
   const ANY = "*";
   // The measurement is fetched again this often while it is shown (ms)
   const MEASURED_REFETCH_MS = 60000;
+  // Heights a tracker typically has in a run, in metres
+  const HEIGHT_PRESETS = [["hFloor", 0], ["hTable", 0.75], ["hPocket", 1], ["hHand", 1.2]];
   const utcDay = (t) => new Date(t * 1000).toISOString().slice(0, 10);
   const dayStart = (d) => Date.parse(`${d}T00:00:00Z`) / 1000;
   const nowS = () => Date.now() / 1000;
@@ -133,7 +135,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._candidates = null;
       this._layout = null;
       // The next calibration run: tracker, height, true position
-      this._measure = { tracker: null, height: null, x: null, y: null };
+      this._measure = { tracker: null, height: null, x: null, y: null, auto: true };
       this._cal = { fitN: false, proposal: null, confirmClear: false };
       // The coverage: the map shown, for which tracker, the probe scanners, the
       // result and what it was fetched for; `stamp` asks for a fresh measurement
@@ -239,7 +241,16 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       if (event.positions) this._positions = event.positions;
       if (event.offline) this._offline = event.offline;
-      if (event.calibration) this._calibration = event.calibration;
+      if (event.calibration) {
+        this._calibration = event.calibration;
+        // A run that ended by itself says what it saved, once; a stop on the page says it itself
+        const stopped = event.calibration.stopped;
+        if (stopped && this._seenStop !== undefined && stopped.run !== this._seenStop && stopped.auto) {
+          const note = this._fitNote(stopped.fit);
+          this._note = { kind: note.kind, text: this._t.autoStopped + note.text };
+        }
+        this._seenStop = stopped?.run ?? null;
+      }
       if (event.about) this._about = event.about;
       this._render();
     }
@@ -917,14 +928,28 @@ if (!customElements.get("ble-floorplan-panel")) {
       const active = this._calibration.runs.find((r) => r.id === this._calibration.active);
       let run;
       if (active) {
-        const rows = plan.scanners
-          .map((s) => `<tr><td>${esc(s.name)}</td><td class="n">${active.counts?.[s.key] || 0}</td></tr>`)
-          .join("");
-        run = this._card(`${t.measure} · ${t.running}`,
+        const prog = this._calibration.progress || { elapsed: 0, auto_stop: false, scanners: {} };
+        const states = { done: t.stDone, collecting: t.stCollecting, weak: t.stWeak };
+        const rows = plan.scanners.filter((s) => !s.paused).map((s) => {
+          const p = prog.scanners[s.key];
+          const n = p?.count || 0;
+          const state = p ? p.state : "none";
+          const share = state === "done" ? 100 : Math.min(95, Math.round((n / (prog.target || 30)) * 100));
+          return `<tr class="prog ${state}"><td>${esc(s.name)}</td>` +
+            `<td><div class="bar ${state}"><i style="width:${share}%"></i></div></td>` +
+            `<td class="n">${n}</td><td class="n">${p?.error != null ? `±${fmt(p.error, 1)}` : ""}</td>` +
+            `<td class="nowrap">${esc(states[state] || t.stNone)}</td></tr>`;
+        }).join("");
+        const secs = Math.floor(prog.elapsed);
+        const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+        const until = prog.auto_stop ? t.autoUntil.replace("{max}", fmt(prog.max_seconds / 60, 0)) : t.manualUntil;
+        run = this._card(`${t.measure} · ${t.elapsed.replace("{t}", clock)}`,
           this._kv([
             [t.tracker, `<span class="dot" style="background:${trackerColor(plan, active.tracker)}"></span>${esc(name(active.tracker))}`],
             [t.runAt, `${fmt(active.x, 2)} / ${fmt(active.y, 2)} m · ${esc(t.height)} ${fmt(active.height, 2)} m`],
-          ]) + `<table class="data"><tr><th>${esc(t.scanner)}</th><th class="n">${esc(t.samples)}</th></tr>${rows}</table>`,
+          ]) + `<div class="muted small">${esc(until)}</div>` +
+          `<div class="scroll"><table class="data progress"><tr><th>${esc(t.scanner)}</th><th>${esc(t.progressCol)}</th>` +
+          `<th class="n">${esc(t.samples)}</th><th class="n">dB</th><th></th></tr>${rows}</table></div>`,
           `<span></span>${this._btn("cal-stop", t.stop, { kind: "filled" })}`);
       } else if (!plan.trackers.length) {
         run = this._card(t.newRun, `<div class="muted">${esc(t.none)}</div>`);
@@ -939,7 +964,8 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._formSlot("measure", [
             { name: "tracker", label: t.pickTracker, required: true, selector: { select: { mode: "dropdown", options: plan.trackers.map((x) => ({ value: x.key, label: x.name })) } } },
             this._num("height", t.height, "m"),
-          ], { tracker: m.tracker, height: m.height }, (v) => {
+            { name: "auto", label: t.autoStop, selector: { boolean: {} } },
+          ], { tracker: m.tracker, height: m.height, auto: m.auto }, (v) => {
             if (v.tracker !== m.tracker) {
               // Another tracker: its height is the start
               m.tracker = v.tracker;
@@ -949,7 +975,11 @@ if (!customElements.get("ble-floorplan-panel")) {
               return;
             }
             m.height = v.height ?? m.height;
+            m.auto = !!v.auto;
           }) +
+          `<div class="presets"><span class="muted small">${esc(t.heightPresets)}</span>` +
+          HEIGHT_PRESETS.map(([label, h]) => this._btn("cal-height", `${t[label]} ${fmt(h, (h * 10) % 1 ? 2 : 1)} m`, { data: ` data-key="${h}"` })).join("") +
+          `</div>` +
           (ready ? this._kv([[t.runAt, `${fmt(m.x, 2)} / ${fmt(m.y, 2)} m`]]) : this._alert("info", t.hintMeasure)),
           `<span></span>${this._btn("cal-start", t.start, { kind: "filled", disabled: !ready })}`);
       }
@@ -1010,8 +1040,29 @@ if (!customElements.get("ble-floorplan-panel")) {
         }) + preview,
         `<span></span><span>${this._btn("cal-solve", t.compute, { disabled: !finished })}` +
         `${pr ? this._btn("cal-apply", t.apply, { kind: "filled", disabled: !!active }) : ""}</span>`);
-      return run + this._card(t.runs, `${hints}<div class="muted small">${esc(t.calHint)}</div>${table}`,
+      return run + this._guideCard() + this._card(t.runs, `${hints}<div class="muted small">${esc(t.calHint)}</div>${table}`,
         runs.length ? this._btn("cal-clear", t.clearRuns, { kind: "danger", disabled: this._cal.confirmClear }) : "") + advanced;
+    }
+
+    // Per room and tracker the runs that fit the scanners as they stand; a room without one stands out
+    _guideCard() {
+      const t = this._t;
+      const plan = this._plan;
+      const guide = this._calibration.guide;
+      const trackers = plan.trackers.filter((x) => !x.paused && guide?.[x.key]);
+      if (!trackers.length || !guide[trackers[0].key].length) return "";
+      const rooms = guide[trackers[0].key].map((r) => r.room);
+      const head = trackers.map((x) => `<th class="n" title="${esc(x.name)}"><span class="dot" style="background:${trackerColor(plan, x.key)}"></span>${esc(x.name)}</th>`).join("");
+      const rows = rooms.map((room, i) => `<tr><td>${esc(room)}</td>` + trackers.map((x) => {
+        const n = guide[x.key][i].runs;
+        return `<td class="n ${n ? "has" : "missing"}">${n || "–"}</td>`;
+      }).join("") + "</tr>").join("");
+      const sums = trackers.map((x) => {
+        const done = guide[x.key].filter((r) => r.runs > 0).length;
+        return `<td class="n small">${esc(t.guideCount.replace("{n}", done).replace("{m}", rooms.length))}</td>`;
+      }).join("");
+      return this._card(t.guide, `<div class="muted small">${esc(t.guideHint)}</div>` +
+        `<div class="scroll"><table class="data guide"><tr><th>${esc(t.room)}</th>${head}</tr>${rows}<tr class="sum"><td></td>${sums}</tr></table></div>`);
     }
 
     // Whether the scanners stand as they did when the run started: same, changed (with what), unknown
@@ -1502,7 +1553,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         case "measure-tracker": {
           const tr = plan.trackers.find((x) => x.key === this._selTracker);
-          this._measure = { tracker: tr.key, height: tr.height, x: null, y: null };
+          this._measure = { tracker: tr.key, height: tr.height, x: null, y: null, auto: this._measure.auto };
           this._go("calibration");
           return;
         }
@@ -1559,11 +1610,16 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         case "cal-start": {
           const m = this._measure;
-          this._call({ type: "ble_floorplan/calibration/start", tracker: m.tracker, x: m.x, y: m.y, height: m.height }, () => {
+          this._call({ type: "ble_floorplan/calibration/start", tracker: m.tracker, x: m.x, y: m.y, height: m.height, auto_stop: !!m.auto }, () => {
             this._measure = { ...m, x: null, y: null };
           });
           return;
         }
+        case "cal-height":
+          this._measure.height = Number(key);
+          this._redraw = true;
+          this._render();
+          return;
         case "cal-stop":
           this._call({ type: "ble_floorplan/calibration/stop" }, (result) => {
             this._note = this._fitNote(result.fit);
@@ -2104,6 +2160,14 @@ if (!customElements.get("ble-floorplan-panel")) {
     table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--divider-color); }
     table.data th { text-align: left; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-medium, 500); padding: 8px 12px 8px 0; white-space: nowrap; }
     table.data td { padding: 6px 12px 6px 0; border-top: 1px solid var(--divider-color); }
+    /* A going run: a bar per scanner, full and green once it has enough */
+    .bar { width: 96px; height: 6px; border-radius: 3px; background: var(--divider-color); overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--primary-color); }
+    .bar.done i { background: var(--success-color, #43a047); }
+    tr.prog.weak, tr.prog.none { color: var(--secondary-text-color); }
+    .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; }
+    table.guide td.missing { color: var(--warning-color, #ffa600); font-weight: var(--ha-font-weight-medium, 500); }
+    table.guide tr.sum td { color: var(--secondary-text-color); white-space: nowrap; }
     table.data td:last-child, table.data th:last-child { padding-right: 0; }
     .n { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .nowrap { white-space: nowrap; }

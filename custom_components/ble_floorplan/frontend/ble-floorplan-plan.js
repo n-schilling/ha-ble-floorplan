@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.22.0";
+export const VERSION = "0.23.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -65,6 +65,13 @@ const TEXTS = {
     advanced: "Scanner offsets and exponent",
     advancedHint: "Compute and Apply fit the offsets of the scanners and the exponent from all runs, for all trackers.",
     newRun: "New run", pickTracker: "Tracker", runAt: "At",
+    autoStop: "End by itself once every scanner has enough", heightPresets: "Typical heights",
+    hFloor: "Floor", hTable: "Table", hPocket: "Pocket or wrist", hHand: "In the hand",
+    elapsed: "Running for {t}", autoUntil: "Ends by itself once every scanner has enough samples, at the latest after {max} min. Leave the tracker where it is until then.",
+    manualUntil: "Runs until Stop.", progressCol: "Progress", stDone: "enough", stCollecting: "collecting", stWeak: "too seldom", stNone: "hears nothing",
+    autoStopped: "The run ended by itself. ",
+    guide: "Where to measure", guideHint: "Runs per room and tracker that fit the scanners as they stand. Aim for one run in every room a tracker is in, two in large rooms; tap the room on the plan to place the next one.",
+    guideCount: "{n} of {m} rooms",
     addScanner: "Add scanner", addTracker: "Add tracker", trackerCount: "{n} trackers", seenBy: "{n} scanners",
     planSaved: "Floor plan saved.",
     tabPlan: "Floor plan", tabScanners: "Scanners", tabTrackers: "Trackers", tabCalibration: "Calibration",
@@ -140,6 +147,13 @@ const TEXTS = {
     advanced: "Scanner-Offsets und Exponent",
     advancedHint: "Berechnen und Übernehmen passen aus allen Messläufen die Offsets der Scanner und den Exponenten an, für alle Tracker.",
     newRun: "Neuer Messlauf", pickTracker: "Tracker", runAt: "Ort",
+    autoStop: "Automatisch beenden, sobald jeder Scanner genug hat", heightPresets: "Übliche Höhen",
+    hFloor: "Boden", hTable: "Tisch", hPocket: "Hosentasche/Handgelenk", hHand: "In der Hand",
+    elapsed: "Läuft seit {t}", autoUntil: "Endet von selbst, sobald jeder Scanner genug Samples hat, spätestens nach {max} min. Den Tracker bis dahin liegen lassen.",
+    manualUntil: "Läuft bis „Beenden“.", progressCol: "Fortschritt", stDone: "genug", stCollecting: "sammelt", stWeak: "zu selten", stNone: "hört nichts",
+    autoStopped: "Der Messlauf hat sich selbst beendet. ",
+    guide: "Wo messen", guideHint: "Messläufe je Raum und Tracker, die zum heutigen Scanner-Aufbau passen. Ziel: ein Messlauf in jedem Raum, in dem ein Tracker unterwegs ist, in großen Räumen zwei; für den nächsten auf den Raum im Grundriss tippen.",
+    guideCount: "{n} von {m} Räumen",
     addScanner: "Scanner hinzufügen", addTracker: "Tracker hinzufügen", trackerCount: "{n} Tracker", seenBy: "{n} Scanner",
     planSaved: "Grundriss gespeichert.",
     tabPlan: "Grundriss", tabScanners: "Scanner", tabTrackers: "Tracker", tabCalibration: "Kalibrierung",
