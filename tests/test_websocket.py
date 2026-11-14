@@ -636,7 +636,7 @@ async def test_other_users_see_what_the_card_draws(
     plan = make_plan()
     card_plan = {
         "rooms": [r.as_dict() for r in plan.rooms],
-        "openings": [list(o) for o in plan.openings],
+        "openings": plan.as_dict()["openings"],
         "scanners": [
             {"key": s.key, "name": s.name, "x": s.x, "y": s.y, "z": s.z} for s in plan.scanners
         ],

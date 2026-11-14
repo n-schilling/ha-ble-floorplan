@@ -19,11 +19,14 @@ from .calibration import CalibrationRun, CalibrationStore
 from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
 from .coverage import CoverageStore
 from .engine import (
+    Heard,
+    LevelTracker,
     Measurement,
     RoomTracker,
     Smoother,
     floor_distance,
     median,
+    misfit,
     rssi_to_distance,
     trilaterate,
 )
@@ -76,6 +79,9 @@ class TrackerPosition:
     # Whether a scanner saw the tracker within away_seconds; None right after
     # the start, before away_seconds passed without seeing it
     present: bool | None = None
+    # The floor of its room (None outside the rooms) and the elevation of its level
+    floor: str | None = None
+    level: float | None = None
 
     @property
     def seen(self) -> bool:
@@ -95,6 +101,8 @@ class TrackerPosition:
             "scanner_count": self.scanner_count,
             "readings": {key: r.as_dict() for key, r in self.readings.items()},
             "present": self.present,
+            "floor": self.floor,
+            "level": self.level,
         }
 
 
@@ -130,11 +138,12 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self._samples: dict[tuple[str, str], deque[Sample]] = {}
         self._smoother = Smoother()
         self._rooms = RoomTracker()
+        self._levels = LevelTracker()
         # Monotonic time of the first computation and of the last sighting per tracker
         self._started: float | None = None
         self._last_seen: dict[str, float] = {}
-        # The room of the last sighting per tracker, kept until it counts as away
-        self._last_room: dict[str, str | None] = {}
+        # The room, floor and level of the last sighting per tracker, kept until it counts as away
+        self._last_place: dict[str, tuple[str | None, str | None, float | None]] = {}
         # device_id -> entity_id of the device tracker of a Private BLE Device
         self._tracker_entities: dict[str, str] = {}
 
@@ -165,10 +174,9 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         for tracker in plan.trackers:
             if tracker.paused:
                 # Starts afresh when resumed: no smoothing, room or sighting carried over
-                self._smoother.reset(tracker.key)
-                self._rooms.reset(tracker.key)
+                self._forget(tracker.key)
                 self._last_seen.pop(tracker.key, None)
-                self._last_room.pop(tracker.key, None)
+                self._last_place.pop(tracker.key, None)
                 positions[tracker.key] = TrackerPosition(
                     tracker.key, None, None, None, None, None, None, None, 0
                 )
@@ -179,29 +187,43 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             position = self._locate(tracker, address, now, plan)
             if position.seen:
                 self._last_seen[tracker.key] = now
-                self._last_room[tracker.key] = position.room
+                self._last_place[tracker.key] = (position.room, position.floor, position.level)
             last = self._last_seen.get(tracker.key)
             away = plan.settings.away_seconds
             if last is not None:
                 present: bool | None = now - last <= away
             else:
                 present = None if now - self._started < away else False
-            room = position.room
             if not position.seen:
                 # A short gap keeps the last room: unknown only once the tracker counts as away
-                room = self._last_room.get(tracker.key) if present else None
+                room, floor, level = self._last_place.get(tracker.key, (None, None, None))
                 if not present:
-                    self._last_room.pop(tracker.key, None)
-            positions[tracker.key] = replace(position, present=present, room=room)
+                    room = floor = level = None
+                    self._last_place.pop(tracker.key, None)
+                position = replace(position, room=room, floor=floor, level=level)
+            positions[tracker.key] = replace(position, present=present)
         return positions
 
+    def _forget(self, key: str) -> None:
+        """Start the tracker afresh: no smoothing, room or level carried over."""
+        self._smoother.reset(key)
+        self._rooms.reset(key)
+        self._levels.reset(key)
+
     async def async_start_calibration(
-        self, tracker_key: str, x: float, y: float, height: float, auto_stop: bool = False
+        self,
+        tracker_key: str,
+        x: float,
+        y: float,
+        height: float,
+        auto_stop: bool = False,
+        floor: str = "",
     ) -> CalibrationRun:
-        """Start recording the tracker's advertisements at its true position."""
-        scanners = {s.key: (s.x, s.y, s.z) for s in self.plan.scanners}
+        """Start recording the tracker's advertisements at its true position, on the floor."""
+        plan = self.plan
+        scanners = {s.key: (s.x, s.y, plan.scanner_height(s)) for s in plan.scanners}
         return await self.calibration.async_start(
-            tracker_key, x, y, height, MONOTONIC_TIME(), scanners, auto_stop
+            tracker_key, x, y, height, MONOTONIC_TIME(), scanners, auto_stop, floor
         )
 
     async def async_stop_calibration(
@@ -286,16 +308,20 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     def _locate(
         self, tracker: Tracker, address: str | None, now: float, plan: Floorplan
     ) -> TrackerPosition:
-        """Turn the collected samples of a tracker into a position."""
+        """Turn the collected samples of a tracker into a position.
+
+        Each scanner's signal gives a line-of-sight distance. On a plan of one
+        level, a scanner counts when the distance on the floor is within
+        max_distance. With more levels, the scanners within max_distance in
+        a straight line count; the position is solved for every level, and
+        the level that fits them best, with hysteresis, is taken.
+        """
         settings = plan.settings
-        ref_power = plan.ref_power(tracker)
-        readings: dict[str, Reading] = {}
-        measurements: list[Measurement] = []
-        nearest: str | None = None
-        nearest_distance = float("inf")
+        heard: dict[str, float] = {}
+        silent: dict[str, Reading] = {}
         for scanner in plan.scanners:
             if scanner.paused:
-                readings[scanner.key] = Reading(None, None, False)
+                silent[scanner.key] = Reading(None, None, False)
                 continue
             samples = self._samples.get((tracker.key, scanner.source))
             if samples:
@@ -304,30 +330,44 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
                 while samples[0][0] < newest - RSSI_WINDOW_SECONDS:
                     samples.popleft()
             if not samples or samples[-1][0] < now - STALE_SECONDS:
-                readings[scanner.key] = Reading(None, None, False)
+                silent[scanner.key] = Reading(None, None, False)
                 continue
-            rssi = median([s[1] for s in samples])
-            offset = scanner.rssi_offset + plan.pair_offset(scanner.key, tracker.key)
-            distance = floor_distance(
-                rssi_to_distance(rssi, ref_power, offset, settings.attenuation),
-                scanner.z,
-                tracker.height,
-            )
-            used = distance <= settings.max_distance
-            readings[scanner.key] = Reading(rssi, distance, used)
-            if used:
-                measurements.append(Measurement(scanner.x, scanner.y, distance))
-                if distance < nearest_distance:
-                    nearest_distance = distance
-                    nearest = scanner.key
-        raw = trilaterate(measurements, plan)
+            heard[scanner.key] = median([s[1] for s in samples])
+        levels = plan.levels
+        if len(levels) == 1:
+            level = levels[0]
+        else:
+            fits: dict[float, float] = {}
+            for candidate in levels:
+                lines = self._lines(plan, tracker, heard, candidate)
+                hearing = [
+                    Heard(s.x, s.y, plan.scanner_height(s), line)
+                    for key, line in lines.items()
+                    if (s := plan.scanner(key)) is not None and line <= settings.max_distance
+                ]
+                point = trilaterate(
+                    self._measurements(plan, tracker, heard, candidate, strict=False)[0],
+                    plan.on_level(candidate),
+                )
+                if point is not None and hearing:
+                    fits[candidate] = misfit(point, hearing, candidate + tracker.height)
+            # Nothing heard: no position on any level, the first one stands in
+            level = self._pick_level(tracker.key, fits, now, plan) if fits else levels[0]
+        level_plan = plan.on_level(level)
+        measurements, readings, nearest = self._measurements(
+            plan, tracker, heard, level, strict=len(levels) == 1
+        )
+        readings |= silent
+        readings = {s.key: readings[s.key] for s in plan.scanners}
+        raw = trilaterate(measurements, level_plan)
         if raw is None:
-            self._smoother.reset(tracker.key)
-            self._rooms.reset(tracker.key)
+            self._forget(tracker.key)
             return TrackerPosition(
                 tracker.key, address, None, None, None, None, None, None, 0, readings
             )
-        x, y = self._smoother.smooth(tracker.key, raw, now, plan)
+        x, y = self._smoother.smooth(tracker.key, raw, now, level_plan)
+        room = self._rooms.room(tracker.key, x, y, now, level_plan)
+        floor = next((r.floor for r in level_plan.rooms if r.name == room), None)
         return TrackerPosition(
             tracker.key,
             address,
@@ -335,8 +375,71 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             y,
             raw[0],
             raw[1],
-            self._rooms.room(tracker.key, x, y, now, plan),
+            room,
             nearest,
             len(measurements),
             readings,
+            floor=floor,
+            level=level,
         )
+
+    @staticmethod
+    def _lines(
+        plan: Floorplan, tracker: Tracker, heard: dict[str, float], level: float
+    ) -> dict[str, float]:
+        """Return per scanner the line-of-sight distance, were the tracker on the level.
+
+        Each ceiling between the scanner's level and that one weakened the
+        signal by floor_loss; that much is added back before the distance.
+        """
+        settings = plan.settings
+        ref_power = plan.ref_power(tracker)
+        lines: dict[str, float] = {}
+        for key, rssi in heard.items():
+            scanner = plan.scanner(key)
+            assert scanner is not None
+            offset = scanner.rssi_offset + plan.pair_offset(key, tracker.key)
+            loss = settings.floor_loss * plan.ceilings(scanner, level)
+            lines[key] = rssi_to_distance(rssi + loss, ref_power, offset, settings.attenuation)
+        return lines
+
+    def _pick_level(self, key: str, fits: dict[float, float], now: float, plan: Floorplan) -> float:
+        """Return the tracker's level; a change of level starts its position afresh."""
+        shown = self._smoother.position(key)
+        previous = self._levels.current(key)
+        level = self._levels.level(key, fits, now, plan, shown)
+        if previous is not None and level != previous:
+            self._smoother.reset(key)
+            self._rooms.reset(key)
+        return level
+
+    def _measurements(
+        self,
+        plan: Floorplan,
+        tracker: Tracker,
+        heard: dict[str, float],
+        level: float,
+        strict: bool,
+    ) -> tuple[list[Measurement], dict[str, Reading], str | None]:
+        """Return the measurements on the level, the readings and the nearest scanner.
+
+        strict compares the distance on the floor with max_distance, else the
+        distance in a straight line.
+        """
+        settings = plan.settings
+        measurements: list[Measurement] = []
+        readings: dict[str, Reading] = {}
+        nearest: str | None = None
+        nearest_distance = float("inf")
+        for key, line in self._lines(plan, tracker, heard, level).items():
+            scanner = plan.scanner(key)
+            assert scanner is not None
+            distance = floor_distance(line, plan.scanner_height(scanner), level + tracker.height)
+            used = (distance if strict else line) <= settings.max_distance
+            readings[key] = Reading(heard[key], distance, used)
+            if used:
+                measurements.append(Measurement(scanner.x, scanner.y, distance))
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    nearest = key
+        return measurements, readings, nearest

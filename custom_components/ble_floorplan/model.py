@@ -1,7 +1,14 @@
-"""The data model of the floor plan: rooms, openings, scanners, trackers and settings.
+"""The data model of the floor plan: floors, rooms, openings, stairs, scanners, trackers and settings.
 
-Everything is validated by one schema, used by the store, the WebSocket
-commands and the import alike, and kept as immutable dataclasses.
+Everything is validated by one schema, used by the store and the WebSocket
+commands alike, and kept as immutable dataclasses.
+
+One plan covers the whole site in one coordinate system, in metres: the
+buildings (house, garage, garden house) stand where they are, and their
+floors lie above each other at their elevation. Rooms, openings, stairs and
+scanners belong to a floor; without floors the plan has one, the default
+floor at ground level. Floors at the same elevation form a level: the house's
+ground floor and the garage are one level, the upper floor another.
 """
 
 from __future__ import annotations
@@ -18,6 +25,10 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DEFAULT_ATTENUATION,
     DEFAULT_AWAY_SECONDS,
+    DEFAULT_FLOOR_HEIGHT,
+    DEFAULT_FLOOR_HOLD_SECONDS,
+    DEFAULT_FLOOR_LOSS,
+    DEFAULT_FLOOR_MARGIN,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_JUMP_CONFIRM_SECONDS,
     DEFAULT_JUMP_DISTANCE,
@@ -32,6 +43,7 @@ from .const import (
     DOOR_STEP,
     DOOR_TOLERANCE,
     HISTORY_MAX_DAYS,
+    STAIRS_TOLERANCE,
     WALL_STOP,
 )
 from .geometry import (
@@ -54,7 +66,11 @@ def _finite(value: float) -> float:
 
 NUMBER = probatio.All(probatio.Coerce(float), _finite)
 POINT = probatio.ExactSequence([NUMBER, NUMBER])
-OPENING = probatio.ExactSequence([NUMBER, NUMBER, NUMBER, NUMBER])
+# A door or a passage: a line on a wall, of the default floor or of the floor named fifth
+OPENING = probatio.Any(
+    probatio.ExactSequence([NUMBER, NUMBER, NUMBER, NUMBER]),
+    probatio.ExactSequence([NUMBER, NUMBER, NUMBER, NUMBER, cv.slug]),
+)
 
 
 def mac_address(value: Any) -> str:
@@ -77,6 +93,15 @@ def _rect_or_polygon(room: dict[str, Any]) -> dict[str, Any]:
     if has_rect and (room["w"] <= 0 or room["h"] <= 0):
         raise probatio.Invalid("w and h of a room must be positive")
     return room
+
+
+def _rect_to_points(item: dict[str, Any]) -> dict[str, Any]:
+    """Stairs keep their outline as points; a rectangle is turned into them."""
+    _rect_or_polygon(item)
+    if "points" not in item:
+        x, y, w, h = item.pop("x"), item.pop("y"), item.pop("w"), item.pop("h")
+        item["points"] = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    return item
 
 
 def _one_address(tracker: dict[str, Any]) -> dict[str, Any]:
@@ -116,9 +141,43 @@ ROOM_SCHEMA = probatio.All(
             probatio.Optional("label", default=True): cv.boolean,
             # The area of Home Assistant the room stands for
             probatio.Optional("area"): cv.string,
+            # The floor it lies on; the default floor without
+            probatio.Optional("floor"): cv.slug,
         }
     ),
     _rect_or_polygon,
+)
+
+FLOOR_SCHEMA = probatio.Schema(
+    {
+        probatio.Required("key"): cv.slug,
+        probatio.Optional("name", default=""): cv.string,
+        # The building the floor belongs to; floors with the same name form one
+        probatio.Optional("building", default=""): cv.string,
+        # Height of the floor above the ground of the site, in metres
+        probatio.Optional("elevation", default=0.0): NUMBER,
+        # Height of its rooms, in metres
+        probatio.Optional("height", default=DEFAULT_FLOOR_HEIGHT): probatio.All(
+            NUMBER, probatio.Range(min=0.5)
+        ),
+        # The floor of Home Assistant it stands for
+        probatio.Optional("ha_floor"): cv.string,
+    }
+)
+
+STAIRS_SCHEMA = probatio.All(
+    probatio.Schema(
+        {
+            probatio.Required("floor"): cv.slug,
+            probatio.Required("to"): cv.slug,
+            probatio.Optional("x"): NUMBER,
+            probatio.Optional("y"): NUMBER,
+            probatio.Optional("w"): NUMBER,
+            probatio.Optional("h"): NUMBER,
+            probatio.Optional("points"): probatio.All([POINT], probatio.Length(min=3)),
+        }
+    ),
+    _rect_to_points,
 )
 
 SCANNER_SCHEMA = probatio.Schema(
@@ -131,6 +190,7 @@ SCANNER_SCHEMA = probatio.Schema(
         probatio.Optional("z", default=0.0): NUMBER,
         probatio.Optional("rssi_offset", default=0.0): NUMBER,
         probatio.Optional("paused", default=False): cv.boolean,
+        probatio.Optional("floor"): cv.slug,
     }
 )
 
@@ -187,6 +247,17 @@ SETTINGS_SCHEMA = probatio.Schema(
             NUMBER, probatio.Range(min=0.0)
         ),
         probatio.Optional("walls", default=True): cv.boolean,
+        probatio.Optional("exterior_doors", default=True): cv.boolean,
+        probatio.Optional("stairs_only", default=True): cv.boolean,
+        probatio.Optional("floor_margin", default=DEFAULT_FLOOR_MARGIN): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("floor_hold_seconds", default=DEFAULT_FLOOR_HOLD_SECONDS): probatio.All(
+            NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("floor_loss", default=DEFAULT_FLOOR_LOSS): probatio.All(
+            NUMBER, probatio.Range(min=0.0, max=40.0)
+        ),
         probatio.Optional("away_seconds", default=DEFAULT_AWAY_SECONDS): probatio.All(
             NUMBER, probatio.Range(min=0.0)
         ),
@@ -199,15 +270,41 @@ SETTINGS_SCHEMA = probatio.Schema(
 # Correction per pair scanner x tracker in dB: {scanner key: {tracker key: dB}}
 PAIR_OFFSETS_SCHEMA = probatio.Schema({cv.slug: {cv.slug: NUMBER}})
 
-FLOORPLAN_SCHEMA = probatio.Schema(
-    {
-        probatio.Optional("rooms", default=list): [ROOM_SCHEMA],
-        probatio.Optional("openings", default=list): [OPENING],
-        probatio.Optional("scanners", default=list): probatio.All([SCANNER_SCHEMA], _unique_keys),
-        probatio.Optional("trackers", default=list): probatio.All([TRACKER_SCHEMA], _unique_keys),
-        probatio.Optional("settings", default=dict): SETTINGS_SCHEMA,
-        probatio.Optional("pair_offsets", default=dict): PAIR_OFFSETS_SCHEMA,
-    }
+
+def _floor_references(plan: dict[str, Any]) -> dict[str, Any]:
+    """Every floor named must exist; stairs join two different floors; one level per floor name pair."""
+    keys = {f["key"] for f in plan["floors"]}
+    named = [r.get("floor") for r in plan["rooms"]]
+    named += [s.get("floor") for s in plan["scanners"]]
+    named += [o[4] for o in plan["openings"] if len(o) == 5]
+    for stairs in plan["stairs"]:
+        named += [stairs["floor"], stairs["to"]]
+        if stairs["floor"] == stairs["to"]:
+            raise probatio.Invalid("stairs join two different floors")
+    for key in named:
+        if key is not None and key not in keys:
+            raise probatio.Invalid(f"no floor {key}")
+    return plan
+
+
+FLOORPLAN_SCHEMA = probatio.All(
+    probatio.Schema(
+        {
+            probatio.Optional("floors", default=list): probatio.All([FLOOR_SCHEMA], _unique_keys),
+            probatio.Optional("rooms", default=list): [ROOM_SCHEMA],
+            probatio.Optional("openings", default=list): [OPENING],
+            probatio.Optional("stairs", default=list): [STAIRS_SCHEMA],
+            probatio.Optional("scanners", default=list): probatio.All(
+                [SCANNER_SCHEMA], _unique_keys
+            ),
+            probatio.Optional("trackers", default=list): probatio.All(
+                [TRACKER_SCHEMA], _unique_keys
+            ),
+            probatio.Optional("settings", default=dict): SETTINGS_SCHEMA,
+            probatio.Optional("pair_offsets", default=dict): PAIR_OFFSETS_SCHEMA,
+        }
+    ),
+    _floor_references,
 )
 
 type PairOffsets = Mapping[str, Mapping[str, float]]
@@ -237,6 +334,8 @@ class Room:
     label: bool = True
     # Area id of Home Assistant
     area: str | None = None
+    # Key of the floor it lies on; "" is the default floor of a plan without floors
+    floor: str = ""
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -257,6 +356,7 @@ class Room:
             rot=data.get("rot"),
             label=data["label"],
             area=data.get("area"),
+            floor=data.get("floor", ""),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -277,6 +377,7 @@ class Room:
                 "rot": self.rot,
                 "label": self.label,
                 "area": self.area,
+                "floor": self.floor or None,
             }
         )
 
@@ -321,6 +422,8 @@ class Scanner:
     rssi_offset: float = 0.0
     # Paused by the user: left out of the positions and of the active scanners until resumed
     paused: bool = False
+    # Key of the floor it stands on; z counts from that floor
+    floor: str = ""
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -329,15 +432,19 @@ class Scanner:
 
     def as_dict(self) -> dict[str, Any]:
         """Return the scanner as stored and sent to the card."""
-        return {
-            "key": self.key,
-            "name": self.name,
-            "source": self.source,
-            "x": self.x,
-            "y": self.y,
-            "z": self.z,
-            "rssi_offset": self.rssi_offset,
-        } | ({"paused": True} if self.paused else {})
+        return (
+            {
+                "key": self.key,
+                "name": self.name,
+                "source": self.source,
+                "x": self.x,
+                "y": self.y,
+                "z": self.z,
+                "rssi_offset": self.rssi_offset,
+            }
+            | ({"paused": True} if self.paused else {})
+            | ({"floor": self.floor} if self.floor else {})
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,8 +507,17 @@ class Settings:
     room_margin: float = DEFAULT_ROOM_MARGIN
     # Scanners whose circle misses the position by more than this lose weight; 0 is off
     robust_residual: float = DEFAULT_ROBUST_RESIDUAL
-    # The shown position passes walls only through openings
+    # The shown position passes walls only through openings: inside a building,
+    # and where it leaves the building
     walls: bool = True
+    exterior_doors: bool = True
+    # Another floor only over stairs joining the two, where the plan has any
+    stairs_only: bool = True
+    # Another floor once it fitted better by floor_margin for floor_hold_seconds
+    floor_margin: float = DEFAULT_FLOOR_MARGIN
+    floor_hold_seconds: float = DEFAULT_FLOOR_HOLD_SECONDS
+    # Loss of a ceiling between scanner and tracker in dB
+    floor_loss: float = DEFAULT_FLOOR_LOSS
     # A tracker no scanner saw for this long is away
     away_seconds: float = DEFAULT_AWAY_SECONDS
     # Days the timeline keeps; 0 records nothing
@@ -429,9 +545,82 @@ class Settings:
             "room_margin": self.room_margin,
             "robust_residual": self.robust_residual,
             "walls": self.walls,
+            "exterior_doors": self.exterior_doors,
+            "stairs_only": self.stairs_only,
+            "floor_margin": self.floor_margin,
+            "floor_hold_seconds": self.floor_hold_seconds,
+            "floor_loss": self.floor_loss,
             "away_seconds": self.away_seconds,
             "history_days": self.history_days,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class Floor:
+    """A floor of a building, at its elevation above the ground of the site."""
+
+    key: str
+    name: str = ""
+    # Floors with the same building name form one building; "" is the main building
+    building: str = ""
+    elevation: float = 0.0
+    height: float = DEFAULT_FLOOR_HEIGHT
+    # Floor id of Home Assistant
+    ha_floor: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+        """Build a floor from validated data."""
+        return cls(**data)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the floor as stored and sent to the card."""
+        return _clean(
+            {
+                "key": self.key,
+                "name": self.name,
+                "building": self.building,
+                "elevation": self.elevation,
+                "height": self.height,
+                "ha_floor": self.ha_floor,
+            }
+        )
+
+
+# The floor of a plan without floors: the ground level, nameless
+DEFAULT_FLOOR = Floor("")
+
+
+@dataclass(frozen=True, slots=True)
+class Stairs:
+    """Stairs between two floors: where a tracker may go from one to the other."""
+
+    floor: str
+    to: str
+    points: tuple[Point, ...]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+        """Build stairs from validated data."""
+        return cls(data["floor"], data["to"], tuple((p[0], p[1]) for p in data["points"]))
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the stairs as stored and sent to the card."""
+        return {"floor": self.floor, "to": self.to, "points": [list(p) for p in self.points]}
+
+    def joins(self, a: str, b: str) -> bool:
+        """Return whether the stairs join the two floors, either way."""
+        return {self.floor, self.to} == {a, b}
+
+    def near(self, x: float, y: float) -> bool:
+        """Return whether the point lies on the stairs or within reach of them."""
+        return (
+            point_in_polygon(self.points, x, y)
+            or closest_on_outline(self.points, x, y)[1] <= STAIRS_TOLERANCE
+        )
+
+
+type Opening = tuple[float, float, float, float, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,34 +628,57 @@ class Floorplan:
     """The whole floor plan."""
 
     rooms: tuple[Room, ...] = ()
-    openings: tuple[tuple[float, float, float, float], ...] = ()
+    # Doors and passages: x1, y1, x2, y2 and the key of their floor
+    openings: tuple[Opening, ...] = ()
     scanners: tuple[Scanner, ...] = ()
     trackers: tuple[Tracker, ...] = ()
     settings: Settings = field(default_factory=Settings)
     # Correction of the reference power per pair scanner x tracker in dB, from
     # the calibration: the scanners' response differs from tracker to tracker
     pair_offsets: PairOffsets = field(default_factory=dict)
+    floors: tuple[Floor, ...] = ()
+    stairs: tuple[Stairs, ...] = ()
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
-        """Validate and build the floor plan; raises probatio.Invalid on bad data."""
+        """Validate and build the floor plan; raises probatio.Invalid on bad data.
+
+        A room, an opening or a scanner without a floor lies on the first floor.
+        """
         valid = FLOORPLAN_SCHEMA(dict(data))
+        floors = tuple(Floor.from_dict(f) for f in valid["floors"])
+        first = floors[0].key if floors else ""
         return cls(
-            rooms=tuple(Room.from_dict(r) for r in valid["rooms"]),
-            openings=tuple((o[0], o[1], o[2], o[3]) for o in valid["openings"]),
-            scanners=tuple(Scanner.from_dict(s) for s in valid["scanners"]),
+            rooms=tuple(
+                Room.from_dict({**r, "floor": r.get("floor", first)}) for r in valid["rooms"]
+            ),
+            openings=tuple(
+                (o[0], o[1], o[2], o[3], o[4] if len(o) == 5 else first) for o in valid["openings"]
+            ),
+            scanners=tuple(
+                Scanner.from_dict({**s, "floor": s.get("floor", first)}) for s in valid["scanners"]
+            ),
             trackers=tuple(Tracker.from_dict(t) for t in valid["trackers"]),
             settings=Settings.from_dict(valid["settings"]),
             pair_offsets={
                 scanner: dict(trackers) for scanner, trackers in valid["pair_offsets"].items()
             },
+            floors=floors,
+            stairs=tuple(Stairs.from_dict(s) for s in valid["stairs"]),
         )
 
     def as_dict(self) -> dict[str, Any]:
         """Return the floor plan as stored and sent to the card."""
-        return {
+        data: dict[str, Any] = {}
+        if self.floors:
+            data["floors"] = [f.as_dict() for f in self.floors]
+        data |= {
             "rooms": [r.as_dict() for r in self.rooms],
-            "openings": [list(o) for o in self.openings],
+            "openings": [list(o) if o[4] else list(o[:4]) for o in self.openings],
+        }
+        if self.stairs:
+            data["stairs"] = [s.as_dict() for s in self.stairs]
+        return data | {
             "scanners": [s.as_dict() for s in self.scanners],
             "trackers": [t.as_dict() for t in self.trackers],
             "settings": self.settings.as_dict(),
@@ -474,6 +686,59 @@ class Floorplan:
                 scanner: dict(trackers) for scanner, trackers in self.pair_offsets.items()
             },
         }
+
+    # ---- Floors and levels ----
+
+    @property
+    def floor_list(self) -> tuple[Floor, ...]:
+        """Return the floors, the default floor for a plan without."""
+        return self.floors or (DEFAULT_FLOOR,)
+
+    def floor(self, key: str) -> Floor:
+        """Return the floor with the key; the default floor for an unknown one."""
+        return next((f for f in self.floor_list if f.key == key), self.floor_list[0])
+
+    @property
+    def levels(self) -> tuple[float, ...]:
+        """Return the elevations the floors lie at, from the lowest."""
+        return tuple(sorted({f.elevation for f in self.floor_list}))
+
+    def on_level(self, elevation: float) -> Floorplan:
+        """Return the plan of one level: only the rooms and openings of its floors.
+
+        Scanners, trackers and settings stay; the extent stays that of the
+        whole site. A plan of one level is itself.
+        """
+        if len(self.levels) == 1:
+            return self
+        keys = {f.key for f in self.floor_list if f.elevation == elevation}
+        return replace(
+            self,
+            rooms=tuple(r for r in self.rooms if r.floor in keys),
+            openings=tuple(o for o in self.openings if o[4] in keys),
+            stairs=tuple(s for s in self.stairs if s.floor in keys or s.to in keys),
+        )
+
+    def ceilings(self, scanner: Scanner, elevation: float) -> int:
+        """Return how many levels lie between the scanner's and the elevation: the ceilings between."""
+        levels = self.levels
+        own = levels.index(self.floor(scanner.floor).elevation)
+        other = levels.index(elevation) if elevation in levels else own
+        return abs(own - other)
+
+    def scanner_height(self, scanner: Scanner) -> float:
+        """Return the scanner's height above the ground of the site."""
+        return self.floor(scanner.floor).elevation + scanner.z
+
+    def building_of(self, room: Room | None) -> str | None:
+        """Return the building the room belongs to; None outside, or for an outdoor room."""
+        if room is None or room.outdoor:
+            return None
+        return self.floor(room.floor).building
+
+    def stairs_between(self, a: str, b: str) -> tuple[Stairs, ...]:
+        """Return the stairs that join the two floors."""
+        return tuple(s for s in self.stairs if s.joins(a, b))
 
     @property
     def inside_rooms(self) -> tuple[Room, ...]:
@@ -531,11 +796,12 @@ class Floorplan:
         """Return the room with walls (no zone) at the point; the one drawn last wins."""
         return next((r for r in reversed(self.rooms) if not r.zone and r.contains(x, y)), None)
 
-    def _on_opening(self, point: Point) -> bool:
+    def _on_opening(self, point: Point, floor: str) -> bool:
         return any(
             math.dist(point, closest_on_segment(point, (o[0], o[1]), (o[2], o[3])))
             <= DOOR_TOLERANCE
             for o in self.openings
+            if o[4] == floor
         )
 
     def move(self, start: Point, end: Point, target: Point) -> Point:
@@ -545,9 +811,20 @@ class Floorplan:
         taken. A step through a wall goes towards the opening of the room that
         lies best on the way to the target instead, and through it once it is
         reached; without an opening the position stops before the wall.
+
+        walls holds the walls inside a building, exterior_doors those of a
+        step that leaves its building (to the outside, an outdoor room or
+        another building).
         """
-        if not self.settings.walls or (room := self.space_of(*start)) is None:
+        if (room := self.space_of(*start)) is None:
             return end
+        settings = self.settings
+        if not settings.walls:
+            if not settings.exterior_doors:
+                return end
+            building = self.building_of(room)
+            if building is None or self.building_of(self.space_of(*end)) == building:
+                return end
         corners = room.corners
         hits = [
             hit
@@ -558,12 +835,13 @@ class Floorplan:
         if not hits:
             return end
         t, point = min(hits)
-        if self._on_opening(point):
+        if self._on_opening(point, room.floor):
             return end
         doors = [
             ((o[0] + o[2]) / 2, (o[1] + o[3]) / 2)
             for o in self.openings
-            if closest_on_outline(corners, (o[0] + o[2]) / 2, (o[1] + o[3]) / 2)[1]
+            if o[4] == room.floor
+            and closest_on_outline(corners, (o[0] + o[2]) / 2, (o[1] + o[3]) / 2)[1]
             <= DOOR_TOLERANCE
         ]
         if not doors:

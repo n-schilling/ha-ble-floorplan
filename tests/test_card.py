@@ -26,12 +26,14 @@ def test_shared_module_version_matches_manifest() -> None:
 def test_imports_carry_the_version() -> None:
     """Every import names the release, so a browser that cached the last one fetches anew."""
     version = _version()
-    for name in ("ble-floorplan-card.js", "ble-floorplan-panel.js"):
+    for name in ("ble-floorplan-card.js", "ble-floorplan-panel.js", "ble-floorplan-editor.js"):
         code = (FRONTEND / name).read_text(encoding="utf-8")
         imports = re.findall(r'from "([^"]+)"', code)
         assert imports, name
         for target in imports:
-            assert target == f"./ble-floorplan-plan.js?v={version}", (name, target)
+            assert re.fullmatch(
+                rf"\./ble-floorplan-(plan|editor)\.js\?v={re.escape(version)}", target
+            ), (name, target)
 
 
 def test_card_only_shows() -> None:

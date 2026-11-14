@@ -98,12 +98,12 @@ async def test_points(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None
     for dt, position in steps:
         await history.async_record({"tag": position}, NOON + dt, 7)
     assert (await history.async_day(DAY))["tag"] == [
-        (NOON + 1, 1.0, 1.0, "Living room"),
-        (NOON + 3.5, 1.5, 1.0, "Living room"),
-        (NOON + 4, 1.6, 1.0, "Kitchen"),
-        (NOON + 5, 1.6, 1.0, None),
-        (NOON + 6, None, None, None),
-        (NOON + 8, 5.0, 1.0, "Living room"),
+        (NOON + 1, 1.0, 1.0, "Living room", None),
+        (NOON + 3.5, 1.5, 1.0, "Living room", None),
+        (NOON + 4, 1.6, 1.0, "Kitchen", None),
+        (NOON + 5, 1.6, 1.0, None, None),
+        (NOON + 6, None, None, None, None),
+        (NOON + 8, 5.0, 1.0, "Living room", None),
     ]
 
 
@@ -143,9 +143,11 @@ async def test_new_day(hass: HomeAssistant, hass_storage: dict[str, Any]) -> Non
         [midnight - 10, 2.0, 1.0, "Living room"]
     ]
     assert history.days == [DAY, "2026-10-27"]
-    assert await history.async_day("2026-10-27") == {"tag": [(midnight, 2.0, 1.0, "Living room")]}
+    assert await history.async_day("2026-10-27") == {
+        "tag": [(midnight, 2.0, 1.0, "Living room", None)]
+    }
     # The old day comes from storage now
-    assert await history.async_day(DAY) == {"tag": [(midnight - 10, 2.0, 1.0, "Living room")]}
+    assert await history.async_day(DAY) == {"tag": [(midnight - 10, 2.0, 1.0, "Living room", None)]}
 
 
 async def test_prune(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
@@ -162,7 +164,7 @@ async def test_prune(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
     assert history.days == ["2026-10-19", "2026-10-20", DAY]
     assert f"{HISTORY_STORAGE_KEY}.2026-10-18" not in hass_storage
     assert hass_storage[INDEX]["data"] == {"days": ["2026-10-19", "2026-10-20", DAY]}
-    assert await history.async_day("2026-10-19") == {"tag": [(NOON, 1, 1, None)]}
+    assert await history.async_day("2026-10-19") == {"tag": [(NOON, 1, 1, None, None)]}
     assert await history.async_day("2026-10-20") == {}
     assert await history.async_day("2026-10-21") == {}
     # Nothing to drop: no write
@@ -209,7 +211,7 @@ async def test_unreadable_day(
     assert await history.async_day("2026-10-25") == {}
     assert "The timeline of 2026-10-25 cannot be read" in caplog.text
     await history.async_record({"tag": _at(1.0)}, NOON, 7)
-    assert await history.async_day(DAY) == {"tag": [(NOON, 1.0, 1.0, "Living room")]}
+    assert await history.async_day(DAY) == {"tag": [(NOON, 1.0, 1.0, "Living room", None)]}
 
 
 async def test_restart(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
@@ -230,11 +232,11 @@ async def test_restart(hass: HomeAssistant, hass_storage: dict[str, Any]) -> Non
     await history.async_load(NOON + 600, 7)
     await history.async_record({"tag": _at(1.0)}, NOON + 600, 7)
     assert (await history.async_day(DAY))["tag"] == [
-        (NOON, 1.0, 1.0, "Living room"),
-        (NOON + 60, None, None, None),
-        (NOON + 600, 1.0, 1.0, "Living room"),
+        (NOON, 1.0, 1.0, "Living room", None),
+        (NOON + 60, None, None, None, None),
+        (NOON + 600, 1.0, 1.0, "Living room", None),
     ]
-    assert (await history.async_day(DAY))["phone"] == [(NOON, None, None, None)]
+    assert (await history.async_day(DAY))["phone"] == [(NOON, None, None, None, None)]
 
 
 async def test_close(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
@@ -259,7 +261,7 @@ async def test_close(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
     await again.async_record({"phone": phone}, NOON, 7)
     again.close(NOON + 1)
     assert await again.async_day(DAY) == {
-        "tag": [(NOON, 1.0, 1.0, "Living room"), (NOON + 5, None, None, None)]
+        "tag": [(NOON, 1.0, 1.0, "Living room", None), (NOON + 5, None, None, None, None)]
     }
 
 
@@ -336,7 +338,7 @@ async def test_stop_and_unload(
     wall.t = NOON + 5
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
     await hass.async_block_till_done()
-    assert (await history.async_day(DAY))["tag"][-1] == (NOON + 5, None, None, None)
+    assert (await history.async_day(DAY))["tag"][-1] == (NOON + 5, None, None, None, None)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert hass_storage[TODAY_KEY]["data"]["tracks"]["tag"][-1] == [NOON + 5, None, None, None]

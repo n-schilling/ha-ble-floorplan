@@ -77,6 +77,11 @@ def test_round_trip() -> None:
         "room_margin": 0.3,
         "robust_residual": 1.0,
         "walls": True,
+        "exterior_doors": True,
+        "stairs_only": True,
+        "floor_margin": 0.5,
+        "floor_hold_seconds": 10.0,
+        "floor_loss": 10.0,
         "away_seconds": 120.0,
         "history_days": 0,
     }
@@ -290,7 +295,9 @@ def test_move_through_walls_only_at_openings() -> None:
     assert closed.move((5.0, 4.0), (7.0, 4.0), (7.0, 4.0)) == pytest.approx((5.9, 4.0))
     assert closed.move((5.95, 4.0), (7.0, 4.0), (7.0, 4.0)) == pytest.approx((5.95, 4.0))
     # Walls off, or a start outside every room: as is
-    assert make_plan(settings={"walls": False}).move((5.5, 4), (6.5, 4), (7, 4)) == (6.5, 4)
+    assert make_plan(settings={"walls": False, "exterior_doors": False}).move(
+        (5.5, 4), (6.5, 4), (7, 4)
+    ) == (6.5, 4)
     assert plan.move((12, 12), (5, 5), (5, 5)) == (5, 5)
     # Zones are no walls: the dining zone is crossed freely
     assert plan.move((2, 1), (4, 1), (4, 1)) == (4, 1)

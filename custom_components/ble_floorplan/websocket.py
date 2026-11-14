@@ -35,6 +35,7 @@ from .catalog import (
     scanner_names,
     with_areas,
     with_layout,
+    with_layout_data,
 )
 from .const import (
     DOMAIN,
@@ -160,12 +161,13 @@ def _plan(plan: Floorplan, admin: bool) -> dict[str, Any]:
     """
     if admin:
         return plan.as_dict()
+    whole = plan.as_dict()
     return {
-        "rooms": [r.as_dict() for r in plan.rooms],
-        "openings": [list(o) for o in plan.openings],
+        **{key: whole[key] for key in ("floors", "rooms", "openings", "stairs") if key in whole},
         "scanners": [
             {"key": s.key, "name": s.name, "x": s.x, "y": s.y, "z": s.z}
             | ({"paused": True} if s.paused else {})
+            | ({"floor": s.floor} if s.floor else {})
             for s in plan.scanners
         ],
         "trackers": [
@@ -305,6 +307,7 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
         probatio.Optional("z"): NUMBER,
         probatio.Optional("rssi_offset"): NUMBER,
         probatio.Optional("paused"): cv.boolean,
+        probatio.Optional("floor"): cv.slug,
         probatio.Optional("pair_offsets"): PAIRS,
     }
 )
@@ -312,7 +315,7 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
 async def ws_set_scanner(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a scanner: name, position, height, offset, paused, its pairs; what is not given stays.
+    """Change a scanner: name, position, height, floor, offset, paused, its pairs; what is not given stays.
 
     The key stays with a new name, and with it the pairs and the calibration runs.
     """
@@ -336,6 +339,11 @@ async def ws_set_scanner(
         changed = replace(changed, rssi_offset=msg["rssi_offset"])
     if "paused" in msg:
         changed = replace(changed, paused=msg["paused"])
+    if "floor" in msg:
+        if msg["floor"] not in {f.key for f in plan.floors}:
+            connection.send_error(msg["id"], ERR_NOT_FOUND, f"no floor {msg['floor']}")
+            return
+        changed = replace(changed, floor=msg["floor"])
     plan = replace_scanner(plan, changed)
     if pairs:
         plan = with_pair_offsets(plan, scanner.key, pairs)
@@ -464,6 +472,7 @@ async def ws_set_floorplan(
         probatio.Required("y"): NUMBER,
         probatio.Optional("height"): NUMBER,
         probatio.Optional("auto_stop", default=False): cv.boolean,
+        probatio.Optional("floor"): cv.slug,
     }
 )
 @async_response
@@ -484,8 +493,13 @@ async def ws_calibration_start(
         connection.send_error(msg["id"], ERR_RUNNING, "a calibration run is going")
         return
     height = msg.get("height", tracker.height)
+    plan = runtime.store.plan
+    floor = msg.get("floor", "")
+    if floor and floor not in {f.key for f in plan.floors}:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no floor {floor}")
+        return
     run = await runtime.coordinator.async_start_calibration(
-        tracker.key, msg["x"], msg["y"], height, msg["auto_stop"]
+        tracker.key, msg["x"], msg["y"], height, msg["auto_stop"], floor
     )
     connection.send_result(msg["id"], run.summary())
 
@@ -683,6 +697,7 @@ async def ws_scanner_system(
         probatio.Required("source"): cv.string,
         probatio.Optional("name"): cv.string,
         probatio.Optional("z", default=1.0): NUMBER,
+        probatio.Optional("floor"): cv.slug,
     }
 )
 @async_response
@@ -702,7 +717,11 @@ async def ws_add_scanner(
     if name is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {source}")
         return
-    plan, scanner = add_scanner(plan, source, name, msg["z"])
+    floor = msg.get("floor", plan.floor_list[0].key)
+    if floor not in {f.key for f in plan.floor_list}:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no floor {floor}")
+        return
+    plan, scanner = add_scanner(plan, source, name, msg["z"], floor)
     await runtime.store.async_save(plan)
     connection.send_result(msg["id"], scanner.as_dict())
 
@@ -801,24 +820,34 @@ def ws_get_layout(hass: HomeAssistant, connection: ActiveConnection, msg: dict[s
     {
         probatio.Required("type"): WS_SET_LAYOUT,
         # A layout is a few kilobytes; the limit keeps alias bombs out of the parser
-        probatio.Required("yaml"): probatio.All(str, probatio.Length(max=200_000)),
+        probatio.Exclusive("yaml", "layout"): probatio.All(str, probatio.Length(max=200_000)),
+        # The same as data, from the drawing on the page
+        probatio.Exclusive("layout", "layout"): dict,
     }
 )
 @async_response
 async def ws_set_layout(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Replace the rooms and openings from YAML; scanners, trackers and settings stay."""
+    """Replace the floors, rooms, openings and stairs, from YAML or as data; scanners, trackers and settings stay."""
     if (runtime := _runtime(hass)) is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
+    if "yaml" not in msg and "layout" not in msg:
+        connection.send_error(msg["id"], ERR_INVALID, "yaml or layout is required")
+        return
     try:
-        plan = with_areas(hass, with_layout(runtime.store.plan, msg["yaml"]))
+        plan = with_areas(
+            hass,
+            with_layout(runtime.store.plan, msg["yaml"])
+            if "yaml" in msg
+            else with_layout_data(runtime.store.plan, msg["layout"]),
+        )
     except LayoutProblem as err:
         connection.send_error(msg["id"], ERR_INVALID, str(err))
         return
     await runtime.store.async_save(plan)
-    connection.send_result(msg["id"], {"yaml": layout_yaml(plan)})
+    connection.send_result(msg["id"], {"yaml": layout_yaml(plan), "floorplan": plan.as_dict()})
 
 
 @require_admin
@@ -858,6 +887,7 @@ PROBE = probatio.Schema(
     {
         probatio.Required("type"): WS_COVERAGE_MODEL,
         probatio.Optional("tracker"): cv.slug,
+        probatio.Optional("level"): NUMBER,
         probatio.Optional("probes", default=list): probatio.All(
             [PROBE], probatio.Length(max=MAX_PROBES)
         ),
@@ -876,7 +906,9 @@ def ws_coverage_model(
     if "tracker" in msg and (tracker := plan.tracker(msg["tracker"])) is None:
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"No tracker {msg['tracker']}")
         return
-    connection.send_result(msg["id"], model(plan, tracker, parse_probes(msg["probes"])))
+    connection.send_result(
+        msg["id"], model(plan, tracker, parse_probes(msg["probes"]), msg.get("level"))
+    )
 
 
 @require_admin
@@ -884,6 +916,7 @@ def ws_coverage_model(
     {
         probatio.Required("type"): WS_COVERAGE_MEASURED,
         probatio.Optional("tracker"): cv.slug,
+        probatio.Optional("level"): NUMBER,
     }
 )
 @callback
@@ -901,7 +934,7 @@ def ws_coverage_measured(
     connection.send_result(
         msg["id"],
         {
-            **runtime.coverage.measured(plan, msg.get("tracker")),
+            **runtime.coverage.measured(plan, msg.get("tracker"), msg.get("level")),
             "recording": plan.settings.history_days > 0,
         },
     )

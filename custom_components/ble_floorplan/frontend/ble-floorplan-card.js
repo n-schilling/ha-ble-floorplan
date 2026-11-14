@@ -15,16 +15,20 @@ import {
   formatter,
   iconButton,
   keep,
+  levelSwitch,
   loadLabels,
+  loadNumber,
   loadRot,
   planInfo,
   planSvg,
+  shownLevel,
   texts,
-} from "./ble-floorplan-plan.js?v=0.23.0";
+} from "./ble-floorplan-plan.js?v=0.24.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
   const LABELS_KEY = "ble-floorplan-card-labels";
+  const LEVEL_KEY = "ble-floorplan-card-level";
 
   class BleFloorplanCard extends HTMLElement {
     setConfig(config) {
@@ -36,6 +40,8 @@ if (!customElements.get("ble-floorplan-card")) {
         ...config,
       };
       this._rot = loadRot(ROT_KEY, this._config.rotation);
+      // The level shown on a plan of several floors
+      this._levelKept = loadNumber(LEVEL_KEY, 0);
       this._labels = loadLabels(LABELS_KEY, {
         rooms: this._config.show_room_labels,
         scanners: this._config.show_scanner_labels,
@@ -140,7 +146,9 @@ if (!customElements.get("ble-floorplan-card")) {
       if (this._sel && !this._info[`${this._sel.kind}s`][this._sel.key]) this._sel = null;
       const sel = this._sel;
       const root = this.shadowRoot;
-      root.getElementById("svg").innerHTML = planSvg(plan, {
+      const level = shownLevel(plan, this._levelKept);
+      root.getElementById("svg").innerHTML = levelSwitch(plan, level, "data-level") + planSvg(plan, {
+        level,
         bounds: this._bounds || computeBounds(plan),
         rot: this._rot,
         labels: this._labels,
@@ -174,9 +182,13 @@ if (!customElements.get("ble-floorplan-card")) {
       this._bound = true;
       const root = this.shadowRoot;
       root.addEventListener("click", (e) => {
-        const el = e.target.closest?.("#rotate, #labels, #close, .scanner, .tracker");
+        const el = e.target.closest?.("#rotate, #labels, #close, .scanner, .tracker, [data-level]");
         if (!el) return;
-        if (el.id === "rotate") {
+        if (el.dataset.level != null) {
+          this._levelKept = Number(el.dataset.key);
+          keep(LEVEL_KEY, el.dataset.key);
+          this._sel = null;
+        } else if (el.id === "rotate") {
           this._rot = (this._rot + 90) % 360;
           keep(ROT_KEY, String(this._rot));
           this._zoom.view = null;
@@ -208,6 +220,7 @@ if (!customElements.get("ble-floorplan-card")) {
         .btns { display: flex; gap: 0; align-items: center; margin-right: -8px; }
         .menuwrap { position: relative; }
         .map { margin-top: 8px; }
+        #svg { position: relative; }
         .map svg:not(.mdi) { max-height: 85vh; }
         .info { position: relative; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider-color); font-size: 13px; }
         .info ha-icon-button { position: absolute; right: -8px; top: 0; }

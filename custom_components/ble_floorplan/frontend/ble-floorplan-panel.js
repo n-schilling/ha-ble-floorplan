@@ -28,15 +28,24 @@ import {
   iconButton,
   keep,
   loadLabels,
+  floorAt,
+  floorOf,
+  levelOfFloor,
+  levelSwitch,
+  levelsOf,
+  loadNumber,
   loadRot,
   navigate,
+  positionLevel,
+  shownLevel,
   planInfo,
   planSvg,
   snap,
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.23.0";
+} from "./ble-floorplan-plan.js?v=0.24.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.24.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -45,6 +54,8 @@ if (!customElements.get("ble-floorplan-panel")) {
   const LABELS_KEY = "ble-floorplan-panel-labels";
   // Whether the system details of a scanner are open, per viewer
   const SYSTEM_KEY = "ble-floorplan-panel-system";
+  // The level shown, kept across visits
+  const LEVEL_KEY = "ble-floorplan-panel-level";
   // The system details of the open scanner are fetched again after this long
   const SYSTEM_REFETCH_MS = 10000;
 
@@ -72,6 +83,11 @@ if (!customElements.get("ble-floorplan-panel")) {
     ["motion", "jump_distance", "jumpDistance", "num"],
     ["motion", "jump_confirm_seconds", "jumpConfirm", "num"],
     ["motion", "walls", "walls", "bool"],
+    ["motion", "exterior_doors", "exteriorDoors", "bool"],
+    ["floorsSec", "stairs_only", "stairsOnly", "bool"],
+    ["floorsSec", "floor_loss", "floorLoss", "num"],
+    ["floorsSec", "floor_margin", "floorMargin", "num"],
+    ["floorsSec", "floor_hold_seconds", "floorHold", "num"],
     ["roomRules", "away_seconds", "awaySeconds", "num"],
     ["roomRules", "room_hold_seconds", "roomHold", "num"],
     ["roomRules", "room_margin", "roomMargin", "num"],
@@ -111,11 +127,21 @@ if (!customElements.get("ble-floorplan-panel")) {
       super();
       this.attachShadow({ mode: "open" });
       this._tab = "plan";
+      // The drawing of the floor plan, while it is being edited
+      this._editor = new PlanEditor(this);
+      window.addEventListener("keydown", (e) => {
+        if (!this.isConnected || this._tab !== "plan" || this._typing()) return;
+        if (this._editor.key(e)) {
+          e.preventDefault();
+          this._render();
+        }
+      });
       this._plan = null;
       this._positions = {};
       this._offline = [];
       this._calibration = { active: null, runs: [] };
       this._rot = loadRot(ROT_KEY, 0);
+      this._levelKept = loadNumber(LEVEL_KEY, 0);
       this._labels = loadLabels(LABELS_KEY, { rooms: true, scanners: true, trackers: true });
       // The system details of the open scanner: {key, at, data}, fetched while its page is shown
       this._sys = null;
@@ -229,6 +255,42 @@ if (!customElements.get("ble-floorplan-panel")) {
       return texts(this._hass);
     }
 
+    // Whether the plan is being drawn: the draft takes the plan's place on the plan tab
+    get _editing() {
+      return this._tab === "plan" && this._editor.active;
+    }
+
+    // The plan on the map: the draft while drawing
+    get _shownPlan() {
+      return this._editing ? this._editor.plan() : this._plan;
+    }
+
+    // Redraw the map only, while dragging in the drawing
+    _drawEditor() {
+      const svg = this._svg();
+      if (svg !== this._svgHtml) {
+        this._svgHtml = svg;
+        this.shadowRoot.getElementById("svg").innerHTML = svg;
+      }
+    }
+
+    // A scanner or tracker opened from a list: its level is shown
+    _showLevelOf(tab, key) {
+      const plan = this._plan;
+      if (!plan) return;
+      if (tab === "scanners") {
+        const s = plan.scanners.find((x) => x.key === key);
+        if (s) this._levelKept = levelOfFloor(plan, s.floor ?? plan.floors?.[0]?.key ?? "");
+      } else if (tab === "trackers" && this._positions[key]?.x != null) {
+        this._levelKept = positionLevel(plan, this._positions[key]);
+      }
+    }
+
+    // The level shown: the one chosen, if the plan has it
+    get _level() {
+      return shownLevel(this._shownPlan, this._levelKept);
+    }
+
     get _fmt() {
       return formatter(this._hass);
     }
@@ -270,6 +332,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       if (tab === "scanners" && key) this._selScanner = key;
       if (tab === "trackers" && key) this._selTracker = key;
+      if (key) this._showLevelOf(tab, key);
       if (tab !== "timeline") {
         this._tlPause();
         this._tl.cursor = null;
@@ -418,7 +481,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       const topTabs = !this._narrow && !sub;
       const brand = sub ? "" : `<img class="brand" id="brand" alt="" width="24" height="24"${this._brandSrc ? ` src="${esc(this._brandSrc)}"` : ""}>`;
       this.shadowRoot.innerHTML = `
-        <style>${PLAN_CSS}${STYLE}</style>
+        <style>${PLAN_CSS}${EDITOR_CSS}${STYLE}</style>
         <ha-top-app-bar-fixed>
           ${nav}
           <div slot="title" class="head">${brand}<span class="name">${esc(sub ? sub.name : "BLE Floorplan")}</span>${topTabs ? `<nav class="tabs">${tabs}</nav>` : ""}</div>
@@ -453,6 +516,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       const map = root.getElementById("map");
       if (map && plan && !this._dragging) {
         map.classList.toggle("aim", this._aiming);
+        map.classList.toggle("drawing", this._editing && this._editor.tool !== "select");
         const svg = this._svg();
         if (svg !== this._svgHtml) {
           this._svgHtml = svg;
@@ -488,10 +552,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     _zoomer() {
       if (!this._zoom) {
         this._zoom = new PlanZoom({
-          geom: () => ({ bounds: this._bounds || computeBounds(this._plan), rot: this._rot }),
+          geom: () => ({ bounds: this._editing ? this._editor.bounds() : this._bounds || computeBounds(this._plan), rot: this._rot }),
           texts: () => this._t,
           wheel: true,
         });
+        // While drawing, a drag on a shape or with a drawing tool is the drawing's, not a pan
+        this._zoom.skip = (e) => this._editing && this._editor.takes(e);
       }
       return this._zoom;
     }
@@ -508,22 +574,25 @@ if (!customElements.get("ble-floorplan-panel")) {
     }
 
     _svg() {
-      const plan = this._plan;
+      const plan = this._shownPlan;
       const tab = this._tab;
-      let marks = "";
+      let marks = this._editing ? this._editor.overlay() : "";
       if (tab === "calibration") {
-        // Where the runs were taken, coloured by tracker; the next or the running one as a crosshair
+        // Where the runs were taken on this level, coloured by tracker; the next or the running one as a crosshair
+        const level = this._level;
+        const mine = (r) => levelOfFloor(plan, r.floor ?? plan.floors?.[0]?.key ?? "") === level;
         marks = this._calibration.runs
-          .filter((r) => !r.running)
+          .filter((r) => !r.running && mine(r))
           .map((r) => `<circle class="runmark" cx="${r.x}" cy="${r.y}" r="0.16" fill="${trackerColor(plan, r.tracker)}"/>`)
           .join("");
         const active = this._calibration.runs.find((r) => r.id === this._calibration.active);
-        if (active) marks += crosshair(active.x, active.y, true);
+        if (active && mine(active)) marks += crosshair(active.x, active.y, true);
         else if (this._measure.x != null) marks += crosshair(this._measure.x, this._measure.y, false);
       }
       if (tab === "coverage") marks = this._covMarks();
       return planSvg(plan, {
-        bounds: this._bounds || computeBounds(plan),
+        level: this._level,
+        bounds: this._editing ? this._editor.bounds() : this._bounds || computeBounds(plan),
         rot: this._rot,
         labels: this._labels,
         positions: this._shownPositions(),
@@ -547,7 +616,7 @@ if (!customElements.get("ble-floorplan-panel")) {
             .map(([k, l]) => `<label><input type="checkbox" data-label="${k}"${this._labels[k] ? " checked" : ""}>${esc(l)}</label>`)
             .join("")}</div>`
         : "";
-      return iconButton("rotate", t.rotate, 'data-act="rotate"') +
+      return levelSwitch(this._shownPlan, this._level) + iconButton("rotate", t.rotate, 'data-act="rotate"') +
         `<span class="menuwrap">${iconButton("label", t.labels, `data-act="labels"${this._labelMenu ? ' class="on"' : ""}`)}${menu}</span>`;
     }
 
@@ -655,10 +724,13 @@ if (!customElements.get("ble-floorplan-panel")) {
 
     _planSheet() {
       const t = this._t;
+      if (this._editor.active) return this._editor.sheet();
       const empty = this._plan.rooms.length ? "" : this._alert("info", t.startHere);
+      const draw = this._card(t.plan, `<div class="muted small">${esc(t.edIntro)}</div>`,
+        `<span></span>${this._btn("ed-start", t.edEdit, { kind: "filled" })}`);
       const body = `<textarea data-f="layout" rows="22" spellcheck="false" wrap="off">${esc(this._layout ?? "…")}</textarea>` +
         `<div class="muted small">${esc(t.layoutHint)}</div>`;
-      return empty + this._card(t.plan, body, `<span></span>${this._btn("save-layout", t.save, { kind: "filled", disabled: this._layout == null })}`);
+      return empty + draw + this._card(t.edYaml, body, `<span></span>${this._btn("save-layout", t.save, { kind: "filled", disabled: this._layout == null })}`);
     }
 
     _item(act, key, lead, headline, supporting, active) {
@@ -721,7 +793,8 @@ if (!customElements.get("ble-floorplan-panel")) {
         const items = plan.scanners.map((x) => {
           const info = this._info.scanners[x.key];
           const heard = info.trackers.filter((e) => e.d != null).length;
-          const where = `${fmt(x.x)} / ${fmt(x.y)} m · ${t.height} ${fmt(x.z)} m`;
+          const floorName = plan.floors?.length ? `${floorOf(plan, x.floor ?? plan.floors[0].key).name || x.floor} · ` : "";
+          const where = `${floorName}${fmt(x.x)} / ${fmt(x.y)} m · ${t.height} ${fmt(x.z)} m`;
           if (x.paused) {
             return this._item("sel-scanner", x.key, `<span class="icon-bg paused">${icon("scanner")}</span>`, x.name,
               `${esc(t.paused)} · ${where}`);
@@ -745,9 +818,12 @@ if (!customElements.get("ble-floorplan-panel")) {
         const f = this._form;
         body = this._formSlot("scanner", [
           this._nameField(t.name),
+          ...(plan.floors?.length
+            ? [{ name: "floor", label: t.floor, required: true, selector: { select: { mode: "dropdown", options: plan.floors.map((x) => ({ value: x.key, label: x.name || x.key })) } } }]
+            : []),
           { type: "grid", name: "", schema: [this._num("x", "x", "m"), this._num("y", "y", "m"), this._num("z", t.height, "m"), this._num("rssi_offset", t.offset, "dB")] },
         ], f, (v) => {
-          for (const k of ["name", "x", "y", "z", "rssi_offset"]) f[k] = v[k] ?? null;
+          for (const k of ["name", "floor", "x", "y", "z", "rssi_offset"]) f[k] = v[k] ?? null;
         }) +
           `<div class="subhead">${esc(t.pairs)}</div>` +
           this._formSlot("scanner-pairs", [
@@ -1099,7 +1175,9 @@ if (!customElements.get("ble-floorplan-panel")) {
         for (const field of sections[sec]) this._settings[field.name] = v[field.name] ?? null;
       });
       const save = `<span></span>${this._btn("save-settings", t.save, { kind: "filled" })}`;
-      return ["engine", "motion", "roomRules", "robust", "timeline"]
+      // The floor rules only matter for a plan of several levels
+      const secs = ["engine", "motion", "roomRules", ...(levelsOf(plan).length > 1 ? ["floorsSec"] : []), "robust", "timeline"];
+      return secs
         .map((id) => this._card(t[id], form(id) + (id === "timeline" ? `<div class="muted small">${esc(t.timelineHint)}</div>` : ""), save))
         .join("");
     }
@@ -1132,8 +1210,8 @@ if (!customElements.get("ble-floorplan-panel")) {
       const plan = this._plan;
       const tracker = c.tracker === ANY ? null : c.tracker;
       // The measurement grows while the page is open: fetched again every minute
-      if (c.mode === "measured") return JSON.stringify(["measured", tracker, c.stamp, Math.floor(Date.now() / MEASURED_REFETCH_MS)]);
-      return JSON.stringify(["model", tracker, c.probes, c.stamp, plan.scanners, plan.trackers, plan.settings, plan.pair_offsets, plan.rooms]);
+      if (c.mode === "measured") return JSON.stringify(["measured", tracker, this._level, c.stamp, Math.floor(Date.now() / MEASURED_REFETCH_MS)]);
+      return JSON.stringify(["model", tracker, this._level, c.probes, c.stamp, plan.scanners, plan.trackers, plan.settings, plan.pair_offsets, plan.rooms]);
     }
 
     async _covLoad() {
@@ -1143,7 +1221,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       const key = this._covKey();
       if (key === c.key) return;
       c.loading = true;
-      const msg = { type: `ble_floorplan/coverage/${c.mode}` };
+      const msg = { type: `ble_floorplan/coverage/${c.mode}`, level: this._level };
       if (c.tracker !== ANY) msg.tracker = c.tracker;
       if (c.mode === "model") msg.probes = c.probes;
       try {
@@ -1340,7 +1418,12 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         this._input(el);
       });
-      root.addEventListener("pointerdown", (e) => this._dragStart(e));
+      root.addEventListener("pointerdown", (e) => {
+        if (this._editing && e.target.closest?.("#map")) {
+          if (this._editor.pointerDown(e)) return;
+        }
+        this._dragStart(e);
+      });
       // The system details stay open or closed, also on the next scanner and the next visit
       root.addEventListener("expanded-changed", (e) => {
         if (!e.target.classList?.contains("system") || e.detail.expanded === this._sysOpen) return;
@@ -1362,12 +1445,13 @@ if (!customElements.get("ble-floorplan-panel")) {
 
     _mapClick(e) {
       const plan = this._plan;
-      if (!plan || e.target.closest?.(".maptools")) return;
+      if (!plan || e.target.closest?.(".maptools") || this._editing) return;
       if (this._aiming) {
         const [x, y] = toPlan(this.shadowRoot, e, this._bounds);
         if (this._tab === "calibration") {
           this._measure.x = snap(x);
           this._measure.y = snap(y);
+          this._measure.floor = floorAt(plan, this._level, x, y);
         } else if (this._tab === "coverage") {
           this._cov.probes = [...this._cov.probes, { x: snap(x), y: snap(y) }];
         } else {
@@ -1435,6 +1519,11 @@ if (!customElements.get("ble-floorplan-panel")) {
       const t = this._t;
       const plan = this._plan;
       const key = el.dataset.key;
+      if (act.startsWith("ed-") && this._editor.active && this._editor.act(act, key)) {
+        this._redraw = true;
+        this._render();
+        return;
+      }
       const saved = () => {
         this._form = null;
         this._note = { kind: "ok", text: t.saved };
@@ -1445,6 +1534,13 @@ if (!customElements.get("ble-floorplan-panel")) {
           break;
         case "integration":
           navigate(INTEGRATION_PATH);
+          break;
+        case "level":
+          this._levelKept = Number(key);
+          keep(LEVEL_KEY, key);
+          // A chosen point belongs to the level it was chosen on
+          this._measure.x = this._measure.y = null;
+          this._cov.probes = [];
           break;
         case "rotate":
           this._rot = (this._rot + 90) % 360;
@@ -1473,16 +1569,30 @@ if (!customElements.get("ble-floorplan-panel")) {
         case "sel-scanner":
           this._selScanner = key;
           this._note = null;
+          this._showLevelOf("scanners", key);
           break;
         case "sel-tracker":
           this._selTracker = key;
           this._note = null;
+          this._showLevelOf("trackers", key);
           break;
         case "cancel":
           this._form = null;
           this._mode = null;
           this._dragPos = null;
           break;
+        case "ed-start":
+          this._editor.start(plan);
+          this._note = null;
+          break;
+        case "ed-save":
+          this._call({ type: "ble_floorplan/set_layout", layout: this._editor.layout() }, (result) => {
+            this._editor.stop();
+            this._layout = result.yaml;
+            this._layoutEdited = false;
+            this._note = { kind: "ok", text: t.planSaved };
+          });
+          return;
         case "save-layout":
           this._call({ type: "ble_floorplan/set_layout", yaml: this._layout }, (result) => {
             this._layout = result.yaml;
@@ -1509,7 +1619,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const pairs = {};
           for (const tr of plan.trackers) pairs[tr.key] = plan.pair_offsets?.[s.key]?.[tr.key] ?? null;
-          this._form = { name: s.name, x: s.x, y: s.y, z: s.z, rssi_offset: s.rssi_offset, pairs };
+          this._form = { name: s.name, floor: s.floor ?? plan.floors?.[0]?.key ?? null, x: s.x, y: s.y, z: s.z, rssi_offset: s.rssi_offset, pairs };
           this._note = null;
           break;
         }
@@ -1527,11 +1637,17 @@ if (!customElements.get("ble-floorplan-panel")) {
         case "save-scanner": {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const f = this._form;
-          this._call({
+          const msg = {
             type: "ble_floorplan/set_scanner", key: s.key, name: (f.name ?? "").trim() || s.name,
             x: f.x ?? s.x, y: f.y ?? s.y, z: f.z ?? s.z,
             rssi_offset: f.rssi_offset ?? s.rssi_offset, pair_offsets: f.pairs,
-          }, saved);
+          };
+          if (f.floor) msg.floor = f.floor;
+          this._call(msg, () => {
+            saved();
+            // Moved to another floor: show it there
+            if (f.floor) this._levelKept = levelOfFloor(plan, f.floor);
+          });
           return;
         }
         case "edit-tracker": {
@@ -1610,7 +1726,9 @@ if (!customElements.get("ble-floorplan-panel")) {
         }
         case "cal-start": {
           const m = this._measure;
-          this._call({ type: "ble_floorplan/calibration/start", tracker: m.tracker, x: m.x, y: m.y, height: m.height, auto_stop: !!m.auto }, () => {
+          const start = { type: "ble_floorplan/calibration/start", tracker: m.tracker, x: m.x, y: m.y, height: m.height, auto_stop: !!m.auto };
+          if (m.floor) start.floor = m.floor;
+          this._call(start, () => {
             this._measure = { ...m, x: null, y: null };
           });
           return;
@@ -1741,9 +1859,10 @@ if (!customElements.get("ble-floorplan-panel")) {
       const q = pts[i + 1];
       if (q && q[1] != null && q[0] - p[0] <= LERP_MAX && q[0] > p[0]) {
         const f = (t - p[0]) / (q[0] - p[0]);
-        return { x: p[1] + (q[1] - p[1]) * f, y: p[2] + (q[2] - p[2]) * f, room: f < 0.5 ? p[3] : q[3] };
+        const near = f < 0.5 ? p : q;
+        return { x: p[1] + (q[1] - p[1]) * f, y: p[2] + (q[2] - p[2]) * f, room: near[3], level: near[4] ?? 0 };
       }
-      return { x: p[1], y: p[2], room: p[3] };
+      return { x: p[1], y: p[2], room: p[3], level: p[4] ?? 0 };
     }
 
     // The way of every tracker over the last TRAIL seconds before the moment shown
@@ -1757,13 +1876,14 @@ if (!customElements.get("ble-floorplan-panel")) {
           const lines = [];
           let line = [];
           for (let j = Math.max(0, this._tlIndex(pts, t0)); j < pts.length && pts[j][0] <= t1; j++) {
-            if (pts[j][1] == null) {
+            // A point on another level breaks the trail like a gap
+            if (pts[j][1] == null || (pts[j][4] ?? 0) !== this._level) {
               if (line.length > 1) lines.push(line);
               line = [];
             } else line.push([pts[j][1], pts[j][2]]);
           }
           const now = this._tlAt(tr.key, t1);
-          if (now && line.length) line.push([now.x, now.y]);
+          if (now && line.length && now.level === this._level) line.push([now.x, now.y]);
           if (line.length > 1) lines.push(line);
           const color = COLORS[i % COLORS.length];
           return lines.map((l) => `<polyline class="trail" stroke="${color}" points="${l.map((p) => p.join(",")).join(" ")}"/>`).join("");
@@ -2101,7 +2221,9 @@ if (!customElements.get("ble-floorplan-panel")) {
     .map { flex: 1 1 auto; height: 100%; display: flex; flex-direction: column; padding: 4px 8px 12px; background: var(--card-background-color);
       border-radius: var(--ha-card-border-radius, 12px); border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color)); }
     #svg { flex: 1 1 auto; min-height: 0; }
-    .maptools { display: flex; justify-content: flex-end; flex: none; }
+    .maptools { display: flex; justify-content: flex-end; align-items: flex-start; flex: none; }
+    .maptools .levels { position: static; flex-direction: row; flex-wrap: wrap; margin-right: auto; box-shadow: none;
+      background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
     .menuwrap { position: relative; }
     .sheet { flex: 0 0 min(420px, 45%); overflow-y: auto; padding: 16px 16px 0 0; }
     .content:not(.withmap) .sheet { flex: 1 1 auto; padding: 16px 16px 0; }

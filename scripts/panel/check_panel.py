@@ -1239,6 +1239,84 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         "phone width and dark mode: tabs at the bottom, no sideways scrolling", phone_and_dark
     )
 
+    async def at(x: float, y: float) -> tuple[float, float]:
+        """The point of the screen where the plan has x, y."""
+        point = await page.locator(PANEL).evaluate(
+            """(e, [x, y]) => {
+                const g = e.shadowRoot.getElementById("plan");
+                const pt = g.ownerSVGElement.createSVGPoint();
+                pt.x = x; pt.y = y;
+                const p = pt.matrixTransform(g.getScreenCTM());
+                return [p.x, p.y];
+            }""",
+            [x, y],
+        )
+        return float(point[0]), float(point[1])
+
+    async def drag(a: tuple[float, float], b: tuple[float, float]) -> None:
+        start = await at(*a)
+        end = await at(*b)
+        await page.mouse.move(*start)
+        await page.mouse.down()
+        await page.mouse.move(*end, steps=8)
+        await page.mouse.up()
+
+    async def draft() -> dict[str, Any]:
+        return dict(await page.locator(PANEL).evaluate("e => e._editor.draft"))
+
+    async def drawing() -> None:
+        before = await _plan(api, instance)
+        layout = {k: before[k] for k in ("rooms", "openings") if k in before}
+        await _goto(page, instance, "plan")
+        await page.locator(f"{PANEL} ha-button[data-act='ed-start']").click()
+        tool = f"{PANEL} ha-button[data-act='ed-tool']"
+        # A room beside the flat, then a door in its left wall
+        await page.locator(f"{tool}[data-key='rect']").click()
+        await drag((11, 1), (14, 4))
+        rooms = (await draft())["rooms"]
+        expect(len(rooms) == len(before["rooms"]) + 1, f"{len(rooms)} rooms drawn")
+        expect(rooms[-1]["x"] == 11 and rooms[-1]["w"] == 3, str(rooms[-1]))
+        await page.locator(f"{PANEL} ha-card", has_text="Room").first.wait_for()
+        await page.locator(f"{tool}[data-key='door']").click()
+        click = await at(11.05, 2.5)
+        await page.mouse.click(*click)
+        openings = (await draft())["openings"]
+        expect(len(openings) == len(before["openings"]) + 1, f"{len(openings)} openings")
+        expect(
+            abs(openings[-1][0] - 11) < 0.01 and abs(openings[-1][2] - 11) < 0.01, str(openings[-1])
+        )
+        # A garage as a building of its own, and a floor above the house
+        await page.locator(f"{PANEL} ha-button[data-act='ed-add-building']").click()
+        floors = (await draft())["floors"]
+        expect([f["elevation"] for f in floors] == [0, 0], str(floors))
+        await page.locator(f"{PANEL} tr[data-act='ed-floor'][data-key='0']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='ed-add-floor']").click()
+        floors = (await draft())["floors"]
+        expect(floors[-1]["elevation"] == 2.8, str(floors[-1]))
+        await page.locator(f"{PANEL} .levels button", has_text=floors[-1]["name"]).wait_for()
+        # On the upper floor: a room and stairs down
+        await page.locator(f"{tool}[data-key='rect']").click()
+        await drag((0, 0), (6, 5))
+        await page.locator(f"{tool}[data-key='stairs']").click()
+        await drag((4, 3), (5.5, 4.5))
+        got = await draft()
+        expect(got["rooms"][-1]["floor"] == floors[-1]["key"], str(got["rooms"][-1]))
+        expect(len(got["stairs"]) == 1 and got["stairs"][0]["to"] == "eg", str(got["stairs"]))
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "editor.png"))
+        await page.locator(f"{PANEL} ha-button[data-act='ed-save']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='ed-start']").wait_for()
+        saved = await _plan(api, instance)
+        expect(len(saved["floors"]) == 3, str(saved.get("floors")))
+        expect(saved["stairs"][0]["floor"] == floors[-1]["key"], str(saved.get("stairs")))
+        expect(saved["openings"][-1][4] == "eg", str(saved["openings"][-1]))
+        # Back to the flat as it was, for the checks after this one
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/set_layout", "layout": layout})
+        expect(reply["success"], str(reply))
+
+    await checks.run("the drawing: a room, a door, a building, a floor with stairs", drawing)
+
     async def users_get_what_the_card_draws() -> None:
         token = await api.login(*USER)
         panels = await api.ws(token, {"type": "get_panels"})

@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.23.0";
+export const VERSION = "0.24.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -41,7 +41,24 @@ const TEXTS = {
     smoothing: "Smoothing (s)", minMove: "Dead zone (m)", clamp: "Keep trackers in the rooms",
     clampOutdoor: "Outdoor areas count as rooms", maxSpeed: "Top speed (m/s, 0 = none)",
     jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
-    walls: "Through walls only at doors", awaySeconds: "Away after (s) without a sighting", roomHold: "Hold time (s)",
+    walls: "Through walls only at doors",
+    exteriorDoors: "Leave a building only through its doors", floorsSec: "Floors", floor: "Floor",
+    edEdit: "Draw", edYaml: "Floor plan as YAML", edIntro: "Draw rooms, doors, stairs, floors and buildings on the plan; the YAML below holds the same.",
+    edTitle: "Drawing", edSelect: "Select", edRect: "Room", edPoly: "Polygon room", edDoor: "Door", edStairs: "Stairs",
+    edHintSelect: "Tap a room, door or stairs to change it; drag it to move, drag a corner to resize, the square in an edge's middle adds a corner. Drag the empty plan to pan.",
+    edHintRect: "Drag a rectangle on the plan.", edHintPoly: "Tap the corners one after the other; tap the first again, press Enter or Done to close it.",
+    edHintDoor: "Tap a wall where the door is.", edHintStairs: "Drag the stairs as a rectangle; they lead from this floor to the next one of the building.",
+    edFinish: "Done", edUndo: "Undo", edDiscard: "Discard the changes to the drawing?", edDiscardYes: "Discard",
+    edRoomTitle: "Room", edArea: "Area", edZone: "Zone in a room", edOutdoor: "Outdoor", edLabel: "Show name",
+    edDoorTitle: "Door", edWidth: "Width", edStairsTitle: "Stairs", edFrom: "From floor", edTo: "To floor",
+    edFloors: "Floors and buildings", edOneFloor: "The plan has one floor. Add a floor for a storey above or below, a building for a garage or garden house.",
+    edAddFloor: "Add floor", edAddBuilding: "Add building", edMain: "Main building", edBuildingName: "Building",
+    edBuildingHelp: "Floors with the same building name form one building.", edElevation: "Elevation", edHeight: "Room height",
+    edHaFloor: "Floor in Home Assistant", edFloorsHint: "Tap a floor to draw on it. Elevation: height of its floor above the ground; buildings at ground level all stand at 0 m.",
+    edFloorUsed: "Something still lies on this floor: move or delete its rooms, doors, stairs and scanners first.",
+    edRoom: "Room", edGround: "Ground floor", edBuilding: "Building", edFloor: "Floor", edNoWall: "No wall close by: tap right on a wall.",
+    stairsOnly: "Change floors only over stairs", floorLoss: "Loss per ceiling (dB)",
+    floorMargin: "Floor change: better by (m)", floorHold: "Floor change: hold time (s)", awaySeconds: "Away after (s) without a sighting", roomHold: "Hold time (s)",
     roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
     calibration: "Calibration", noRuns: "No runs yet.", running: "running",
     date: "Date", setupMoved: "{name} moved", setupAdded: "{name} new", setupRemoved: "{name} removed",
@@ -123,7 +140,24 @@ const TEXTS = {
     smoothing: "Glättung (s)", minMove: "Totzone (m)", clamp: "Tracker in den Räumen halten",
     clampOutdoor: "Außenflächen zählen als Räume", maxSpeed: "Höchstgeschwindigkeit (m/s, 0 = keine)",
     jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
-    walls: "Wände nur an Türen passieren", awaySeconds: "Abwesend nach (s) ohne Empfang", roomHold: "Haltezeit (s)",
+    walls: "Wände nur an Türen passieren",
+    exteriorDoors: "Gebäude nur durch ihre Türen verlassen", floorsSec: "Etagen", floor: "Etage",
+    edEdit: "Zeichnen", edYaml: "Grundriss als YAML", edIntro: "Räume, Türen, Treppen, Etagen und Gebäude im Grundriss zeichnen; das YAML unten enthält dasselbe.",
+    edTitle: "Zeichnen", edSelect: "Auswählen", edRect: "Raum", edPoly: "Raum als Vieleck", edDoor: "Tür", edStairs: "Treppe",
+    edHintSelect: "Raum, Tür oder Treppe antippen, um sie zu ändern; ziehen verschiebt, an einer Ecke ziehen ändert die Größe, das Quadrat in einer Kantenmitte fügt eine Ecke ein. Leeren Grundriss ziehen verschiebt die Ansicht.",
+    edHintRect: "Ein Rechteck im Grundriss aufziehen.", edHintPoly: "Die Ecken nacheinander antippen; zum Schließen die erste erneut antippen, Enter oder „Fertig“.",
+    edHintDoor: "Die Wand antippen, wo die Tür ist.", edHintStairs: "Die Treppe als Rechteck aufziehen; sie führt von dieser Etage zur nächsten des Gebäudes.",
+    edFinish: "Fertig", edUndo: "Rückgängig", edDiscard: "Änderungen an der Zeichnung verwerfen?", edDiscardYes: "Verwerfen",
+    edRoomTitle: "Raum", edArea: "Bereich", edZone: "Zone in einem Raum", edOutdoor: "Außen", edLabel: "Namen zeigen",
+    edDoorTitle: "Tür", edWidth: "Breite", edStairsTitle: "Treppe", edFrom: "Von Etage", edTo: "Zu Etage",
+    edFloors: "Etagen und Gebäude", edOneFloor: "Der Grundriss hat eine Etage. Eine Etage hinzufügen für ein Stockwerk darüber oder darunter, ein Gebäude für Garage, Gartenhaus oder Gästehaus.",
+    edAddFloor: "Etage hinzufügen", edAddBuilding: "Gebäude hinzufügen", edMain: "Hauptgebäude", edBuildingName: "Gebäude",
+    edBuildingHelp: "Etagen mit demselben Gebäudenamen bilden ein Gebäude.", edElevation: "Höhe über Grund", edHeight: "Raumhöhe",
+    edHaFloor: "Etage in Home Assistant", edFloorsHint: "Etage antippen, um auf ihr zu zeichnen. Höhe über Grund: wo ihr Boden liegt; Gebäude auf Bodenhöhe stehen alle bei 0 m.",
+    edFloorUsed: "Auf dieser Etage liegt noch etwas: zuerst ihre Räume, Türen, Treppen und Scanner verschieben oder löschen.",
+    edRoom: "Raum", edGround: "Erdgeschoss", edBuilding: "Gebäude", edFloor: "Etage", edNoWall: "Keine Wand in der Nähe: direkt auf eine Wand tippen.",
+    stairsOnly: "Etage nur über Treppen wechseln", floorLoss: "Dämpfung je Decke (dB)",
+    floorMargin: "Etagenwechsel: besser um (m)", floorHold: "Etagenwechsel: Haltezeit (s)", awaySeconds: "Abwesend nach (s) ohne Empfang", roomHold: "Haltezeit (s)",
     roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
     calibration: "Kalibrierung", noRuns: "Noch keine Messläufe.", running: "läuft",
     date: "Datum", setupMoved: "{name} verschoben", setupAdded: "{name} neu", setupRemoved: "{name} entfernt",
@@ -219,6 +253,69 @@ export const computeBounds = (plan) => {
   return { w: maxX || 1, h: maxY || 1 };
 };
 
+// ---- Floors and levels ----
+// A plan without floors has one, the default floor at ground level. Floors at
+// one elevation form a level; the plan shows one level at a time.
+export const floorsOf = (plan) =>
+  plan?.floors?.length ? plan.floors : [{ key: "", name: "", building: "", elevation: 0 }];
+const elevationOf = (f) => f.elevation ?? 0;
+export const levelsOf = (plan) => [...new Set(floorsOf(plan).map(elevationOf))].sort((a, b) => a - b);
+// The floor key of a room or scanner, of an opening (fifth value): the first floor without
+export const floorKeyOf = (plan, item) => item.floor ?? floorsOf(plan)[0].key;
+export const openingFloor = (plan, o) => o[4] ?? floorsOf(plan)[0].key;
+export const floorOf = (plan, key) => floorsOf(plan).find((f) => f.key === key) || floorsOf(plan)[0];
+export const levelOfFloor = (plan, key) => elevationOf(floorOf(plan, key));
+// The names of the floors of a level, as one label
+export const levelName = (plan, level) =>
+  floorsOf(plan).filter((f) => elevationOf(f) === level).map((f) => f.name || f.key).join(" · ");
+// The level a position is on; a plan of one level has only that one
+export const positionLevel = (plan, pos) => pos?.level ?? levelsOf(plan)[0];
+// The plan of one level: its rooms, openings, stairs and scanners; trackers and settings stay
+export const onLevel = (plan, level) => {
+  if (!plan || level == null || levelsOf(plan).length < 2) return plan;
+  const keys = new Set(floorsOf(plan).filter((f) => elevationOf(f) === level).map((f) => f.key));
+  return {
+    ...plan,
+    rooms: plan.rooms.filter((r) => keys.has(floorKeyOf(plan, r))),
+    openings: (plan.openings || []).filter((o) => keys.has(openingFloor(plan, o))),
+    stairs: (plan.stairs || []).filter((s) => keys.has(s.floor) || keys.has(s.to)),
+    scanners: plan.scanners.filter((s) => keys.has(floorKeyOf(plan, s))),
+  };
+};
+// The room with walls at a point, the one drawn last on top; null outside
+const inPolygon = (pts, x, y) => {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i];
+    const [xj, yj] = pts[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+export const spaceAt = (plan, x, y) =>
+  [...plan.rooms].reverse().find((r) => !r.zone && inPolygon(roomPoints(r), x, y)) || null;
+// The floor a point of a level lies on: its room's, else the level's first floor
+export const floorAt = (plan, level, x, y) => {
+  const room = spaceAt(onLevel(plan, level), x, y);
+  if (room) return floorKeyOf(plan, room);
+  return (floorsOf(plan).find((f) => elevationOf(f) === level) || floorsOf(plan)[0]).key;
+};
+// The level shown: the one kept if the plan still has it, else the lowest
+export const shownLevel = (plan, kept) => {
+  const levels = levelsOf(plan);
+  return levels.includes(kept) ? kept : levels.includes(0) ? 0 : levels[0];
+};
+// A switch between the levels; nothing for a plan of one level
+export const levelSwitch = (plan, level, attr = "data-act=\"level\"") => {
+  const levels = levelsOf(plan);
+  if (levels.length < 2) return "";
+  return `<div class="levels">${levels
+    .slice()
+    .reverse()
+    .map((l) => `<button ${attr} data-key="${l}" class="${l === level ? "on" : ""}">${esc(levelName(plan, l))}</button>`)
+    .join("")}</div>`;
+};
+
 export const trackerColor = (plan, key) => {
   const i = (plan?.trackers || []).findIndex((t) => t.key === key);
   return COLORS[(i < 0 ? 0 : i) % COLORS.length];
@@ -245,6 +342,18 @@ export const planInfo = (plan, positions, scannerPos, offline = []) => {
 };
 
 // Rotation and labels: per browser, under a key of the card or of the panel
+// A number kept in the browser; the fallback without one
+export const loadNumber = (key, fallback) => {
+  let v = null;
+  try {
+    v = window.localStorage.getItem(key);
+  } catch (e) {
+    // no storage
+  }
+  const n = v === null ? NaN : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 export const loadRot = (key, fallback) => {
   let v = null;
   try {
@@ -321,7 +430,10 @@ export const viewBox = (B, rot, view) => {
   return [view.cx - vw / 2, view.cy - vh / 2, vw, vh];
 };
 
-export const planSvg = (plan, o) => {
+export const planSvg = (whole, o) => {
+  // One level at a time: its rooms, openings, stairs and scanners, the trackers on it
+  const plan = onLevel(whole, o.level);
+  const here = (pos) => o.level == null || positionLevel(whole, pos) === o.level;
   const B = o.bounds;
   const rot = o.rot;
   // Rotate the plan as a whole, turn every text back at its anchor so it stays readable
@@ -356,11 +468,15 @@ export const planSvg = (plan, o) => {
         `<line class="opening" x1="${w[0]}" y1="${w[1]}" x2="${w[2]}" y2="${w[3]}"/>`
     )
     .join("");
+  // Stairs: a hatched outline where trackers go from one floor to the other
+  const stairs = (plan.stairs || [])
+    .map((st) => `<polygon class="stairs" points="${st.points.map((p) => p.join(",")).join(" ")}"/>`)
+    .join("");
   let circles = "";
   const dots = [];
   plan.trackers.forEach((tr, i) => {
     const pos = o.positions[tr.key] || {};
-    if (pos.x == null || pos.y == null) return;
+    if (pos.x == null || pos.y == null || !here(pos)) return;
     dots.push(dotHtml(tr, i, pos, { rot, labels: o.labels, open: o.openTracker === tr.key }));
     if (o.circles === tr.key) {
       const readings = pos.readings || {};
@@ -387,7 +503,7 @@ export const planSvg = (plan, o) => {
     })
     .join("");
   return `<svg viewBox="${viewBox(B, rot, o.view).join(" ")}" preserveAspectRatio="${o.align || "xMidYMin"} meet">` +
-    `<g id="plan" transform="${planTf}">${rooms}${openings}${circles}${o.marks || ""}<g id="trails">${o.trails || ""}</g>` +
+    `<g id="plan" transform="${planTf}">${rooms}${stairs}${openings}${circles}${o.marks || ""}<g id="trails">${o.trails || ""}</g>` +
     `${scanners}<g id="dots">${dots.join("")}</g></g></svg>`;
 };
 
@@ -614,6 +730,7 @@ export class PlanZoom {
 
   _down(e) {
     if (!this._svg() || e.target.closest(".zoombtns, .maptools, .scanner.movable") || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if (this.skip?.(e)) return;
     this.pointers.set(e.pointerId, [e.clientX, e.clientY]);
     this.moved = false;
     this._start();
@@ -780,6 +897,12 @@ export const PLAN_CSS = `
   .room.outdoor { fill: none; stroke-width: 0.04; stroke-dasharray: 0.25 0.15; opacity: 0.6; }
   .zone { fill: none; stroke: var(--secondary-text-color); stroke-width: 0.03; stroke-dasharray: 0.15 0.12; }
   .gap { stroke: var(--card-background-color); stroke-width: 0.12; }
+  .stairs { fill: var(--secondary-text-color); fill-opacity: 0.14; stroke-dasharray: 0.12 0.08; stroke: var(--secondary-text-color); stroke-width: 0.03; }
+  .levels { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; gap: 2px; padding: 2px;
+    background: var(--card-background-color); border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
+  .levels button { font: inherit; font-size: 12px; border: none; border-radius: 10px; padding: 6px 12px; cursor: pointer; text-align: left;
+    background: none; color: var(--secondary-text-color); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .levels button.on { background: color-mix(in srgb, var(--primary-color) 16%, transparent); color: var(--primary-color); font-weight: 500; }
   .opening { stroke: var(--secondary-text-color); stroke-width: 0.025; stroke-dasharray: 0.1 0.08; }
   .rlabel { font-size: 0.38px; fill: var(--secondary-text-color); text-anchor: middle; dominant-baseline: middle; }
   .scanner rect { fill: var(--primary-text-color); }

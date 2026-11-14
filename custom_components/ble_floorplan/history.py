@@ -39,12 +39,17 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# (unix time, x, y, room); x and y are None while no scanner sees the tracker
-type Point = tuple[float, float | None, float | None, str | None]
+# (unix time, x, y, room, level); x and y are None while no scanner sees the
+# tracker; the level is the elevation of its floors, kept only when not 0
+type Point = tuple[float, float | None, float | None, str | None, float | None]
 type Tracks = dict[str, list[Point]]
 
 COORD = probatio.Any(None, NUMBER)
-POINT = probatio.ExactSequence([NUMBER, COORD, COORD, probatio.Any(None, cv.string)])
+ROOM = probatio.Any(None, cv.string)
+POINT = probatio.Any(
+    probatio.ExactSequence([NUMBER, COORD, COORD, ROOM]),
+    probatio.ExactSequence([NUMBER, COORD, COORD, ROOM, NUMBER]),
+)
 DAY_SCHEMA = probatio.Schema(
     {
         probatio.Required("saved"): NUMBER,
@@ -90,7 +95,7 @@ class _Day:
         """Return the day as stored."""
         return {
             "saved": dt_util.utcnow().timestamp(),
-            "tracks": {key: [list(p) for p in track] for key, track in self.tracks.items()},
+            "tracks": to_wire(self.tracks),
         }
 
     def _delayed_data(self) -> dict[str, Any]:
@@ -120,7 +125,8 @@ def _day_store(hass: HomeAssistant, day: str) -> Store[dict[str, Any]]:
 
 def _tracks_of(data: Mapping[str, Any]) -> Tracks:
     return {
-        key: [(p[0], p[1], p[2], p[3]) for p in points] for key, points in data["tracks"].items()
+        key: [(p[0], p[1], p[2], p[3], p[4] if len(p) == 5 else None) for p in points]
+        for key, points in data["tracks"].items()
     }
 
 
@@ -185,14 +191,14 @@ class HistoryStore:
             tracks = _tracks_of(valid)
             for track in tracks.values():
                 if _seen(track[-1] if track else None):
-                    track.append((valid["saved"], None, None, None))
+                    track.append((valid["saved"], None, None, None, None))
         elif self._today is not None:
             # Where every tracker was at midnight starts the new day
             start = day_start(day)
             for key, track in self._today.tracks.items():
                 if _seen(last := track[-1] if track else None):
                     assert last is not None
-                    tracks[key] = [(start, last[1], last[2], last[3])]
+                    tracks[key] = [(start, last[1], last[2], last[3], last[4])]
         opened = _Day(self.hass, day, tracks)
         if day not in self.days:
             self.days.append(day)
@@ -215,9 +221,15 @@ class HistoryStore:
         added = False
         for key, position in positions.items():
             point: Point = (
-                (round(now, 1), round(position.x, 2), round(position.y, 2), position.room or None)
+                (
+                    round(now, 1),
+                    round(position.x, 2),
+                    round(position.y, 2),
+                    position.room or None,
+                    position.level or None,
+                )
                 if position.x is not None and position.y is not None
-                else (round(now, 1), None, None, None)
+                else (round(now, 1), None, None, None, None)
             )
             track = today.tracks.get(key)
             if _wanted(track[-1] if track else None, point):
@@ -239,7 +251,7 @@ class HistoryStore:
         added = False
         for track in today.tracks.values():
             if _seen(track[-1] if track else None):
-                track.append((round(now, 1), None, None, None))
+                track.append((round(now, 1), None, None, None, None))
                 added = True
         if added:
             today.schedule_save()
@@ -263,7 +275,7 @@ def _wanted(last: Point | None, point: Point) -> bool:
     if not _seen(point):
         return False
     assert last is not None
-    if point[3] != last[3]:
+    if point[3] != last[3] or point[4] != last[4]:
         return True
     assert point[1] is not None and point[2] is not None
     assert last[1] is not None and last[2] is not None
@@ -273,6 +285,11 @@ def _wanted(last: Point | None, point: Point) -> bool:
     )
 
 
+def _stored(point: Point) -> list[Any]:
+    """Return the point as stored and sent: the level only when not 0."""
+    return list(point) if point[4] else list(point[:4])
+
+
 def to_wire(tracks: Tracks) -> dict[str, list[list[Any]]]:
     """Return the tracks for the card."""
-    return {key: [list(p) for p in track] for key, track in tracks.items()}
+    return {key: [_stored(p) for p in track] for key, track in tracks.items()}

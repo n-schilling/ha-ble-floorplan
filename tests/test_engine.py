@@ -20,7 +20,13 @@ from . import make_plan
 
 PLAN = make_plan()
 # The card's engine: no robust weights, no jump rule, no speed limit
-CARD_SETTINGS = {"robust_residual": 0, "jump_distance": 0, "max_speed": 0, "walls": False}
+CARD_SETTINGS = {
+    "robust_residual": 0,
+    "jump_distance": 0,
+    "max_speed": 0,
+    "walls": False,
+    "exterior_doors": False,
+}
 CARD = make_plan(settings=CARD_SETTINGS)
 NO_CLAMP = make_plan(settings={**CARD_SETTINGS, "clamp": False})
 
@@ -165,7 +171,14 @@ def test_smoother_jump_needs_confirmation() -> None:
 
 def test_smoother_speed_limit() -> None:
     """The shown position never moves faster than max_speed."""
-    fast = make_plan(settings={"smoothing_seconds": 0.1, "jump_distance": 0, "walls": False})
+    fast = make_plan(
+        settings={
+            "smoothing_seconds": 0.1,
+            "jump_distance": 0,
+            "walls": False,
+            "exterior_doors": False,
+        }
+    )
     smoother = Smoother()
     smoother.smooth("t", (1, 1), 0.0, fast)
     # A time constant of 0.1 s would follow at once: 10 m in one second, capped at 1.5 m
@@ -173,7 +186,13 @@ def test_smoother_speed_limit() -> None:
     # Two seconds later: 3 m more along the same line
     assert smoother.smooth("t", (9, 7), 3.0, fast) == pytest.approx((4.6, 3.7), abs=1e-6)
     unlimited = make_plan(
-        settings={"smoothing_seconds": 0.1, "jump_distance": 0, "max_speed": 0, "walls": False}
+        settings={
+            "smoothing_seconds": 0.1,
+            "jump_distance": 0,
+            "max_speed": 0,
+            "walls": False,
+            "exterior_doors": False,
+        }
     )
     smoother.reset("t")
     smoother.smooth("t", (1, 1), 0.0, unlimited)

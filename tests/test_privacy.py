@@ -90,9 +90,9 @@ def test_no_network_libraries() -> None:
 
 
 def test_frontend_talks_to_home_assistant_only() -> None:
-    """The card and the panel use the WebSocket connection of the page, no other URL."""
+    """The card, the panel and the drawing use the WebSocket connection of the page, no other URL."""
     scripts = sorted((PACKAGE / "frontend").glob("*.js"))
-    assert len(scripts) == 3
+    assert len(scripts) == 4
     for path in scripts:
         code = path.read_text(encoding="utf-8")
         assert "fetch(" not in code, path

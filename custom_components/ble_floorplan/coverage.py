@@ -15,6 +15,10 @@ there: how many scanners received the tracker well, how well they lay around
 it, and how far their circles missed the position. It keeps as many days as
 the timeline and is off with it.
 
+Both maps are per level: the floors at one elevation. The model counts the
+height of every scanner above the ground and the loss of the ceilings
+between; the measurement keeps the level of each sample with its cell.
+
 A cell is good with three scanners or more that receive well (RSSI at least
 COVERAGE_GOOD_RSSI) and lie around it, not in a line (HDOP at most
 COVERAGE_MAX_HDOP); fair with two; poor with one or none.
@@ -88,16 +92,20 @@ def basis(plan: Floorplan) -> dict[str, Any]:
     Where a sample lands, which scanners count for it and how far the circles
     miss follow from both; a change makes the days before it show the old state.
     """
+    calibration: dict[str, Any] = {
+        "offsets": {s.key: s.rssi_offset for s in plan.scanners},
+        "pairs": {k: dict(v) for k, v in plan.pair_offsets.items()},
+        "ref_power": {t.key: t.ref_power for t in plan.trackers},
+        "ref_power_default": plan.settings.ref_power_default,
+        "attenuation": plan.settings.attenuation,
+        "max_distance": plan.settings.max_distance,
+    }
+    if len(plan.levels) > 1:
+        # Only a plan of several levels has ceilings to lose signal in
+        calibration["floor_loss"] = plan.settings.floor_loss
     return {
-        "scanners": {s.key: [s.x, s.y, s.z, s.paused] for s in plan.scanners},
-        "calibration": {
-            "offsets": {s.key: s.rssi_offset for s in plan.scanners},
-            "pairs": {k: dict(v) for k, v in plan.pair_offsets.items()},
-            "ref_power": {t.key: t.ref_power for t in plan.trackers},
-            "ref_power_default": plan.settings.ref_power_default,
-            "attenuation": plan.settings.attenuation,
-            "max_distance": plan.settings.max_distance,
-        },
+        "scanners": {s.key: [s.x, s.y, plan.scanner_height(s), s.paused] for s in plan.scanners},
+        "calibration": calibration,
     }
 
 
@@ -147,9 +155,16 @@ def cell_of(x: float, y: float) -> tuple[int, int]:
     return (math.floor(x / COVERAGE_CELL), math.floor(y / COVERAGE_CELL))
 
 
-def cell_key(ix: int, iy: int) -> str:
-    """Return the key of a cell in storage."""
-    return f"{ix},{iy}"
+def cell_key(ix: int, iy: int, level: float = 0.0) -> str:
+    """Return the key of a cell in storage: with its level unless that is 0."""
+    return f"{ix},{iy}/{level}" if level else f"{ix},{iy}"
+
+
+def parse_cell(key: str) -> tuple[int, int, float]:
+    """Return the cell and the level of a key in storage."""
+    cell, _, level = key.partition("/")
+    ix, iy = (int(v) for v in cell.split(","))
+    return ix, iy, float(level) if level else 0.0
 
 
 def _center(extent: tuple[float, float], ix: int, iy: int) -> Point:
@@ -195,13 +210,17 @@ class _Source:
     offset: float
 
 
-def _sources(plan: Floorplan, tracker: Tracker | None) -> list[_Source]:
+def _sources(plan: Floorplan, tracker: Tracker | None, level: float) -> list[_Source]:
+    """Return the scanners as heard from the level: height above ground, offsets, ceilings lost."""
+    loss = plan.settings.floor_loss
     return [
         _Source(
             s.x,
             s.y,
-            s.z,
-            s.rssi_offset + (plan.pair_offset(s.key, tracker.key) if tracker else 0.0),
+            plan.scanner_height(s),
+            s.rssi_offset
+            + (plan.pair_offset(s.key, tracker.key) if tracker else 0.0)
+            - loss * plan.ceilings(s, level),
         )
         for s in plan.scanners
         if not s.paused
@@ -231,21 +250,27 @@ def _round(value: float | None, digits: int = 2) -> float | None:
 
 
 def model(
-    plan: Floorplan, tracker: Tracker | None = None, probes: Sequence[Probe] = ()
+    plan: Floorplan,
+    tracker: Tracker | None = None,
+    probes: Sequence[Probe] = (),
+    elevation: float | None = None,
 ) -> dict[str, Any]:
     """Return the predicted coverage for the tracker, or for a tracker of the default values.
 
-    Every cell is [ix, iy, level, good scanners, HDOP]; with probes, also the
-    level without them, so the page can show what they change.
+    On the level at the elevation, the lowest without one; probes stand on
+    it. Every cell is [ix, iy, level, good scanners, HDOP]; with probes, also
+    the level without them, so the page can show what they change.
     """
+    at = plan.levels[0] if elevation is None else elevation
     ref_power = plan.ref_power(tracker) if tracker else plan.settings.ref_power_default
-    height = tracker.height if tracker else COVERAGE_TRACKER_HEIGHT
+    height = at + (tracker.height if tracker else COVERAGE_TRACKER_HEIGHT)
     n = plan.settings.attenuation
-    sources = _sources(plan, tracker)
+    sources = _sources(plan, tracker, at)
     offset = probe_offset(plan)
-    extra = [_Source(p.x, p.y, p.z, offset) for p in probes]
+    extra = [_Source(p.x, p.y, at + p.z, offset) for p in probes]
     cells: list[list[Any]] = []
     rooms: dict[str, list[int]] = {}
+    plan = plan.on_level(at)
     for ix, iy in grid(plan):
         x, y = _center(plan.extent, ix, iy)
         lvl, good, dop = _model_cell(x, y, [*sources, *extra], ref_power, height, n)
@@ -289,7 +314,8 @@ def sample(plan: Floorplan, position: TrackerPosition) -> tuple[str, Stats] | No
             good.append((scanner.x, scanner.y))
     rms = math.sqrt(sum(m * m for m in misses) / len(misses)) if misses else 0.0
     lvl = level(len(good), hdop(position.x, position.y, good))
-    return cell_key(*cell_of(position.x, position.y)), [1, len(good), lvl, rms]
+    key = cell_key(*cell_of(position.x, position.y), position.level or 0.0)
+    return key, [1, len(good), lvl, rms]
 
 
 class CoverageStore:
@@ -393,13 +419,18 @@ class CoverageStore:
         if today is not None:
             self._schedule_save()
 
-    def measured(self, plan: Floorplan, tracker: str | None = None) -> dict[str, Any]:
+    def measured(
+        self, plan: Floorplan, tracker: str | None = None, elevation: float | None = None
+    ) -> dict[str, Any]:
         """Return the measured coverage of one tracker or all of them, over every day kept.
 
-        Every cell is [ix, iy, level, mean good scanners, mean miss (m),
-        seconds]; its level is the mean of its samples' levels, rounded. A
-        cell needs COVERAGE_MIN_SECONDS of samples to count.
+        On the level at the elevation, the lowest without one. Every cell is
+        [ix, iy, level, mean good scanners, mean miss (m), seconds]; its level
+        is the mean of its samples' levels, rounded. A cell needs
+        COVERAGE_MIN_SECONDS of samples to count.
         """
+        at = plan.levels[0] if elevation is None else elevation
+        plan = plan.on_level(at)
         total: dict[str, Stats] = {}
         for trackers in self.days.values():
             for key, cells in trackers.items():
@@ -413,9 +444,9 @@ class CoverageStore:
         rooms: dict[str, list[float]] = {}
         extent = plan.extent
         for cell, (n, good, lvl, miss) in sorted(total.items()):
-            if n < COVERAGE_MIN_SECONDS:
+            ix, iy, on = parse_cell(cell)
+            if n < COVERAGE_MIN_SECONDS or on != at:
                 continue
-            ix, iy = (int(v) for v in cell.split(","))
             mean = lvl / n
             shown = GOOD if mean >= 1.5 else FAIR if mean >= 0.5 else POOR
             cells_out.append([ix, iy, shown, round(good / n, 1), round(miss / n, 2), int(n)])

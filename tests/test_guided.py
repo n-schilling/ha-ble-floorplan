@@ -134,11 +134,11 @@ def test_guide() -> None:
     ]
     result = guide(plan, runs)
     assert result["tag"] == [
-        {"room": "Living room", "runs": 2},
-        {"room": "Kitchen", "runs": 1},
-        {"room": "Bedroom", "runs": 0},
-        {"room": "Hall", "runs": 0},
-        {"room": "Balcony", "runs": 0},
+        {"room": "Living room", "floor": "", "runs": 2},
+        {"room": "Kitchen", "floor": "", "runs": 1},
+        {"room": "Bedroom", "floor": "", "runs": 0},
+        {"room": "Hall", "floor": "", "runs": 0},
+        {"room": "Balcony", "floor": "", "runs": 0},
     ]
     assert {r["room"]: r["runs"] for r in result["phone"]}["Bedroom"] == 1
     # A room in two parts is listed once

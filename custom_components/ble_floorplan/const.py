@@ -96,6 +96,16 @@ DEFAULT_JUMP_CONFIRM_SECONDS: Final = 3.0
 DEFAULT_ROOM_HOLD_SECONDS: Final = 5.0
 # … and at least this far from its walls (0 = anywhere inside)
 DEFAULT_ROOM_MARGIN: Final = 0.3
+# Floors: the height of a floor's rooms when not given, in metres
+DEFAULT_FLOOR_HEIGHT: Final = 2.5
+# The tracker changes floors after another floor fitted the scanners better by
+# this much (RMS of the misses in metres) for this long
+DEFAULT_FLOOR_MARGIN: Final = 0.5
+DEFAULT_FLOOR_HOLD_SECONDS: Final = 10.0
+# A ceiling between scanner and tracker weakens the signal by this much, in dB
+DEFAULT_FLOOR_LOSS: Final = 10.0
+# A position this close to stairs may take them to the other floor, in metres
+STAIRS_TOLERANCE: Final = 1.0
 # A scanner whose circle misses the position by more than this loses weight (0 = off)
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 # A tracker counts as away once no scanner saw it this long (s)

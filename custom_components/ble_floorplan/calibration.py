@@ -55,6 +55,7 @@ RUN_SCHEMA = probatio.Schema(
         probatio.Optional("scanners", default=None): probatio.Any(
             None, {cv.slug: probatio.ExactSequence([NUMBER, NUMBER, NUMBER])}
         ),
+        probatio.Optional("floor", default=""): probatio.Any("", cv.slug),
     }
 )
 DATA_SCHEMA = probatio.Schema({probatio.Optional("runs", default=list): [RUN_SCHEMA]})
@@ -77,10 +78,13 @@ class CalibrationRun:
     duration: float | None = None
     # Scanner key -> samples
     samples: dict[str, list[Sample]] = field(default_factory=dict)
-    # Where the plan's scanners stood when the run started: key -> (x, y, z);
-    # None for a run recorded before it was kept. A scanner moved, added or
-    # taken off since makes the run describe another setup.
+    # Where the plan's scanners stood when the run started: key -> (x, y, z),
+    # z above the ground of the site; None for a run recorded before it was
+    # kept. A scanner moved, added or taken off since makes the run describe
+    # another setup.
     scanners: dict[str, tuple[float, float, float]] | None = None
+    # The floor the tracker lay on; "" is the plan's first floor
+    floor: str = ""
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -102,6 +106,7 @@ class CalibrationRun:
                 if (scanners := data.get("scanners")) is not None
                 else None
             ),
+            floor=data.get("floor", ""),
         )
 
     @property
@@ -124,10 +129,11 @@ class CalibrationRun:
         } | self._scanners_dict()
 
     def _scanners_dict(self) -> dict[str, Any]:
-        """Return where the scanners stood, nothing for a run recorded before it was kept."""
+        """Return where the scanners stood and the floor, each only when known."""
+        extra: dict[str, Any] = {"floor": self.floor} if self.floor else {}
         if self.scanners is None:
-            return {}
-        return {"scanners": {k: list(p) for k, p in self.scanners.items()}}
+            return extra
+        return extra | {"scanners": {k: list(p) for k, p in self.scanners.items()}}
 
     def as_dict(self) -> dict[str, Any]:
         """Return the run as stored, samples included."""
@@ -181,26 +187,29 @@ def setup_matches(run: CalibrationRun, plan: Floorplan) -> bool | None:
     return all(
         abs(a - b) <= CALIBRATION_SETUP_TOLERANCE
         for s in plan.scanners
-        for a, b in zip(run.scanners[s.key], (s.x, s.y, s.z), strict=True)
+        for a, b in zip(run.scanners[s.key], (s.x, s.y, plan.scanner_height(s)), strict=True)
     )
 
 
 def guide(plan: Floorplan, runs: list[CalibrationRun]) -> dict[str, list[dict[str, Any]]]:
-    """Return per tracker every room with walls and how many of its finished runs lie there.
+    """Return per tracker every room with walls, with its floor, and how many of its finished runs lie there.
 
     A run made with the scanners standing elsewhere does not count; one that
     does not tell how they stood does.
     """
-    names = list(dict.fromkeys(r.name for r in plan.rooms if not r.zone))
+    places = list(dict.fromkeys((r.floor, r.name) for r in plan.rooms if not r.zone))
     result: dict[str, list[dict[str, Any]]] = {}
     for tracker in plan.trackers:
-        counts = dict.fromkeys(names, 0)
+        counts = dict.fromkeys(places, 0)
         for run in runs:
             if run.tracker != tracker.key or run.running or setup_matches(run, plan) is False:
                 continue
-            if (room := plan.space_of(run.x, run.y)) is not None:
-                counts[room.name] += 1
-        result[tracker.key] = [{"room": name, "runs": n} for name, n in counts.items()]
+            level = plan.on_level(plan.floor(run.floor or plan.floor_list[0].key).elevation)
+            if (room := level.space_of(run.x, run.y)) is not None:
+                counts[(room.floor, room.name)] += 1
+        result[tracker.key] = [
+            {"room": name, "floor": floor, "runs": n} for (floor, name), n in counts.items()
+        ]
     return result
 
 
@@ -331,6 +340,7 @@ class CalibrationStore:
         now: float,
         scanners: dict[str, tuple[float, float, float]] | None = None,
         auto_stop: bool = False,
+        floor: str = "",
     ) -> CalibrationRun:
         """Start a run at the monotonic time now, with where the scanners stand.
 
@@ -340,7 +350,14 @@ class CalibrationStore:
         if self.active is not None:
             raise RuntimeError("a calibration run is going")
         run = CalibrationRun(
-            ulid_now(), tracker, x, y, height, dt_util.utcnow().isoformat(), scanners=scanners
+            ulid_now(),
+            tracker,
+            x,
+            y,
+            height,
+            dt_util.utcnow().isoformat(),
+            scanners=scanners,
+            floor=floor,
         )
         self.runs.append(run)
         self.active = run

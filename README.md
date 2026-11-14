@@ -198,7 +198,12 @@ All settings are on the *Settings* tab of the page. Setting a value to 0 switche
 | Top speed (`max_speed`) | 1.5 m/s | The shown position never moves faster; 0 is off. |
 | Jump distance (`jump_distance`) | 2 m | A measured position this far away counts as a jump; 0 is off. |
 | Jump confirmation (`jump_confirm_seconds`) | 3 s | A jump is followed only after it stayed that long. |
-| Through walls only at doors (`walls`) | on | The shown position passes walls only through openings. |
+| Through walls only at doors (`walls`) | on | The shown position passes walls inside a building only through openings. |
+| Leave a building only through its doors (`exterior_doors`) | on | A step out of a building (outside, to an outdoor room or another building) passes the wall only through an opening. |
+| Change floors only over stairs (`stairs_only`) | on | Another floor is taken only where the tracker was at stairs joining the two; where no stairs join them, or after six times the hold time, anyway. Only with several floors. |
+| Loss per ceiling (`floor_loss`) | 10 dB | A ceiling between scanner and tracker weakens the signal by this much; it is added back for the floor assumed. Only with several floors. |
+| Floor change: better by (`floor_margin`) | 0.5 m | Another floor is taken once it fits the scanners better by this much (RMS of the misses). |
+| Floor change: hold time (`floor_hold_seconds`) | 10 s | ... and only after it did for this long. |
 | Away after (`away_seconds`) | 120 s | Presence turns `not_home` after this long without a sighting. |
 | Hold time (`room_hold_seconds`) | 5 s | The room changes only after this long in the new room. |
 | Wall margin (`room_margin`) | 0.3 m | ... and at least this far from the new room's walls; 0 is off. |
@@ -209,7 +214,9 @@ All settings are on the *Settings* tab of the page. Setting a value to 0 switche
 
 ### The floor plan
 
-The floor plan is edited as YAML on the *Floor plan* tab of the page. Everything is in metres; the origin is the top left corner and y grows downwards. Numbers must be finite.
+The floor plan is drawn on the *Floor plan* tab of the page: **Draw** opens the drawing, with tools for rectangular and polygon rooms, doors (tap a wall), stairs and a selection tool that moves rooms and stairs, drags their corners and adds corners in the middle of an edge. A room's name, area, floor and kind (zone, outdoor) are set beside the plan; **Undo** goes back step by step, **Save** writes the drawing, **Cancel** asks before it drops changes. Corners snap to a 5 cm grid and to the corners of the rooms nearby, also of the floor below, which is drawn faintly underneath.
+
+The same plan is also edited as YAML on the same tab. Everything is in metres; the origin is the top left corner and y grows downwards. Numbers must be finite.
 
 ```yaml
 rooms:
@@ -240,6 +247,28 @@ openings:                      # doors and open passages, as a line on a wall
 Room labels also take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) and `label: false`. Of overlapping rooms the one drawn last wins; zones win over the rooms they lie in. Walls are the outlines of the rooms; a tracker passes them only where an opening lies on them, so add every door and open passage.
 
 A room with `area` gives its *Room* sensor the attribute `area_id`; an area Home Assistant does not know is refused when the plan is saved.
+
+### Floors and buildings
+
+One plan covers the whole site in one coordinate system: the house, a garage, a garden house or a guest house stand where they are, and the floors of a building lie above each other. Without floors, the plan has one. In the drawing, **Add floor** adds a storey to the building of the selected floor, **Add building** a building at ground level; each floor has a name, a building, its elevation (where its floor lies above the ground), the height of its rooms and optionally its floor of Home Assistant. In YAML:
+
+```yaml
+floors:
+  - {key: eg, name: Ground floor, building: House, elevation: 0}
+  - {key: og, name: Upper floor, building: House, elevation: 2.8, ha_floor: upstairs}
+  - {key: garage, name: Garage, building: Garage, elevation: 0}
+rooms:
+  - {name: Living room, x: 0, y: 0, w: 6, h: 5, floor: eg}
+  - {name: Bedroom, x: 0, y: 0, w: 6, h: 5, floor: og}
+openings:
+  - [6, 1, 6, 2.5, og]          # the fifth value is the floor; without it, the first floor
+stairs:
+  - {floor: eg, to: og, x: 4, y: 3, w: 1.5, h: 1.5}
+```
+
+Rooms, openings and scanners without a floor lie on the first one; a scanner's height counts from its floor. Floors at the same elevation form a level: the ground floor of the house, the garage and the garden house are one level. The page and the card show one level at a time, with a switch in the corner of the plan.
+
+How the floor is found: the position is solved for every level, with the tracker at its height above that level, and the distance of every scanner from the signal plus the loss of the ceilings between. The level whose position fits the scanners best, in three dimensions, is taken once it is better by *Floor change: better by* for *Floor change: hold time*, over stairs when *Change floors only over stairs* is on. A building is left through its doors when *Leave a building only through its doors* is on, also with *Through walls only at doors* off. The *Room* sensor's area tells the floor: Home Assistant assigns areas to its floors.
 
 ### Privacy
 
@@ -289,7 +318,7 @@ automation:
 - A corner that no scanner covers places trackers at the nearest wall.
 - Uncalibrated trackers get the scanner offsets only, which fit the calibrated trackers best.
 - The *Room* sensor changes only after the hold time, so it suits "who is where" better than switching lights the moment someone walks in; a motion sensor is quicker for that.
-- One floor only.
+- Floors are told apart by the signal and the loss of the ceilings; with few scanners on a floor, or a light wooden ceiling, set *Loss per ceiling* lower and place a scanner on every floor.
 
 ## Troubleshooting
 
@@ -325,19 +354,19 @@ The page and the card use these commands; they are open for scripts and tools as
 |---|---|---|
 | `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. Users who are no administrators get the plan as the card draws it: rooms, openings, scanners with name and position, trackers with name. |
 | `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions` and, for administrators, `calibration` and `about` (version, commit of a test deployment) now, then an event for every change. |
-| `ble_floorplan/get_layout` | admins | Returns `yaml`: the rooms and openings, a template while the plan has none. |
-| `ble_floorplan/set_layout` | admins | `yaml` (at most 200,000 characters): replaces the rooms and openings; scanners, trackers and settings stay. |
+| `ble_floorplan/get_layout` | admins | Returns `yaml`: the floors, rooms, openings and stairs, a template while the plan has none. |
+| `ble_floorplan/set_layout` | admins | `yaml` (at most 200,000 characters) or `layout` (the same as data): replaces the floors, rooms, openings and stairs; scanners, trackers and settings stay. A scanner on a floor that is gone is refused; without floors every scanner stands on the one floor. Returns `yaml` and `floorplan`. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
 | `ble_floorplan/candidates` | admins | Returns the `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that are not on the plan yet. |
 | `ble_floorplan/scanner_system` | admins | `key`: returns the scanner's `model`, `manufacturer`, `integration`, `device_id`, `started` (`started_live` false for the last start known), `signal` (dBm), `firmware`, `firmware_latest` (when an update is available), `last_seen` (s), `in_range` (devices in the last minute), `mode`, `connectable`, `slots`, `slots_free`; null for what is not known. |
-| `ble_floorplan/add_scanner` | admins | `source`, optionally `name` and `z`: puts a scanner in the middle of the plan. |
+| `ble_floorplan/add_scanner` | admins | `source`, optionally `name`, `z` and `floor`: puts a scanner in the middle of the plan, on the first floor without one. |
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |
 | `ble_floorplan/remove_tracker` | admins | `key`: takes a tracker off the plan, with its pair corrections. |
-| `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `rssi_offset`, `paused`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
+| `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `floor`, `rssi_offset`, `paused`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
 | `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `ref_power` (null for the default), `paused`, `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
-| `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height` and `auto_stop` (default off): starts a run (one at a time); with `auto_stop` it ends by itself once the scanners have enough. |
+| `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`, `floor` (the first without) and `auto_stop` (default off): starts a run (one at a time); with `auto_stop` it ends by itself once the scanners have enough. |
 | `ble_floorplan/calibration/stop` | admins | Stops the run and saves the tracker's values; returns the run and `fit` (null when no scanner has three samples). |
 | `ble_floorplan/calibration/list` | admins | Returns the runs with their sample counts; `samples: true` adds every sample. |
 | `ble_floorplan/calibration/clear` | admins | Deletes every run, a going one too; the trackers and scanners keep their values. |
@@ -345,10 +374,10 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/calibration/fit` | admins | `tracker`: saves the tracker's values from its runs again and returns the `fit`. |
 | `ble_floorplan/calibration/solve` | admins | Optionally `attenuation: true` to fit the exponent too. Returns the proposal; nothing is written. |
 | `ble_floorplan/calibration/apply` | admins | `attenuation`, `trackers`, `scanners`, `pairs`, each optional: writes them into the plan. |
-| `ble_floorplan/coverage/model` | admins | Optionally `tracker` and `probes` (up to 5 of `{x, y, z}`, z 1 m by default): returns `cells` (`[ix, iy, level, good scanners, HDOP]`, with probes also the level without them), `rooms` (`{name, cells: [poor, fair, good]}`), `cell` (m), `good_rssi`, `max_hdop`, `probe_offset`. Level 0 poor, 1 fair, 2 good. |
-| `ble_floorplan/coverage/measured` | admins | Optionally `tracker`: returns `cells` (`[ix, iy, level, mean good scanners, mean miss in m, seconds]`), `rooms` (`{name, level, good, seconds}`), `days`, `change` (`at`, `reason`, the `days` from before the last change of the scanners or the calibration; null without) and `recording`. |
+| `ble_floorplan/coverage/model` | admins | Optionally `tracker`, `level` (the elevation; the lowest without) and `probes` (up to 5 of `{x, y, z}`, z 1 m by default): returns `cells` (`[ix, iy, level, good scanners, HDOP]`, with probes also the level without them), `rooms` (`{name, cells: [poor, fair, good]}`), `cell` (m), `good_rssi`, `max_hdop`, `probe_offset`. Level 0 poor, 1 fair, 2 good. |
+| `ble_floorplan/coverage/measured` | admins | Optionally `tracker` and `level`: returns `cells` (`[ix, iy, level, mean good scanners, mean miss in m, seconds]`), `rooms` (`{name, level, good, seconds}`), `days`, `change` (`at`, `reason`, the `days` from before the last change of the scanners or the calibration; null without) and `recording`. |
 | `ble_floorplan/coverage/reset` | admins | Forgets the measured coverage. |
-| `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room], …]}`, x and y null while not seen) and the stored `days`. |
+| `ble_floorplan/history` | admins | `day` (`YYYY-MM-DD`, UTC): returns `tracks` (`{tracker: [[unix time, x, y, room, level], …]}`, x and y null while not seen, the level only when not 0) and the stored `days`. |
 
 Every number must be finite: NaN and infinity are refused.
 

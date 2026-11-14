@@ -2,6 +2,21 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.24.0] - 2026-11-14
+
+### Added
+
+- Floors and buildings: one plan for the whole site, the floors of a building above each other at their elevation, a garage, garden house or guest house as buildings of their own. Rooms, openings, stairs and scanners belong to a floor; a scanner's height counts from it. A floor names its floor of Home Assistant (`ha_floor`, by id or name).
+- The floor of a tracker: the position is solved for every level (the floors at one elevation) with the loss of the ceilings between scanner and tracker (*Loss per ceiling*, 10 dB); the level that fits the scanners best in three dimensions is taken after a margin and a hold time. New settings: *Change floors only over stairs* (stairs join two floors), *Leave a building only through its doors*, *Loss per ceiling*, *Floor change: better by*, *Floor change: hold time*.
+- Positions carry `floor` and `level`; the timeline keeps the level; calibration runs keep their floor and the solver measures in three dimensions with the ceiling loss; the coverage is per level.
+- The drawing on the *Floor plan* tab: rectangular and polygon rooms, doors on a wall, stairs, floors and buildings; select, move, drag corners, add corners, undo; room name, area, floor, zone, outdoor; corners snap to the grid and to rooms, also of the floor below, drawn faintly underneath. The YAML stays as the second way.
+- The page and the card show one level at a time with a switch on the plan; opening a scanner or tracker shows its level.
+- `set_layout` takes `layout` as data and returns the plan; `add_scanner`, `set_scanner` and `calibration/start` take `floor`; `coverage/model` and `coverage/measured` take `level`.
+
+### Changed
+
+- *Through walls only at doors* holds the walls inside a building; the walls a step leaves a building through follow *Leave a building only through its doors* (on).
+
 ## [0.23.0] - 2026-11-14
 
 ### Added

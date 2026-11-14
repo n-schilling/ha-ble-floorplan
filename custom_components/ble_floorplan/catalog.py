@@ -15,13 +15,18 @@ import yaml
 
 from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+    floor_registry as fr,
+)
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.util import slugify
 
 from .const import DOMAIN, SCANNER_ACTIVE_SECONDS
 from .coordinator import PRIVATE_BLE_DEVICE
-from .model import FLOORPLAN_SCHEMA, Floorplan, Room, Scanner, Tracker
+from .model import Floorplan, Scanner, Tracker
 
 
 class LayoutProblem(Exception):
@@ -140,8 +145,10 @@ def _center(plan: Floorplan) -> tuple[float, float]:
     return (round(width / 2, 2), round(height / 2, 2))
 
 
-def add_scanner(plan: Floorplan, source: str, name: str, z: float) -> tuple[Floorplan, Scanner]:
-    """Return the plan with a new scanner in the middle of the plan."""
+def add_scanner(
+    plan: Floorplan, source: str, name: str, z: float, floor: str = ""
+) -> tuple[Floorplan, Scanner]:
+    """Return the plan with a new scanner on the floor, in the middle of the plan."""
     x, y = _center(plan)
     scanner = Scanner(
         key=new_key(name, (s.key for s in plan.scanners)),
@@ -150,6 +157,7 @@ def add_scanner(plan: Floorplan, source: str, name: str, z: float) -> tuple[Floo
         x=x,
         y=y,
         z=z,
+        floor=floor,
     )
     return replace(plan, scanners=(*plan.scanners, scanner)), scanner
 
@@ -199,14 +207,18 @@ rooms:
 # Doors and open passages: [x1, y1, x2, y2] on a wall
 openings:
   - [5, 1, 5, 2]
+# More floors or buildings: list them under floors (key, name, building,
+# elevation in metres, ha_floor) and give rooms, scanners and stairs their
+# floor; an opening names its floor fifth: [x1, y1, x2, y2, floor].
+# Stairs join two floors: {floor: eg, to: og, x: 1, y: 1, w: 1, h: 3}
 """
 
 
 def with_areas(hass: HomeAssistant, plan: Floorplan) -> Floorplan:
-    """Return the plan with every room's area as an area id; raises LayoutProblem.
+    """Return the plan with every room's area and every floor's floor of Home Assistant as ids.
 
-    A room may name its area by id or by name; an area Home Assistant does not
-    know is refused.
+    Both may be named by id or by name; one Home Assistant does not know is
+    refused with LayoutProblem.
     """
     registry = ar.async_get(hass)
     rooms = []
@@ -218,43 +230,70 @@ def with_areas(hass: HomeAssistant, plan: Floorplan) -> Floorplan:
         if area is None:
             raise LayoutProblem(f"room {room.name or '(no name)'}: no area {room.area}")
         rooms.append(replace(room, area=area.id))
-    return replace(plan, rooms=tuple(rooms))
+    floor_registry = fr.async_get(hass)
+    floors = []
+    for floor in plan.floors:
+        if floor.ha_floor is None:
+            floors.append(floor)
+            continue
+        found = floor_registry.async_get_floor(
+            floor.ha_floor
+        ) or floor_registry.async_get_floor_by_name(floor.ha_floor)
+        if found is None:
+            raise LayoutProblem(f"floor {floor.name or floor.key}: no floor {floor.ha_floor}")
+        floors.append(replace(floor, ha_floor=found.floor_id))
+    return replace(plan, rooms=tuple(rooms), floors=tuple(floors))
+
+
+# The parts of the plan the layout text holds
+LAYOUT_KEYS = ("floors", "rooms", "openings", "stairs")
 
 
 def layout_yaml(plan: Floorplan) -> str:
-    """Return the rooms and openings of the plan as YAML; a template for an empty plan."""
-    if not plan.rooms and not plan.openings:
+    """Return the floors, rooms, openings and stairs of the plan as YAML; a template for an empty plan."""
+    if not plan.rooms and not plan.openings and not plan.floors:
         return LAYOUT_TEMPLATE
     data = plan.as_dict()
     # Defaults are left out, so the text stays short
     defaults = {"zone": False, "outdoor": False, "label": True}
     rooms = [{k: v for k, v in r.items() if defaults.get(k, object()) != v} for r in data["rooms"]]
+    layout = {"floors": data.get("floors"), "rooms": rooms, "openings": data["openings"]}
+    layout["stairs"] = data.get("stairs")
     return yaml.safe_dump(
-        {"rooms": rooms, "openings": data["openings"]},
+        {k: v for k, v in layout.items() if v is not None},
         sort_keys=False,
         allow_unicode=True,
         default_flow_style=None,
     )
 
 
+def with_layout_data(plan: Floorplan, data: Any) -> Floorplan:
+    """Return the plan with the floors, rooms, openings and stairs given; raises LayoutProblem.
+
+    The scanners keep their places; one on a floor the layout no longer has is
+    refused. Without floors, the plan has one again, and every scanner stands on it.
+    """
+    if not isinstance(data, dict) or set(data) - set(LAYOUT_KEYS):
+        raise LayoutProblem("expected a mapping with floors, rooms, openings and stairs")
+    whole = plan.as_dict() | {key: data.get(key) or [] for key in LAYOUT_KEYS}
+    if not whole["floors"]:
+        # Back to one floor: the scanners stand on it
+        whole["scanners"] = [
+            {k: v for k, v in s.items() if k != "floor"} for s in whole["scanners"]
+        ]
+    try:
+        return Floorplan.from_dict(whole)
+    except probatio.Invalid as err:
+        raise LayoutProblem(str(err)) from err
+
+
 def with_layout(plan: Floorplan, text: str) -> Floorplan:
-    """Return the plan with the rooms and openings of the YAML; raises LayoutProblem."""
+    """Return the plan with the floors, rooms, openings and stairs of the YAML; raises LayoutProblem.
+
+    The scanners keep their places; one on a floor the layout no longer has is refused.
+    """
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as err:
         raise LayoutProblem(f"not YAML: {err}") from err
-    if data is None:
-        data = {}
-    if not isinstance(data, dict) or set(data) - {"rooms", "openings"}:
-        raise LayoutProblem("expected a mapping with rooms and openings")
-    try:
-        valid = FLOORPLAN_SCHEMA(
-            {"rooms": data.get("rooms") or [], "openings": data.get("openings") or []}
-        )
-    except probatio.Invalid as err:
-        raise LayoutProblem(str(err)) from err
-    return replace(
-        plan,
-        rooms=tuple(Room.from_dict(r) for r in valid["rooms"]),
-        openings=tuple((o[0], o[1], o[2], o[3]) for o in valid["openings"]),
-    )
+    return with_layout_data(plan, {} if data is None else data)

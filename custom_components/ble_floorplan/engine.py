@@ -1,4 +1,4 @@
-"""The position engine: RSSI to distance, weighted trilateration, smoothing, rooms.
+"""The position engine: RSSI to distance, weighted trilateration, smoothing, rooms, levels.
 
 The trilateration and the time-based smoothing are ports of the card's
 JavaScript; with the robust weights, the jump rule, the speed limit and the
@@ -220,6 +220,11 @@ class Smoother:
         """Forget the tracker, so the next position is taken as is."""
         self._state.pop(key, None)
 
+    def position(self, key: str) -> Point | None:
+        """Return where the tracker is shown, None when it is not."""
+        state = self._state.get(key)
+        return (state.x, state.y) if state is not None else None
+
 
 @dataclass(slots=True)
 class _RoomState:
@@ -268,3 +273,128 @@ class RoomTracker:
     def reset(self, key: str) -> None:
         """Forget the tracker, so the next room is taken as is."""
         self._state.pop(key, None)
+
+
+@dataclass(frozen=True, slots=True)
+class Heard:
+    """What one scanner heard of a tracker, for comparing levels: where it stands and how far."""
+
+    x: float
+    y: float
+    # Height above the ground of the site, in metres
+    z: float
+    # Line-of-sight distance from the signal, in metres
+    distance: float
+
+
+def misfit(point: Point, heard: Sequence[Heard], z: float) -> float:
+    """Return how badly the point at the height z fits what the scanners heard.
+
+    The weighted RMS of the misses in metres, in three dimensions; near
+    scanners count more. Unlike the trilateration, a miss that says "nearer
+    than heard" counts in full: the wrong level leans on exactly that.
+    """
+    total = wsum = 0.0
+    for h in heard:
+        line = math.sqrt(math.hypot(point[0] - h.x, point[1] - h.y) ** 2 + (h.z - z) ** 2)
+        res = line - h.distance
+        w = 1.0 / max(h.distance, 0.5) ** 2
+        total += w * res * res
+        wsum += w
+    return math.sqrt(total / wsum)
+
+
+# Without stairs on the way, another level is taken after this many times the hold time
+STAIRS_OVERRIDE = 6
+
+
+@dataclass(slots=True)
+class _LevelState:
+    level: float
+    candidate: float | None = None
+    since: float = 0.0
+    # Where the tracker was shown when the candidate came up: on the old
+    # level, before the signals of the new one pulled it elsewhere
+    origin: Point | None = None
+
+
+class LevelTracker:
+    """The level (the floors at one elevation) per tracker, with hysteresis.
+
+    The first level is the one that fits best. Afterwards another level is
+    taken once it fitted better by floor_margin for floor_hold_seconds. With
+    stairs_only and stairs joining the two levels, the tracker must have been
+    shown at such stairs when the other level came up, or be shown there now;
+    held STAIRS_OVERRIDE times as long, the level changes anyway, so a tracker
+    that took the stairs unseen does not stay below.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the tracker."""
+        self._state: dict[str, _LevelState] = {}
+
+    def level(
+        self,
+        key: str,
+        fits: dict[float, float],
+        now: float,
+        plan: Floorplan,
+        at: Point | None,
+    ) -> float:
+        """Return the level of the tracker from how well each level fits, at now.
+
+        at is where the tracker is shown on its current level.
+        """
+        best = min(fits, key=lambda level: fits[level])
+        state = self._state.get(key)
+        if state is None:
+            self._state[key] = _LevelState(best)
+            return best
+        settings = plan.settings
+        current = state.level
+        if (
+            best == current
+            or current not in fits
+            or fits[best] + settings.floor_margin >= fits[current]
+        ):
+            state.candidate = None
+            return current
+        if state.candidate != best:
+            state.candidate = best
+            state.since = now
+            state.origin = at
+        held = now - state.since
+        if held < settings.floor_hold_seconds:
+            return current
+        if (
+            settings.stairs_only
+            and held < STAIRS_OVERRIDE * settings.floor_hold_seconds
+            and not _stairs_reached(plan, current, best, state.origin)
+            and not _stairs_reached(plan, current, best, at)
+        ):
+            return current
+        state.level = best
+        state.candidate = None
+        return best
+
+    def current(self, key: str) -> float | None:
+        """Return the tracker's level, None before the first."""
+        state = self._state.get(key)
+        return state.level if state is not None else None
+
+    def reset(self, key: str) -> None:
+        """Forget the tracker, so the next level is taken as is."""
+        self._state.pop(key, None)
+
+
+def _stairs_reached(plan: Floorplan, a: float, b: float, at: Point | None) -> bool:
+    """Return whether the way from level a to level b is open at the point.
+
+    Open where the plan has no stairs joining the two levels, or at such stairs.
+    """
+    below = {f.key for f in plan.floor_list if f.elevation == a}
+    above = {f.key for f in plan.floor_list if f.elevation == b}
+    stairs = [s for s in plan.stairs if {s.floor, s.to} & below and {s.floor, s.to} & above]
+    if not stairs:
+        return True
+    return at is not None and any(s.near(*at) for s in stairs)

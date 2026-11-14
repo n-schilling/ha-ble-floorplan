@@ -49,7 +49,11 @@ class Observation:
 
 
 def observations(plan: Floorplan, runs: Sequence[CalibrationRun]) -> list[Observation]:
-    """Return one observation per finished run and scanner with enough samples."""
+    """Return one observation per finished run and scanner with enough samples.
+
+    The distance runs in three dimensions, from the run's floor to the
+    scanner's; the loss of the ceilings between is added to the signal.
+    """
     result: list[Observation] = []
     for run in runs:
         if run.running or (tracker := plan.tracker(run.tracker)) is None:
@@ -59,15 +63,18 @@ def observations(plan: Floorplan, runs: Sequence[CalibrationRun]) -> list[Observ
                 continue
             if len(samples) < CALIBRATION_MIN_SAMPLES:
                 continue
+            elevation = plan.floor(run.floor or plan.floor_list[0].key).elevation
             distance = max(
                 math.sqrt(
                     (run.x - scanner.x) ** 2
                     + (run.y - scanner.y) ** 2
-                    + (scanner.z - run.height) ** 2
+                    + (plan.scanner_height(scanner) - elevation - run.height) ** 2
                 ),
                 CALIBRATION_MIN_DISTANCE,
             )
-            rssi = float(statistics.median(s[1] for s in samples))
+            # What the ceilings between took, given back as the positions do
+            loss = plan.settings.floor_loss * plan.ceilings(scanner, elevation)
+            rssi = float(statistics.median(s[1] for s in samples)) + loss
             result.append(
                 Observation(tracker.key, scanner.key, run.id, rssi, distance, len(samples))
             )
