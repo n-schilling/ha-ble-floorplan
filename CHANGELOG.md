@@ -2,6 +2,15 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.19.0] - 2026-11-14
+
+### Added
+
+- A scanner's page names what the scanner is, in one line at the top: the model of the device it runs on and its integration (for example *ESP32 · ESPHome*, *Shelly Plug PM Gen3 · Shelly*), or the maker of a built-in adapter.
+- **System details**, folded away at the bottom of a scanner's page and secondary to its own details: how long the device has been running (the last start when it is unavailable, from the recorder), its Wi-Fi signal, its firmware with a note when an update is available, when the scanner last received anything, how many devices it heard in the last minute, its scan mode, its connection slots and a link to the device in Home Assistant. Read from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out. The page fetches them every 10 seconds while they are shown and remembers per browser whether they are open.
+- WebSocket command `ble_floorplan/scanner_system`, for administrators.
+- A page check for the system details.
+
 ## [0.18.0] - 2026-11-14
 
 ### Added

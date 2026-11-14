@@ -84,6 +84,7 @@ BLE Floorplan reads the advertisements Home Assistant's Bluetooth stack already 
 
 - **Every scanner Home Assistant has:** the Bluetooth adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices acting as proxies.
 - **Phones and watches:** devices set up with [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) change their address every few minutes; BLE Floorplan follows whatever address they currently use, also after their device tracker was renamed. Tags and beacons with a fixed address work as they are.
+- **A scanner's page** says what it is (for example *ESP32 · ESPHome*) and keeps its **system details** folded at the bottom: running time, Wi-Fi signal, firmware, last reception, devices in range, scan mode, connection slots and a link to the device. They come from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out.
 - Two scanners that see a tracker give a position; three or more spread over the home give useful ones, four or more let the integration spot a scanner that disagrees with the others.
 
 ### How a position comes about
@@ -326,6 +327,7 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/set_layout` | admins | `yaml` (at most 200,000 characters): replaces the rooms and openings; scanners, trackers and settings stay. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
 | `ble_floorplan/candidates` | admins | Returns the `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that are not on the plan yet. |
+| `ble_floorplan/scanner_system` | admins | `key`: returns the scanner's `model`, `manufacturer`, `integration`, `device_id`, `started` (`started_live` false for the last start known), `signal` (dBm), `firmware`, `firmware_latest` (when an update is available), `last_seen` (s), `in_range` (devices in the last minute), `mode`, `connectable`, `slots`, `slots_free`; null for what is not known. |
 | `ble_floorplan/add_scanner` | admins | `source`, optionally `name` and `z`: puts a scanner in the middle of the plan. |
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |

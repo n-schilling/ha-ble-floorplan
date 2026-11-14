@@ -67,6 +67,7 @@ def test_panel_uses_the_commands() -> None:
         "calibration/delete",
         "calibration/solve",
         "calibration/apply",
+        "scanner_system",
     ):
         assert f'"ble_floorplan/{command}"' in panel, command
     # Removing is built from the action name

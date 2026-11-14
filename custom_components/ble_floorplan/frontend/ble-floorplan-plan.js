@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.18.0";
+export const VERSION = "0.19.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -21,6 +21,12 @@ const TEXTS = {
     room: "Room", count: "scanners", notSeen: "not seen", ignored: "ignored", position: "Position",
     height: "Height", refPower: "Reference power", default: "default", offset: "Offset",
     pairs: "Pair corrections", none: "none", hears: "Hears", heardBy: "Heard by",
+    system: "System details", sysUptime: "Running for", sysLastStart: "Last start", sysUnavailable: "unavailable",
+    sysSignal: "Wi-Fi signal", sysFirmware: "Firmware", sysUpdate: "update to {v} available",
+    sysLastSeen: "Last received", sysAgo: "{t} ago", sysInRange: "Devices in range", sysInRangeHint: "last minute",
+    sysMode: "Scan mode", sysActive: "active", sysPassive: "passive", sysSlots: "Connection slots",
+    sysSlotsUsed: "{used} of {n} in use", sysReceiveOnly: "none, receive only", sysDevice: "Device",
+    sysOpenDevice: "Open in Home Assistant", sysNotInHa: "not in Home Assistant",
     offline: "not reachable", offlineHint: "This scanner has received nothing for over a minute. Is it powered and connected to Home Assistant?",
     hintMeasure: "Tap the plan where the tracker lies, then start.",
     hintMove: "Tap the plan where the scanner is, or drag it; then save.", runs: "Runs", duration: "Length",
@@ -80,6 +86,12 @@ const TEXTS = {
     room: "Raum", count: "Scanner", notSeen: "nicht gesehen", ignored: "ignoriert", position: "Position",
     height: "Höhe", refPower: "Referenzleistung", default: "Standard", offset: "Offset",
     pairs: "Korrektur je Paar", none: "keine", hears: "Hört", heardBy: "Gehört von",
+    system: "Systemdetails", sysUptime: "Läuft seit", sysLastStart: "Letzter Start", sysUnavailable: "nicht verfügbar",
+    sysSignal: "WLAN-Signal", sysFirmware: "Firmware", sysUpdate: "Update auf {v} verfügbar",
+    sysLastSeen: "Zuletzt empfangen", sysAgo: "vor {t}", sysInRange: "Geräte in Reichweite", sysInRangeHint: "letzte Minute",
+    sysMode: "Scanmodus", sysActive: "aktiv", sysPassive: "passiv", sysSlots: "Verbindungsplätze",
+    sysSlotsUsed: "{used} von {n} belegt", sysReceiveOnly: "keine, nur Empfang", sysDevice: "Gerät",
+    sysOpenDevice: "In Home Assistant öffnen", sysNotInHa: "nicht in Home Assistant",
     offline: "nicht erreichbar", offlineHint: "Dieser Scanner hat seit über einer Minute nichts empfangen. Hat er Strom und ist er mit Home Assistant verbunden?",
     hintMeasure: "Auf den Grundriss tippen, wo der Tracker liegt, dann starten.",
     hintMove: "Auf den Grundriss tippen, wo der Scanner hängt, oder ihn ziehen; dann speichern.", runs: "Messläufe", duration: "Dauer",

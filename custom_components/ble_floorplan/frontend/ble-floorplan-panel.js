@@ -36,13 +36,17 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.18.0";
+} from "./ble-floorplan-plan.js?v=0.19.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
   // Home Assistant's own page of the integration, behind the cog in the header
   const INTEGRATION_PATH = "/config/integrations/integration/ble_floorplan";
   const LABELS_KEY = "ble-floorplan-panel-labels";
+  // Whether the system details of a scanner are open, per viewer
+  const SYSTEM_KEY = "ble-floorplan-panel-system";
+  // The system details of the open scanner are fetched again after this long
+  const SYSTEM_REFETCH_MS = 10000;
 
   // Tab, icon, text
   const TABS = [
@@ -111,6 +115,10 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._calibration = { active: null, runs: [] };
       this._rot = loadRot(ROT_KEY, 0);
       this._labels = loadLabels(LABELS_KEY, { rooms: true, scanners: true, trackers: true });
+      // The system details of the open scanner: {key, at, data}, fetched while its page is shown
+      this._sys = null;
+      this._sysLoading = false;
+      this._sysOpen = loadLabels(SYSTEM_KEY, { open: false }).open === true;
       this._labelMenu = false;
       // The scanner and the tracker open on their pages
       this._selScanner = null;
@@ -204,6 +212,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       // The measurement on the coverage page is fetched again even while no tracker moves
       this._covTimer = window.setInterval(() => {
         if (this._tab === "coverage" && this._cov.mode === "measured") this._render();
+        if (this._tab === "scanners" && this._selScanner) this._render();
       }, MEASURED_REFETCH_MS / 4);
       this._render();
     }
@@ -358,6 +367,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (!this._hass) return;
       const plan = this._plan;
       if (this._tab === "coverage") this._covLoad();
+      if (this._tab === "scanners" && this._selScanner) this._sysLoad(this._selScanner);
       const showMap = this._tab !== "settings" && !!plan?.rooms.length;
       const showSheet = !this._tlOn;
       const sub = this._subpage;
@@ -737,16 +747,95 @@ if (!customElements.get("ble-floorplan-panel")) {
         actions = `<span></span><span>${this._btn("cancel", t.cancel)}${this._btn("save-move", t.save, { kind: "filled" })}</span>`;
       } else {
         const pairs = plan.trackers.map((tr) => [tr.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
-        body = this._confirmHtml() + (info.offline ? this._alert("warning", t.offlineHint) : "") + this._kv([
+        const kind = this._sysKind(this._sys?.key === s.key ? this._sys.data : null);
+        body = (kind ? `<div class="kind">${icon("scanner")}<span>${esc(kind)}</span></div>` : "") +
+          this._confirmHtml() + (info.offline ? this._alert("warning", t.offlineHint) : "") + this._kv([
           [t.position, `${fmt(s.x)} / ${fmt(s.y)} m`],
           [t.height, `${fmt(s.z)} m`],
           [t.offset, `${s.rssi_offset > 0 ? "+" : ""}${fmt(s.rssi_offset)} dB`],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
-        ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}`;
+        ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}` + this._sysHtml(s.key);
         actions = this._btn("remove-scanner", t.remove, { kind: "danger", disabled: !!this._confirm }) +
           `<span>${this._btn("move", t.move)}${this._btn("edit-scanner", t.edit)}</span>`;
       }
       return this._card("", body, actions);
+    }
+
+    // The system details of the scanner: fetched when its page opens, then every few seconds
+    async _sysLoad(key) {
+      const sys = this._sys;
+      if (this._sysLoading || (sys?.key === key && Date.now() - sys.at < SYSTEM_REFETCH_MS)) return;
+      this._sysLoading = true;
+      let data = null;
+      try {
+        data = await this._hass.callWS({ type: "ble_floorplan/scanner_system", key });
+      } catch {
+        // Secondary: without them the page still shows the scanner
+      }
+      this._sys = { key, at: Date.now(), data };
+      this._sysLoading = false;
+      this._render();
+    }
+
+    // What the scanner is, as one line: its model, then the integration or the maker
+    _sysKind(d) {
+      if (!d?.model && !d?.manufacturer) return "";
+      const model = d.model && d.model === d.model.toLowerCase() ? d.model.toUpperCase() : d.model;
+      return [model, d.integration || d.manufacturer].filter(Boolean).join(" · ");
+    }
+
+    // A span of seconds as days, hours and minutes in the language of the page
+    _span(seconds) {
+      const lang = this._hass.locale?.language || this._hass.language;
+      const unit = (n, u) => new Intl.NumberFormat(lang, { style: "unit", unit: u, unitDisplay: "short" }).format(n);
+      const s = Math.max(0, Math.round(seconds));
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (d) return `${unit(d, "day")} ${unit(h, "hour")}`;
+      if (h) return `${unit(h, "hour")} ${unit(m, "minute")}`;
+      if (m) return unit(m, "minute");
+      return unit(s, "second");
+    }
+
+    // The system details, folded away below the scanner's own details: secondary on purpose
+    _sysHtml(key) {
+      const t = this._t;
+      const sys = this._sys?.key === key ? this._sys : null;
+      const d = sys?.data;
+      let body;
+      if (!sys) body = `<div class="muted">…</div>`;
+      else if (!d) body = `<div class="muted">${esc(t.none)}</div>`;
+      else {
+        const lang = this._hass.locale?.language || this._hass.language;
+        const dash = "–";
+        const age = (Date.now() - sys.at) / 1000;
+        const rows = [];
+        if (d.started) {
+          const at = new Date(d.started);
+          const when = at.toLocaleString(lang, { dateStyle: "short", timeStyle: "short" });
+          rows.push(d.started_live
+            ? [t.sysUptime, `${esc(this._span((Date.now() - at.getTime()) / 1000))} <span class="muted">(${esc(when)})</span>`]
+            : [t.sysLastStart, `${esc(when)} <span class="muted">(${esc(t.sysUnavailable)})</span>`]);
+        }
+        if (d.signal != null) rows.push([t.sysSignal, `${this._fmt(d.signal, 0)} dBm`]);
+        if (d.firmware) {
+          rows.push([t.sysFirmware, esc(d.firmware) +
+            (d.firmware_latest ? `<div class="sysnote">${esc(t.sysUpdate.replace("{v}", d.firmware_latest))}</div>` : "")]);
+        }
+        rows.push([t.sysLastSeen, d.last_seen == null ? esc(t.sysNotInHa) : esc(t.sysAgo.replace("{t}", this._span(d.last_seen + age)))]);
+        rows.push([t.sysInRange, d.in_range == null ? dash : `${d.in_range} <span class="muted">(${esc(t.sysInRangeHint)})</span>`]);
+        if (d.mode) rows.push([t.sysMode, esc(d.mode === "active" ? t.sysActive : d.mode === "passive" ? t.sysPassive : d.mode)]);
+        if (d.connectable != null) {
+          rows.push([t.sysSlots, !d.connectable ? esc(t.sysReceiveOnly) : d.slots == null ? dash
+            : esc(t.sysSlotsUsed.replace("{used}", d.slots - d.slots_free).replace("{n}", d.slots))]);
+        }
+        if (d.device_id) {
+          rows.push([t.sysDevice, this._btn("sys-device", t.sysOpenDevice, { data: ` data-key="${esc(d.device_id)}"` })]);
+        }
+        body = this._kv(rows);
+      }
+      return `<ha-expansion-panel class="system" outlined header="${esc(t.system)}"${this._sysOpen ? " expanded" : ""}>${body}</ha-expansion-panel>`;
     }
 
     _trackersSheet() {
@@ -1147,6 +1236,15 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._input(el);
       });
       root.addEventListener("pointerdown", (e) => this._dragStart(e));
+      // The system details stay open or closed, also on the next scanner and the next visit
+      root.addEventListener("expanded-changed", (e) => {
+        if (!e.target.classList?.contains("system") || e.detail.expanded === this._sysOpen) return;
+        this._sysOpen = e.detail.expanded;
+        keep(SYSTEM_KEY, { open: this._sysOpen });
+        // The sheet as it is now, so the open panel is not drawn anew
+        this._forms = {};
+        this._sheetHtml = this._sheet();
+      });
     }
 
     // The floor plan as YAML; every other field is an ha-form with its own handler
@@ -1264,6 +1362,9 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._confirm = null;
           if (window.location.search) window.history.replaceState(null, "", `${PANEL_PATH}/${this._tab}`);
           break;
+        case "sys-device":
+          navigate(`/config/devices/device/${key}`);
+          return;
         case "sel-scanner":
           this._selScanner = key;
           this._note = null;
@@ -1910,6 +2011,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     .small { font-size: var(--ha-font-size-s, 12px); line-height: 16px; margin-top: 8px; }
     .status { display: flex; align-items: center; color: var(--secondary-text-color); margin-bottom: 8px; }
     .subhead { margin: 16px 0 4px; font-weight: var(--ha-font-weight-medium, 500); }
+    .kind { display: flex; align-items: center; gap: 8px; color: var(--secondary-text-color); margin-bottom: 8px; }
+    .kind ha-svg-icon { --mdc-icon-size: 18px; flex: none; }
+    ha-expansion-panel.system { display: block; margin-top: 24px; --expansion-panel-summary-padding: 0 16px; --expansion-panel-content-padding: 0 16px 8px; color: var(--secondary-text-color); }
+    ha-expansion-panel.system table.kv td { color: var(--secondary-text-color); }
+    .sysnote { color: var(--warning-color); font-size: var(--ha-font-size-s, 12px); }
+    ha-expansion-panel.system ha-button { margin-left: -12px; }
     table { border-collapse: collapse; width: 100%; }
     table.kv th { width: 40%; text-align: left; font-weight: 400; color: var(--secondary-text-color); padding: 8px 16px 8px 0; vertical-align: top; }
     table.kv td { padding: 8px 0; }

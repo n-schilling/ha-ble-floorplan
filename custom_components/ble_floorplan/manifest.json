@@ -5,7 +5,8 @@
     "frontend",
     "lovelace",
     "panel_custom",
-    "private_ble_device"
+    "private_ble_device",
+    "recorder"
   ],
   "codeowners": [
     "@n-schilling"
@@ -22,5 +23,5 @@
   "issue_tracker": "https://github.com/n-schilling/ha-ble-floorplan/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.18.0"
+  "version": "0.19.0"
 }

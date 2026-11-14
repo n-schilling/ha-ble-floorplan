@@ -846,6 +846,41 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("removing a scanner asks first, Cancel keeps it", remove_asks_first)
 
+    async def system_details() -> None:
+        # Secondary: folded away below the scanner's details, open on the next scanner once opened
+        await _goto(page, instance, "scanners")
+        await page.locator(f"{PANEL} .item[data-key='living']").click()
+        panel = page.locator(f"{PANEL} ha-expansion-panel.system")
+        await panel.wait_for()
+        expect(await panel.get_attribute("expanded") is None, "the system details start folded")
+        await panel.locator("#summary").click()
+        await page.locator(f"{PANEL} ha-expansion-panel.system[expanded]").wait_for()
+
+        async def told() -> bool:
+            return "Last received" in await panel.inner_text()
+
+        await _until(told, "the system details of the scanner")
+        text = await panel.inner_text()
+        for label in ("Devices in range", "Connection slots"):
+            expect(label in text, text)
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "scanner-system.png"))
+        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").click()
+        await page.locator(f"{PANEL} .item[data-key='hall']").click()
+        await page.locator(f"{PANEL} ha-expansion-panel.system[expanded]").wait_for()
+        await page.locator(f"{PANEL} ha-expansion-panel.system #summary").click()
+        await _until(
+            lambda: page.evaluate(
+                "() => localStorage.getItem('ble-floorplan-panel-system') === JSON.stringify({open: false})"
+            ),
+            "the folded system details remembered",
+        )
+
+    await checks.run(
+        "the system details of a scanner are folded and open on demand", system_details
+    )
+
     async def silent_scanner() -> None:
         # A scanner Home Assistant does not have: silent, as one without power
         plan = await _plan(api, instance)
