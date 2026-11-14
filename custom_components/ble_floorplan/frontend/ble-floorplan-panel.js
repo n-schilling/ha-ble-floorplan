@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.26.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.26.0";
+} from "./ble-floorplan-plan.js?v=0.27.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.27.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -95,6 +95,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     ["roomRules", "room_margin", "roomMargin", "num"],
     ["robust", "robust_residual", "robustResidual", "num"],
     ["timeline", "history_days", "historyDays", "num"],
+    ["qualitySec", "quality_hours", "qualityHours", "num"],
   ];
 
   // The timeline: newer moments above, the playhead this far below the top (px)
@@ -148,6 +149,8 @@ if (!customElements.get("ble-floorplan-panel")) {
       // The system details of the open scanner: {key, at, data}, fetched while its page is shown
       this._sys = null;
       this._sysLoading = false;
+      // The settings whose explanation is open
+      this._infoOpen = new Set();
       // Scanner quality: the overlay of one scanner, the lights of the list
       this._q = { open: null, data: null, at: 0, loading: false };
       this._qList = { data: null, at: 0, loading: false };
@@ -955,7 +958,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         }).join("");
         const since = d.since ? new Date(d.since * 1000).toLocaleString(this._hass.locale?.language || this._hass.language, { dateStyle: "short", timeStyle: "short" }) : "–";
         body = `<div class="qtiles">${tiles}</div>${findings}` +
-          `<div class="muted small">${esc(t.qSince.replace("{time}", since).replace("{h}", d.hours))}</div>`;
+          `<div class="muted small">${esc(t.qSince.replace("{time}", since).replace("{h}", d.hours).replace("{max}", this._plan.settings.quality_hours ?? 24))}</div>`;
       }
       const tryShift = d?.fidelity?.shift ? this._btn("quality-try", t.qTry) : "";
       return `<div class="qback" data-act="quality-close"></div><div class="qdialog" role="dialog">` +
@@ -1274,19 +1277,23 @@ if (!customElements.get("ble-floorplan-panel")) {
       const t = this._t;
       const plan = this._plan;
       const f = this._settings || plan.settings;
-      const sections = {};
+      // Every setting a row of its own, with an (i) that opens its explanation below it
+      const rows = {};
       for (const [sec, key, label, kind] of SETTING_FIELDS) {
-        (sections[sec] ||= []).push(
-          kind === "bool" ? { name: key, label: t[label], selector: { boolean: {} } } : this._num(key, t[label], null)
+        const field = kind === "bool" ? { name: key, label: t[label], selector: { boolean: {} } } : this._num(key, t[label], null);
+        const slot = this._formSlot(`set-${key}`, [field], { [key]: f[key] }, (v) => {
+          this._settings = { ...(this._settings || plan.settings), [key]: v[key] ?? null };
+        });
+        const open = this._infoOpen.has(key);
+        (rows[sec] ||= []).push(
+          `<div class="srow">${slot}${iconButton("info", t.info, `class="sinfo${open ? " on" : ""}" data-act="set-info" data-key="${key}"`)}</div>` +
+          (open ? `<div class="shelp">${esc(t["h_" + key] || "")}</div>` : "")
         );
       }
-      const form = (sec) => this._formSlot(`settings-${sec}`, sections[sec], f, (v) => {
-        this._settings = { ...(this._settings || plan.settings) };
-        for (const field of sections[sec]) this._settings[field.name] = v[field.name] ?? null;
-      });
+      const form = (sec) => rows[sec].join("");
       const save = `<span></span>${this._btn("save-settings", t.save, { kind: "filled" })}`;
       // The floor rules only matter for a plan of several levels
-      const secs = ["engine", "motion", "roomRules", ...(levelsOf(plan).length > 1 ? ["floorsSec"] : []), "robust", "timeline"];
+      const secs = ["engine", "motion", "roomRules", ...(levelsOf(plan).length > 1 ? ["floorsSec"] : []), "robust", "timeline", "qualitySec"];
       return this._ignoredCard() + secs
         .map((id) => this._card(t[id], form(id) + (id === "timeline" ? `<div class="muted small">${esc(t.timelineHint)}</div>` : ""), save))
         .join("");
@@ -1725,6 +1732,11 @@ if (!customElements.get("ble-floorplan-panel")) {
           });
           return;
         }
+        case "set-info":
+          if (this._infoOpen.has(key)) this._infoOpen.delete(key);
+          else this._infoOpen.add(key);
+          this._redraw = true;
+          break;
         case "quality":
           this._q = { open: this._selScanner, data: null, at: 0, loading: false };
           break;
@@ -2428,6 +2440,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     .qdot.good { background: var(--success-color, #43a047); }
     .qdot.fair { background: var(--warning-color, #ffa600); }
     .qdot.poor { background: var(--error-color, #db4437); }
+    /* A setting and its (i); the explanation below it */
+    .srow { display: flex; align-items: center; gap: 4px; }
+    .srow > .haform { flex: 1; min-width: 0; }
+    .srow + .srow, .shelp + .srow { margin-top: 8px; }
+    .shelp { margin: 4px 48px 4px 0; padding: 8px 12px; border-radius: 8px; font-size: var(--ha-font-size-s, 12px);
+      color: var(--secondary-text-color); background: color-mix(in srgb, var(--primary-color) 6%, transparent); }
     .qrow { display: flex; align-items: center; gap: 4px; margin-top: 12px; padding: 4px 4px 4px 12px; border-radius: 12px;
       background: color-mix(in srgb, var(--primary-text-color) 4%, transparent); }
     .qrow > span:nth-child(2) { flex: 1; }

@@ -114,8 +114,12 @@ DEFAULT_AWAY_SECONDS: Final = 120.0
 DEFAULT_HISTORY_DAYS: Final = 0
 # A scanner counts as active when it received anything this recently (s)
 SCANNER_ACTIVE_SECONDS: Final = 60.0
-# Scanner quality, kept per hour for this many hours
-QUALITY_HOURS: Final = 24
+# Scanner quality, kept per hour for this many hours (a setting), stored on the way
+DEFAULT_QUALITY_HOURS: Final = 24
+QUALITY_MAX_HOURS: Final = 720
+QUALITY_STORAGE_KEY: Final = f"{DOMAIN}.quality"
+QUALITY_STORAGE_VERSION: Final = 1
+QUALITY_SAVE_DELAY_SECONDS: Final = 300.0
 # A tracker counts for the reception once its best scanner took this many advertisements
 QUALITY_MIN_TRACKER_SAMPLES: Final = 60
 # Reception against the best scanner: good from, fair from

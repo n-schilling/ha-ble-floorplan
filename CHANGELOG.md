@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.27.0] - 2026-11-14
+
+### Changed
+
+- The scanner quality is kept in storage (`.storage/ble_floorplan.quality`), written every five minutes and on an unload: a restart no longer starts it afresh.
+- How many hours it looks back over is a setting: *Scanner quality → Hours looked back over* (`quality_hours`, 24 by default, 1 to 720); a shorter time drops the older hours.
+- Every setting has an (i) beside it that opens a short explanation below it.
+
 ## [0.26.0] - 2026-11-14
 
 ### Added

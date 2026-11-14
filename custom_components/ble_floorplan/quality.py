@@ -21,8 +21,8 @@ Contribution: how many cells of the coverage model get worse without the
 scanner, on its level. Good reception with no contribution is a scanner in
 the wrong place or one too many.
 
-Everything is kept in memory, per hour, for the last QUALITY_HOURS; after a
-restart it starts afresh.
+Everything is kept per hour, for as many hours as the setting quality_hours
+says, and written to storage every few minutes, so a restart keeps it.
 """
 
 from __future__ import annotations
@@ -31,24 +31,33 @@ from dataclasses import dataclass, field, replace
 import math
 from typing import TYPE_CHECKING, Any
 
+import probatio
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
+
 from .const import (
+    DEFAULT_QUALITY_HOURS,
     QUALITY_CONTRIBUTION_FAIR,
     QUALITY_CONTRIBUTION_GOOD,
     QUALITY_DIRECTIONS,
-    QUALITY_HOURS,
     QUALITY_MIN_MISSES,
     QUALITY_MIN_SCANNERS,
     QUALITY_MIN_TRACKER_SAMPLES,
     QUALITY_OUTLIER,
     QUALITY_RATE_FAIR,
     QUALITY_RATE_GOOD,
+    QUALITY_SAVE_DELAY_SECONDS,
     QUALITY_SHIFT,
     QUALITY_SPREAD_FAIR,
     QUALITY_SPREAD_GOOD,
+    QUALITY_STORAGE_KEY,
+    QUALITY_STORAGE_VERSION,
 )
 from .coverage import model
 from .engine import Measurement, solve_point
-from .model import Floorplan
+from .model import NUMBER, Floorplan
 
 if TYPE_CHECKING:
     from .geometry import Point
@@ -60,6 +69,21 @@ UNKNOWN = "unknown"
 
 # Sums of the misses of one scanner: n, Σm, Σm², outliers, Σc, Σs, Σcc, Σss, Σcs, Σmc, Σms
 _N, _M, _MM, _OUT, _C, _S, _CC, _SS, _CS, _MC, _MS = range(11)
+
+# In storage: hour (unix time // 3600) -> counts {"tracker|scanner": n} and misses {scanner: sums}
+DATA_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional("since", default=None): probatio.Any(None, NUMBER),
+        probatio.Optional("hours", default=dict): {
+            probatio.Coerce(int): {
+                probatio.Optional("counts", default=dict): {cv.string: probatio.Coerce(int)},
+                probatio.Optional("misses", default=dict): {
+                    cv.string: probatio.All([NUMBER], probatio.Length(min=11, max=11))
+                },
+            }
+        },
+    }
+)
 
 
 @dataclass(slots=True)
@@ -81,24 +105,83 @@ class Heard:
 
 
 class QualityTracker:
-    """Reception and fidelity per scanner, per hour of the last QUALITY_HOURS."""
+    """Reception and fidelity per scanner, per hour of the last hours the setting keeps."""
 
-    def __init__(self) -> None:
-        """Initialize the tracker."""
+    def __init__(self, hass: HomeAssistant | None = None) -> None:
+        """Initialize the tracker; with hass it is kept in storage."""
         self._hours: dict[int, _Hour] = {}
         self._now = 0.0
         self.since: float | None = None
+        self.keep = DEFAULT_QUALITY_HOURS
+        self._store: Store[dict[str, Any]] | None = (
+            Store(hass, QUALITY_STORAGE_VERSION, QUALITY_STORAGE_KEY) if hass else None
+        )
+        self._save_pending = False
 
-    def begin(self, now: float) -> None:
-        """Start a refresh at the unix time now: what follows goes into its hour."""
+    async def async_load(self, now: float, keep: int) -> None:
+        """Load what was gathered, the hours that still count; raises probatio.Invalid on bad data."""
+        assert self._store is not None
         self._now = now
+        self.keep = keep
+        if (data := await self._store.async_load()) is None:
+            return
+        valid = DATA_SCHEMA(data)
+        self.since = valid["since"]
+        for hour, item in valid["hours"].items():
+            counts = {
+                (key.partition("|")[0], key.partition("|")[2]): n
+                for key, n in item["counts"].items()
+            }
+            self._hours[hour] = _Hour(counts, {k: list(v) for k, v in item["misses"].items()})
+        self._prune()
+
+    def _data(self) -> dict[str, Any]:
+        self._save_pending = False
+        return {
+            "since": self.since,
+            "hours": {
+                str(hour): {
+                    "counts": {f"{t}|{s}": n for (t, s), n in item.counts.items()},
+                    "misses": item.misses,
+                }
+                for hour, item in self._hours.items()
+            },
+        }
+
+    async def async_save(self) -> None:
+        """Write now, for an unload of the entry."""
+        if self._store is not None:
+            await self._store.async_save(self._data())
+
+    async def async_remove(self) -> None:
+        """Remove what is stored, with the entry."""
+        if self._store is not None:
+            await self._store.async_remove()
+
+    def _prune(self) -> None:
+        """Drop the hours that no longer count; the start moves up with them."""
+        first = int(self._now // 3600) - self.keep + 1
+        for old in [h for h in self._hours if h < first]:
+            del self._hours[old]
+        if self.since is not None and self._hours:
+            self.since = max(self.since, min(self._hours) * 3600.0)
+
+    def begin(self, now: float, keep: int | None = None) -> None:
+        """Start a refresh at the unix time now, keeping the last keep hours: what follows goes into its hour."""
+        self._now = now
+        if keep is not None and keep != self.keep:
+            self.keep = keep
+            self._prune()
         if self.since is None:
             self.since = now
         hour = int(now // 3600)
         if hour not in self._hours:
             self._hours[hour] = _Hour()
-            for old in [h for h in self._hours if h <= hour - QUALITY_HOURS]:
-                del self._hours[old]
+            self._prune()
+        # Written every few minutes; Home Assistant writes what is pending when it stops
+        if self._store is not None and not self._save_pending:
+            self._save_pending = True
+            self._store.async_delay_save(self._data, QUALITY_SAVE_DELAY_SECONDS)
 
     def _hour(self) -> _Hour:
         return self._hours.setdefault(int(self._now // 3600), _Hour())

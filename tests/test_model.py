@@ -84,6 +84,7 @@ def test_round_trip() -> None:
         "floor_loss": 10.0,
         "away_seconds": 120.0,
         "history_days": 0,
+        "quality_hours": 24,
     }
     assert Floorplan.from_dict(data) == plan
 

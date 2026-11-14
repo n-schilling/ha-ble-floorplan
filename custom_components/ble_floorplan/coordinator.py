@@ -122,8 +122,9 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         calibration: CalibrationStore,
         history: HistoryStore,
         coverage: CoverageStore,
+        quality: QualityTracker | None = None,
     ) -> None:
-        """Initialize the coordinator."""
+        """Initialize the coordinator; without a quality tracker it keeps one in memory."""
         super().__init__(
             hass,
             _LOGGER,
@@ -140,8 +141,8 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self._smoother = Smoother()
         self._rooms = RoomTracker()
         self._levels = LevelTracker()
-        # How good each scanner is: reception and fidelity, in memory
-        self.quality = QualityTracker()
+        # How good each scanner is: reception and fidelity
+        self.quality = quality or QualityTracker()
         # Monotonic time of the first computation and of the last sighting per tracker
         self._started: float | None = None
         self._last_seen: dict[str, float] = {}
@@ -158,7 +159,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     async def _async_update_data(self) -> Positions:
         """Compute the positions and add them to the timeline and the coverage."""
         monotonic = MONOTONIC_TIME()
-        self.quality.begin(dt_util.utcnow().timestamp())
+        self.quality.begin(dt_util.utcnow().timestamp(), self.plan.settings.quality_hours)
         positions = self.compute(monotonic)
         if self.calibration.tick(monotonic):
             await self.async_stop_calibration(auto=True)

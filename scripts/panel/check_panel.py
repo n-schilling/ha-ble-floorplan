@@ -964,6 +964,17 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "settings.png"))
+        # The (i) beside a setting opens its explanation, a second tap closes it
+        info = page.locator(
+            f"{PANEL} ha-icon-button[data-act='set-info'][data-key='smoothing_seconds']"
+        )
+        await info.click()
+        help_text = page.locator(f"{PANEL} .shelp")
+        await help_text.wait_for()
+        expect("time constant" in await help_text.inner_text(), await help_text.inner_text())
+        await info.click()
+        await help_text.wait_for(state="detached")
+        smoothing = page.get_by_role("spinbutton", name="Smoothing (s)")
         await smoothing.fill("15")
         await page.locator(f"{PANEL} ha-button[data-act='save-settings']").first.click()
 

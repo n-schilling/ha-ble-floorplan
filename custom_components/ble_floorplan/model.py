@@ -35,6 +35,7 @@ from .const import (
     DEFAULT_MAX_DISTANCE,
     DEFAULT_MAX_SPEED,
     DEFAULT_MIN_MOVE,
+    DEFAULT_QUALITY_HOURS,
     DEFAULT_REF_POWER,
     DEFAULT_ROBUST_RESIDUAL,
     DEFAULT_ROOM_HOLD_SECONDS,
@@ -43,6 +44,7 @@ from .const import (
     DOOR_STEP,
     DOOR_TOLERANCE,
     HISTORY_MAX_DAYS,
+    QUALITY_MAX_HOURS,
     STAIRS_TOLERANCE,
     WALL_STOP,
 )
@@ -263,6 +265,9 @@ SETTINGS_SCHEMA = probatio.Schema(
         ),
         probatio.Optional("history_days", default=DEFAULT_HISTORY_DAYS): probatio.All(
             probatio.Coerce(int), probatio.Range(min=0, max=HISTORY_MAX_DAYS)
+        ),
+        probatio.Optional("quality_hours", default=DEFAULT_QUALITY_HOURS): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=1, max=QUALITY_MAX_HOURS)
         ),
     }
 )
@@ -525,6 +530,8 @@ class Settings:
     away_seconds: float = DEFAULT_AWAY_SECONDS
     # Days the timeline keeps; 0 records nothing
     history_days: int = DEFAULT_HISTORY_DAYS
+    # Hours the scanner quality looks back over
+    quality_hours: int = DEFAULT_QUALITY_HOURS
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -555,6 +562,7 @@ class Settings:
             "floor_loss": self.floor_loss,
             "away_seconds": self.away_seconds,
             "history_days": self.history_days,
+            "quality_hours": self.quality_hours,
         }
 
 

@@ -171,7 +171,7 @@ How the fit over all runs works: for each run and scanner, the median signal str
 
 ### Scanner quality
 
-How good a scanner is, and where its trouble lies, is gathered while Home Assistant runs, for the last 24 hours, in memory only. The list of scanners shows a light per scanner; a scanner's page shows it with **Details**, which opens three figures and the findings:
+How good a scanner is, and where its trouble lies, is gathered while Home Assistant runs, for the hours the setting *Scanner quality* keeps (24 by default, up to 720), and written to storage every five minutes, so restarts keep it. The list of scanners shows a light per scanner; a scanner's page shows it with **Details**, which opens three figures and the findings:
 
 - **Reception:** per tracker, how many advertisements the scanner took against the scanner that took the most, averaged over the trackers it heard. Mostly the device: a Shelly reports a fraction of what an ESPHome proxy does. Good from 60 %, fair from 35 %.
 - **Fidelity:** every second, for every tracker that three other scanners place, the position is solved without the scanner and its circle held against it. The spread of these misses is good up to 1.5 m, fair up to 3 m; the mean (offset) is what the calibration corrects. When the trackers lie around the scanner in enough directions and its misses grow towards one side, the scanner stands elsewhere than the plan says: the page names how far and offers to look at the suggested place, to save or to cancel. In a corner, where all trackers lie on one side, such a shift cannot be told from an offset.
@@ -194,7 +194,7 @@ When days are kept, a point goes into a tracker's track when it is seen again or
 
 ### Settings
 
-All settings are on the *Settings* tab of the page. Setting a value to 0 switches a rule off where noted.
+All settings are on the *Settings* tab of the page; the (i) beside each opens a short explanation. Setting a value to 0 switches a rule off where noted.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -219,6 +219,7 @@ All settings are on the *Settings* tab of the page. Setting a value to 0 switche
 | Wall margin (`room_margin`) | 0.3 m | ... and at least this far from the new room's walls; 0 is off. |
 | Residual (`robust_residual`) | 1 m | With four or more scanners, a scanner the others contradict by more loses weight; 0 is off. |
 | Days kept (`history_days`) | 0 | Days the timeline keeps, at most 30; 0 records nothing and deletes what was kept. |
+| Scanner quality: hours (`quality_hours`) | 24 | Hours the scanner quality looks back over, 1 to 720; older hours are dropped. |
 
 **Settings → Devices & services → BLE Floorplan → Configure** has one option: **Position sensors** (off by default) gives every tracker the sensors *Position X* and *Position Y*, for example for history graphs; unlike the attributes of the room sensor they go into the recorder. Saving reloads the integration.
 
@@ -282,7 +283,7 @@ How the floor is found: the position is solved for every level, with the tracker
 
 ### Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs and, when *Days kept* is above 0, the timeline and the measured coverage in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. The measured coverage holds per tracker and day how long it was in which half-metre cell; it follows the same rules. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs, the scanner quality (per hour, how many advertisements each scanner took of each tracker, and sums of its misses, no positions) and, when *Days kept* is above 0, the timeline and the measured coverage in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. The measured coverage holds per tracker and day how long it was in which half-metre cell; it follows the same rules. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Examples
 
@@ -403,7 +404,7 @@ A tracker whose Private BLE Device was removed from Home Assistant raises a repa
 
 ### Store
 
-`.storage/ble_floorplan.floorplan` (the plan), `.storage/ble_floorplan.calibration` (the runs), `.storage/ble_floorplan.history` and one `.storage/ble_floorplan.history.<day>` per kept day (the timeline), `.storage/ble_floorplan.coverage` (the measured coverage).
+`.storage/ble_floorplan.floorplan` (the plan), `.storage/ble_floorplan.calibration` (the runs), `.storage/ble_floorplan.history` and one `.storage/ble_floorplan.history.<day>` per kept day (the timeline), `.storage/ble_floorplan.coverage` (the measured coverage), `.storage/ble_floorplan.quality` (the scanner quality, per hour).
 
 ## Installation
 

@@ -175,3 +175,65 @@ async def test_ws_scanner_quality(
     await client.send_json_auto_id({"type": WS_SCANNER_QUALITY, "key": "nope"})
     msg = await client.receive_json()
     assert msg["error"]["code"] == "not_found"
+
+
+async def test_kept_in_storage(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
+    """Written along the way and on an unload, loaded again; a shorter setting drops old hours."""
+    from freezegun import freeze_time
+
+    from custom_components.ble_floorplan.const import QUALITY_STORAGE_KEY
+
+    now = 1793016000.0
+    quality = QualityTracker(hass)
+    await quality.async_load(now, 24)
+    assert quality.since is None
+    with freeze_time("2026-11-14 12:00:00"):
+        quality.begin(now)
+        for _ in range(5):
+            quality.count("tag", "esp")
+        _feed(quality, TRUE, count=20)
+        quality.begin(now + 3600, 24)
+        quality.count("tag", "esp")
+        await quality.async_save()
+    stored = hass_storage[QUALITY_STORAGE_KEY]["data"]
+    assert stored["since"] == now
+    assert len(stored["hours"]) == 2
+
+    again = QualityTracker(hass)
+    await again.async_load(now + 3600, 24)
+    assert again.since == now
+    assert sum(h.counts.get(("tag", "esp"), 0) for h in again._hours.values()) == 6
+    assert sum(h.misses["a"][0] for h in again._hours.values() if "a" in h.misses) == 20
+    # One hour kept: the older one goes, the start moves up with it
+    again.begin(now + 3600, 1)
+    assert len(again._hours) == 1
+    assert again.since == (int(now // 3600) + 1) * 3600.0
+    # Too old by the time it loads: nothing left
+    late = QualityTracker(hass)
+    await late.async_load(now + 48 * 3600, 24)
+    assert late._hours == {}
+    await late.async_remove()
+    assert QUALITY_STORAGE_KEY not in hass_storage
+    # Without hass nothing is stored
+    await QualityTracker().async_save()
+    await QualityTracker().async_remove()
+
+
+async def test_written_after_a_while(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
+    """The delayed write carries what came in."""
+    from datetime import timedelta
+
+    from pytest_homeassistant.common import async_fire_time_changed
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.ble_floorplan.const import QUALITY_STORAGE_KEY
+
+    quality = QualityTracker(hass)
+    await quality.async_load(1793016000.0, 24)
+    quality.begin(1793016000.0)
+    quality.count("tag", "esp")
+    quality.begin(1793016001.0)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+    await hass.async_block_till_done()
+    assert hass_storage[QUALITY_STORAGE_KEY]["data"]["hours"]
