@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.19.1] - 2026-11-14
+
+### Fixed
+
+- The system details no longer use device registry calls that Home Assistant marks as deprecated (`async_get_device`, `DeviceEntry.primary_config_entry`); they logged a warning each time a scanner's page was opened.
+
 ## [0.19.0] - 2026-11-14
 
 ### Added

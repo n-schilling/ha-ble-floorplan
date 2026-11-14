@@ -38,7 +38,17 @@ def _devices(
 ) -> tuple[dr.DeviceEntry | None, dr.DeviceEntry | None]:
     """Return the scanner's Bluetooth device and the device it runs on (the same for a built-in adapter)."""
     registry = dr.async_get(hass)
-    adapter = registry.async_get_device(connections={(CONNECTION_BLUETOOTH, source)})
+    adapter = next(
+        (
+            device
+            for device in registry.devices
+            if any(
+                kind == CONNECTION_BLUETOOTH and value.upper() == source
+                for kind, value in device.connections
+            )
+        ),
+        None,
+    )
     if adapter is None:
         return None, None
     host = registry.async_get(adapter.via_device_id) if adapter.via_device_id else None
@@ -47,8 +57,7 @@ def _devices(
 
 def _integration_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None:
     """Return the name of the integration the device belongs to."""
-    entry_id = device.primary_config_entry or next(iter(device.config_entries), None)
-    if entry_id is None or (entry := hass.config_entries.async_get_entry(entry_id)) is None:
+    if (entry := hass.config_entries.async_get_entry(device.config_entry_id)) is None:
         return None
     try:
         return async_get_loaded_integration(hass, entry.domain).name
