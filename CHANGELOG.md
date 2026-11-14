@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.28.1] - 2026-11-14
+
+### Changed
+
+- README: seven current screenshots (a tracker, the drawing with floors and stairs, a guided calibration run, the coverage, the quality of a scanner, the card, a phone in dark mode) instead of nine of an older version.
+- Development: the page checks keep only the README's pictures in the screenshot directory; `--all-screenshots` keeps those of every check.
+- Development: types-PyYAML 6.0.12.20261103.
+
 ## [0.28.0] - 2026-11-14
 
 ### Changed
