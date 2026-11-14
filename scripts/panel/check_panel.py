@@ -846,6 +846,40 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("removing a scanner asks first, Cancel keeps it", remove_asks_first)
 
+    async def silent_scanner() -> None:
+        # A scanner Home Assistant does not have: silent, as one without power
+        plan = await _plan(api, instance)
+        attic = {**SCANNERS[3], "key": "attic", "name": "Attic plug", "source": "AA:BB:CC:DD:EE:05"}
+        attic["x"], attic["y"] = 5.0, 7.0
+        changed = {**plan, "scanners": [*plan["scanners"], attic]}
+        reply = await api.ws(
+            instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": changed}
+        )
+        expect(reply["success"], str(reply))
+        try:
+            await _goto(page, instance, "scanners")
+            item = page.locator(f"{PANEL} .item[data-key='attic']")
+            await item.locator(".icon-bg.offline").wait_for()
+            expect("not reachable" in await item.inner_text(), await item.inner_text())
+            living = page.locator(f"{PANEL} .item[data-key='living']")
+            expect(
+                await living.locator(".icon-bg.offline").count() == 0, "a hearing scanner is marked"
+            )
+            await page.locator(f"{PANEL} svg g.scanner.offline[data-key='attic']").wait_for()
+            await item.click()
+            await page.locator(
+                f"{PANEL} ha-alert[alert-type='warning']", has_text="nothing for over a minute"
+            ).wait_for()
+        finally:
+            reply = await api.ws(
+                instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": plan}
+            )
+            expect(reply["success"], str(reply))
+
+    await checks.run(
+        "a silent scanner is marked in the list, on the plan and on its page", silent_scanner
+    )
+
     async def settings_saved() -> None:
         await _goto(page, instance, "settings")
         smoothing = page.get_by_role("spinbutton", name="Smoothing (s)")

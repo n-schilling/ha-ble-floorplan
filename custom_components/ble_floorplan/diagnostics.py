@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.core import HomeAssistant
 
-from .const import SCANNER_ACTIVE_SECONDS
+from .catalog import alive_sources
 
 if TYPE_CHECKING:
     from . import FloorplanConfigEntry
@@ -27,11 +26,7 @@ async def async_get_config_entry_diagnostics(
     plan = runtime.store.plan
     scanner_names = {s.key: f"Scanner {i}" for i, s in enumerate(plan.scanners, 1)}
     tracker_names = {t.key: f"Tracker {i}" for i, t in enumerate(plan.trackers, 1)}
-    alive = {
-        scanner.source.upper()
-        for scanner in async_current_scanners(hass)
-        if scanner.time_since_last_detection() <= SCANNER_ACTIVE_SECONDS
-    }
+    alive = alive_sources(hass)
     positions = runtime.coordinator.data or {}
 
     def _tracker(index: int) -> dict[str, Any]:

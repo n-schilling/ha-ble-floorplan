@@ -19,7 +19,7 @@ from homeassistant.helpers import area_registry as ar, device_registry as dr, en
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.util import slugify
 
-from .const import DOMAIN
+from .const import DOMAIN, SCANNER_ACTIVE_SECONDS
 from .coordinator import PRIVATE_BLE_DEVICE
 from .model import FLOORPLAN_SCHEMA, Floorplan, Room, Scanner, Tracker
 
@@ -41,6 +41,24 @@ def _bluetooth_devices(hass: HomeAssistant) -> dict[str, dr.DeviceEntry]:
             if kind == CONNECTION_BLUETOOTH:
                 devices[value.upper()] = device
     return devices
+
+
+def alive_sources(hass: HomeAssistant) -> set[str]:
+    """Return the sources of the scanners that received anything within the last minute.
+
+    A scanner Home Assistant no longer has is not alive either.
+    """
+    return {
+        scanner.source.upper()
+        for scanner in async_current_scanners(hass)
+        if scanner.time_since_last_detection() <= SCANNER_ACTIVE_SECONDS
+    }
+
+
+def offline_scanners(hass: HomeAssistant, plan: Floorplan) -> list[str]:
+    """Return the keys of the plan's scanners that received nothing within the last minute."""
+    alive = alive_sources(hass)
+    return [s.key for s in plan.scanners if s.source not in alive]
 
 
 def scanner_names(hass: HomeAssistant) -> dict[str, str]:

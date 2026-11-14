@@ -91,6 +91,8 @@ DEFAULT_AWAY_SECONDS: Final = 120.0
 DEFAULT_HISTORY_DAYS: Final = 0
 # A scanner counts as active when it received anything this recently (s)
 SCANNER_ACTIVE_SECONDS: Final = 60.0
+# How often a subscription looks for scanners that went silent or came back (s)
+SCANNER_CHECK_SECONDS: Final = 10.0
 # A wall is crossed only through an opening this close (m)
 DOOR_TOLERANCE: Final = 0.15
 # Going through a door, the position lands this far past it (m) …

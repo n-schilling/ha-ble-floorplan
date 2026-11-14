@@ -74,7 +74,7 @@ async def test_active_scanners(
     scanners["kitchen"].idle = 300.0
     other = FakeScanner("AA:BB:CC:DD:EE:99", "Elsewhere")
     with patch(
-        "custom_components.ble_floorplan.sensor.async_current_scanners",
+        "custom_components.ble_floorplan.catalog.async_current_scanners",
         return_value=[scanners["living"], scanners["kitchen"], other],
     ):
         freezer.tick(timedelta(seconds=31))

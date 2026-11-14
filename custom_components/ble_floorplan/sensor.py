@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.bluetooth import async_current_scanners
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant, callback
@@ -12,13 +11,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import (
-    CONF_POSITION_SENSORS,
-    DEFAULT_POSITION_SENSORS,
-    DOMAIN,
-    NAME,
-    SCANNER_ACTIVE_SECONDS,
-)
+from .catalog import alive_sources
+from .const import CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS, DOMAIN, NAME
 from .coordinator import FloorplanCoordinator
 from .entity import HUB, TrackerEntity, async_follow_trackers, async_remove_stale_devices
 from .model import Floorplan, Tracker
@@ -166,11 +160,7 @@ class ActiveScannersSensor(SensorEntity):
     @callback
     def _update(self) -> None:
         plan = self.coordinator.plan
-        alive = {
-            scanner.source.upper()
-            for scanner in async_current_scanners(self.hass)
-            if scanner.time_since_last_detection() <= SCANNER_ACTIVE_SECONDS
-        }
+        alive = alive_sources(self.hass)
         active = [s.name for s in plan.scanners if s.source in alive]
         inactive = [s.name for s in plan.scanners if s.source not in alive]
         self._attr_native_value = len(active)

@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.17.1";
+export const VERSION = "0.18.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -21,6 +21,7 @@ const TEXTS = {
     room: "Room", count: "scanners", notSeen: "not seen", ignored: "ignored", position: "Position",
     height: "Height", refPower: "Reference power", default: "default", offset: "Offset",
     pairs: "Pair corrections", none: "none", hears: "Hears", heardBy: "Heard by",
+    offline: "not reachable", offlineHint: "This scanner has received nothing for over a minute. Is it powered and connected to Home Assistant?",
     hintMeasure: "Tap the plan where the tracker lies, then start.",
     hintMove: "Tap the plan where the scanner is, or drag it; then save.", runs: "Runs", duration: "Length",
     delete: "Delete", fitExponent: "Fit the exponent too", compute: "Compute", apply: "Apply",
@@ -79,6 +80,7 @@ const TEXTS = {
     room: "Raum", count: "Scanner", notSeen: "nicht gesehen", ignored: "ignoriert", position: "Position",
     height: "Höhe", refPower: "Referenzleistung", default: "Standard", offset: "Offset",
     pairs: "Korrektur je Paar", none: "keine", hears: "Hört", heardBy: "Gehört von",
+    offline: "nicht erreichbar", offlineHint: "Dieser Scanner hat seit über einer Minute nichts empfangen. Hat er Strom und ist er mit Home Assistant verbunden?",
     hintMeasure: "Auf den Grundriss tippen, wo der Tracker liegt, dann starten.",
     hintMove: "Auf den Grundriss tippen, wo der Scanner hängt, oder ihn ziehen; dann speichern.", runs: "Messläufe", duration: "Dauer",
     delete: "Löschen", fitExponent: "Exponent mitschätzen", compute: "Berechnen", apply: "Übernehmen",
@@ -176,10 +178,12 @@ export const trackerColor = (plan, key) => {
   return COLORS[(i < 0 ? 0 : i) % COLORS.length];
 };
 
-// What each tracker and each scanner shows: position, readings, colour
-export const planInfo = (plan, positions, scannerPos) => {
+// What each tracker and each scanner shows: position, readings, colour, whether the scanner is silent
+export const planInfo = (plan, positions, scannerPos, offline = []) => {
   const info = { trackers: {}, scanners: {} };
-  for (const s of plan.scanners) info.scanners[s.key] = { name: s.name, p: scannerPos(s), z: s.z, trackers: [] };
+  for (const s of plan.scanners) {
+    info.scanners[s.key] = { name: s.name, p: scannerPos(s), z: s.z, offline: offline.includes(s.key), trackers: [] };
+  }
   plan.trackers.forEach((tr, i) => {
     const color = COLORS[i % COLORS.length];
     const pos = positions[tr.key] || {};
@@ -326,7 +330,8 @@ export const planSvg = (plan, o) => {
   const scanners = plan.scanners
     .map((s) => {
       const [x, y] = o.scannerPos(s);
-      const cls = `scanner${o.movable === s.key ? " movable" : ""}${o.openScanner === s.key ? " open" : ""}`;
+      const cls = `scanner${o.movable === s.key ? " movable" : ""}${o.openScanner === s.key ? " open" : ""}` +
+        `${o.offline?.includes(s.key) ? " offline" : ""}`;
       return (
         `<g class="${cls}" data-key="${esc(s.key)}">` +
         `<rect x="${x - 0.22}" y="${y - 0.22}" width="0.44" height="0.44" rx="0.08"/>` +
@@ -366,7 +371,7 @@ export const detailHtml = (info, kind, key, t, fmt) => {
     const rows = Object.values(info.scanners)
       .map((s) => {
         const e = s.trackers.find((x) => x.key === key) || {};
-        const status = e.d == null ? t.notSeen : e.used ? "" : t.ignored;
+        const status = s.offline ? t.offline : e.d == null ? t.notSeen : e.used ? "" : t.ignored;
         return `<tr class="${e.used ? "" : "ign"}"><td>${esc(s.name)}</td><td class="num">${e.d == null ? "" : `${fmt(e.d)} m`}</td>` +
           `<td class="num">${e.rssi == null ? "" : `${fmt(e.rssi, 0)} dBm`}</td><td>${status}</td></tr>`;
       })
@@ -386,7 +391,8 @@ export const detailHtml = (info, kind, key, t, fmt) => {
         `<td>${e.d == null ? t.notSeen : e.used ? "" : t.ignored}</td></tr>`
     )
     .join("");
-  return `<b>${esc(s.name)}</b><div class="sub">${t.position} ${fmt(s.p[0])} / ${fmt(s.p[1])} m · ${t.height} ${fmt(s.z)} m</div><table>${rows}</table>`;
+  const off = s.offline ? `<div class="sub offline">${esc(t.offline)}</div>` : "";
+  return `<b>${esc(s.name)}</b>${off}<div class="sub">${t.position} ${fmt(s.p[0])} / ${fmt(s.p[1])} m · ${t.height} ${fmt(s.z)} m</div><table>${rows}</table>`;
 };
 
 // Tooltip next to the pointer over a scanner or a tracker; not on touch
@@ -736,6 +742,8 @@ export const PLAN_CSS = `
   .tracker.open circle { stroke: var(--primary-text-color); stroke-width: 0.06; }
   .scanner.movable { cursor: grab; }
   .scanner.movable rect { fill: var(--primary-color); }
+  .scanner.offline rect { fill: var(--card-background-color); stroke: var(--error-color); stroke-width: 0.08; stroke-dasharray: 0.1 0.06; }
+  .scanner.offline .slabel, .sub.offline { fill: var(--error-color); color: var(--error-color); }
   .slabel { font-size: 0.3px; fill: var(--primary-text-color); text-anchor: middle; }
   .tlabel { font-size: 0.36px; font-weight: 600; text-anchor: middle; }
   .range { fill: none; stroke-width: 0.04; stroke-dasharray: 0.12 0.1; opacity: 0.8; }

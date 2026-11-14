@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import probatio
@@ -19,6 +20,7 @@ from homeassistant.components.websocket_api.messages import event_message
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util.hass_dict import HassKey
 
 from .catalog import (
@@ -27,6 +29,7 @@ from .catalog import (
     add_tracker,
     candidates,
     layout_yaml,
+    offline_scanners,
     remove_scanner,
     remove_tracker,
     scanner_names,
@@ -35,6 +38,7 @@ from .catalog import (
 )
 from .const import (
     DOMAIN,
+    SCANNER_CHECK_SECONDS,
     WS_ADD_SCANNER,
     WS_ADD_TRACKER,
     WS_CALIBRATION_APPLY,
@@ -161,10 +165,16 @@ def _plan(plan: Floorplan, admin: bool) -> dict[str, Any]:
     }
 
 
+def _offline(runtime: RuntimeData) -> list[str]:
+    """Return the keys of the scanners that received nothing within the last minute."""
+    return offline_scanners(runtime.coordinator.hass, runtime.store.plan)
+
+
 def _snapshot(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "floorplan": _plan(runtime.store.plan, admin),
         "positions": _positions(runtime),
+        "offline": _offline(runtime),
     }
     if admin:
         snapshot["calibration"] = runtime.calibration.as_event()
@@ -189,7 +199,8 @@ def ws_get_floorplan(
 def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Send the plan, the positions and the runs now, then every change of any of them.
 
-    A reload of the entry sends a fresh snapshot of the new one. Users who are
+    The scanners that went silent are looked at every few seconds, because a
+    silent scanner need not change any position. A reload of the entry sends a fresh snapshot of the new one. Users who are
     no administrators get the plan as the card draws it and no runs.
     """
     admin = connection.user.is_admin
@@ -220,10 +231,26 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
                 event["calibration"] = runtime.calibration.as_event()
             _send(event)
 
+        offline = _offline(runtime)
+
+        @callback
+        def _send_plan() -> None:
+            nonlocal offline
+            offline = _offline(runtime)
+            _send({"floorplan": _plan(runtime.store.plan, admin), "offline": offline})
+
+        @callback
+        def _check_offline(_now: Any) -> None:
+            nonlocal offline
+            if (now := _offline(runtime)) != offline:
+                offline = now
+                _send({"offline": offline})
+
         removers.append(runtime.coordinator.async_add_listener(_send_positions))
+        removers.append(runtime.store.async_add_listener(_send_plan))
         removers.append(
-            runtime.store.async_add_listener(
-                lambda: _send({"floorplan": _plan(runtime.store.plan, admin)})
+            async_track_time_interval(
+                hass, _check_offline, timedelta(seconds=SCANNER_CHECK_SECONDS)
             )
         )
         if admin:

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 import math
 from typing import Any
+from unittest.mock import patch
 
+from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant.typing import WebSocketGenerator
 
 from homeassistant.core import HomeAssistant
@@ -143,6 +146,50 @@ async def test_subscribe(
     await client.send_json_auto_id({"type": WS_GET_FLOORPLAN})
     msg = await client.receive_json()
     assert msg["success"]
+
+
+async def test_subscribe_tells_silent_scanners(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    scanners: dict[str, FakeScanner],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The snapshot names the silent scanners; a change is sent when it is seen, nothing else."""
+    scanners["kitchen"].idle = 300.0
+    current = [scanners["living"], scanners["kitchen"]]
+    with patch(
+        "custom_components.ble_floorplan.catalog.async_current_scanners",
+        side_effect=lambda hass: list(current),
+    ):
+        client = await hass_ws_client(hass)
+        await client.send_json_auto_id({"type": WS_GET_FLOORPLAN})
+        msg = await client.receive_json()
+        # Silent for 5 minutes, and gone from Home Assistant
+        assert msg["result"]["offline"] == ["kitchen", "bedroom"]
+
+        await client.send_json_auto_id({"type": WS_SUBSCRIBE})
+        assert (await client.receive_json())["success"]
+        msg = await client.receive_json()
+        assert msg["event"]["offline"] == ["kitchen", "bedroom"]
+
+        scanners["kitchen"].idle = 2.0
+        current.append(scanners["bedroom"])
+        scanners["living"].idle = 61.0
+        freezer.tick(timedelta(seconds=10))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        msg = await client.receive_json()
+        assert msg["event"] == {"offline": ["living"]}
+
+        # No change, no event: the next one is the plan
+        freezer.tick(timedelta(seconds=10))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        await entry.runtime_data.store.async_save(make_plan(settings={"max_distance": 9}))
+        msg = await client.receive_json()
+        assert set(msg["event"]) == {"floorplan", "offline"}
+        assert msg["event"]["offline"] == ["living"]
 
 
 async def test_set_scanner(
@@ -599,7 +646,7 @@ async def test_other_users_see_what_the_card_draws(
 
     await entry.runtime_data.store.async_save(make_plan(settings={"max_distance": 9}))
     msg = await client.receive_json()
-    assert msg["event"] == {"floorplan": card_plan}
+    assert msg["event"] == {"floorplan": card_plan, "offline": ["living", "kitchen", "bedroom"]}
 
 
 async def test_subscribe_follows_a_reload(
@@ -624,8 +671,8 @@ async def test_subscribe_follows_a_reload(
     # The save reaches the old listener, the reload sends a new snapshot
     events = [await client.receive_json() for _ in range(3)]
     kinds = [set(e["event"]) for e in events if e["type"] == "event"]
-    assert {"floorplan"} in kinds
-    assert {"floorplan", "positions", "calibration", "about"} in kinds
+    assert {"floorplan", "offline"} in kinds
+    assert {"floorplan", "positions", "offline", "calibration", "about"} in kinds
     await hass.async_block_till_done()
     assert entry.runtime_data.coordinator is not old_coordinator
 

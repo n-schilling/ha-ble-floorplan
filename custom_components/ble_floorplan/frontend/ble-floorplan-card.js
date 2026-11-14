@@ -20,7 +20,7 @@ import {
   planInfo,
   planSvg,
   texts,
-} from "./ble-floorplan-plan.js?v=0.17.1";
+} from "./ble-floorplan-plan.js?v=0.18.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
@@ -51,6 +51,7 @@ if (!customElements.get("ble-floorplan-card")) {
       });
       this._plan = this._plan || null;
       this._positions = this._positions || {};
+      this._offline = this._offline || [];
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
       this._frame = false;
       this._render();
@@ -105,7 +106,8 @@ if (!customElements.get("ble-floorplan-card")) {
         this._bounds = computeBounds(this._plan);
       }
       if (event.positions) this._positions = event.positions;
-      if (event.floorplan || event.positions) this._render();
+      if (event.offline) this._offline = event.offline;
+      if (event.floorplan || event.positions || event.offline) this._render();
     }
 
     _render() {
@@ -134,7 +136,7 @@ if (!customElements.get("ble-floorplan-card")) {
       }
       const fmt = formatter(this._hass);
       const scannerPos = (s) => [s.x, s.y];
-      this._info = planInfo(plan, this._positions, scannerPos);
+      this._info = planInfo(plan, this._positions, scannerPos, this._offline);
       if (this._sel && !this._info[`${this._sel.kind}s`][this._sel.key]) this._sel = null;
       const sel = this._sel;
       const root = this.shadowRoot;
@@ -143,6 +145,7 @@ if (!customElements.get("ble-floorplan-card")) {
         rot: this._rot,
         labels: this._labels,
         positions: this._positions,
+        offline: this._offline,
         scannerPos,
         circles: sel?.kind === "tracker" ? sel.key : null,
         openTracker: sel?.kind === "tracker" ? sel.key : null,

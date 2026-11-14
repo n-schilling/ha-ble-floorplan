@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.17.1";
+} from "./ble-floorplan-plan.js?v=0.18.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -107,6 +107,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._tab = "plan";
       this._plan = null;
       this._positions = {};
+      this._offline = [];
       this._calibration = { active: null, runs: [] };
       this._rot = loadRot(ROT_KEY, 0);
       this._labels = loadLabels(LABELS_KEY, { rooms: true, scanners: true, trackers: true });
@@ -228,6 +229,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._bounds = computeBounds(this._plan);
       }
       if (event.positions) this._positions = event.positions;
+      if (event.offline) this._offline = event.offline;
       if (event.calibration) this._calibration = event.calibration;
       if (event.about) this._about = event.about;
       this._render();
@@ -426,7 +428,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     _update() {
       const root = this.shadowRoot;
       const plan = this._plan;
-      if (plan) this._info = planInfo(plan, this._shownPositions(), (s) => this._scannerPos(s));
+      if (plan) this._info = planInfo(plan, this._shownPositions(), (s) => this._scannerPos(s), this._offline);
       const map = root.getElementById("map");
       if (map && plan && !this._dragging) {
         map.classList.toggle("aim", this._aiming);
@@ -504,6 +506,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         rot: this._rot,
         labels: this._labels,
         positions: this._shownPositions(),
+        offline: this._offline,
         scannerPos: (s) => this._scannerPos(s),
         circles: tab === "trackers" ? this._selTracker : null,
         openTracker: tab === "trackers" ? this._selTracker : tab === "calibration" ? this._measure.tracker : null,
@@ -695,9 +698,14 @@ if (!customElements.get("ble-floorplan-panel")) {
       const s = plan.scanners.find((x) => x.key === this._selScanner);
       if (!s) {
         const items = plan.scanners.map((x) => {
-          const heard = this._info.scanners[x.key].trackers.filter((e) => e.d != null).length;
-          return this._item("sel-scanner", x.key, `<span class="icon-bg">${icon("scanner")}</span>`, x.name,
-            `${fmt(x.x)} / ${fmt(x.y)} m · ${t.height} ${fmt(x.z)} m · ${esc(t.hears)} ${esc(t.trackerCount.replace("{n}", heard))}`);
+          const info = this._info.scanners[x.key];
+          const heard = info.trackers.filter((e) => e.d != null).length;
+          const where = `${fmt(x.x)} / ${fmt(x.y)} m · ${t.height} ${fmt(x.z)} m`;
+          return info.offline
+            ? this._item("sel-scanner", x.key, `<span class="icon-bg offline">${icon("scanner")}</span>`, x.name,
+              `<span class="offline">${esc(t.offline)}</span> · ${where}`)
+            : this._item("sel-scanner", x.key, `<span class="icon-bg">${icon("scanner")}</span>`, x.name,
+              `${where} · ${esc(t.hears)} ${esc(t.trackerCount.replace("{n}", heard))}`);
         });
         return this._card(t.scanners, items.join("") || `<div class="muted">${esc(t.none)}</div>`, "", "list") + this._addCard("scanner");
       }
@@ -729,7 +737,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         actions = `<span></span><span>${this._btn("cancel", t.cancel)}${this._btn("save-move", t.save, { kind: "filled" })}</span>`;
       } else {
         const pairs = plan.trackers.map((tr) => [tr.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
-        body = this._confirmHtml() + this._kv([
+        body = this._confirmHtml() + (info.offline ? this._alert("warning", t.offlineHint) : "") + this._kv([
           [t.position, `${fmt(s.x)} / ${fmt(s.y)} m`],
           [t.height, `${fmt(s.z)} m`],
           [t.offset, `${s.rssi_offset > 0 ? "+" : ""}${fmt(s.rssi_offset)} dB`],
@@ -761,8 +769,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       const readings = `<table class="data"><tr><th>${esc(t.scanner)}</th><th class="n">m</th><th class="n">dBm</th></tr>` +
         plan.scanners.map((s) => {
           const r = info.readings[s.key] || {};
+          const off = this._info.scanners[s.key].offline;
           return `<tr class="${r.distance == null || !r.used ? "ign" : ""}"><td>${esc(s.name)}</td>` +
-            `<td class="n">${r.distance == null ? esc(t.notSeen) : fmt(r.distance)}</td><td class="n">${r.rssi == null ? "" : fmt(r.rssi, 0)}</td></tr>`;
+            `<td class="n">${off ? `<span class="offline">${esc(t.offline)}</span>` : r.distance == null ? esc(t.notSeen) : fmt(r.distance)}</td><td class="n">${r.rssi == null ? "" : fmt(r.rssi, 0)}</td></tr>`;
         }).join("") + `</table>`;
       let body;
       let actions;
@@ -1891,6 +1900,8 @@ if (!customElements.get("ble-floorplan-panel")) {
     .item:hover { background: var(--secondary-background-color); }
     .icon-bg { display: flex; padding: 8px; border-radius: 50%; color: var(--text-primary-color, #fff); background: var(--primary-color); flex: none;
       --mdc-icon-size: 20px; }
+    .icon-bg.offline { background: var(--error-color); color: var(--text-primary-color, #fff); }
+    .offline { color: var(--error-color); }
     .text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
     .headline { font-size: var(--ha-font-size-l, 16px); line-height: 24px; }
     .supporting { font-size: var(--ha-font-size-m, 14px); line-height: 20px; color: var(--secondary-text-color); }

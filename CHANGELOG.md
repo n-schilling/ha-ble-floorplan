@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.18.0] - 2026-11-14
+
+### Added
+
+- A scanner that received nothing for over a minute, or that Home Assistant no longer has, is marked as **not reachable**: drawn as a red dashed outline on the plan of the page and of the card, red in the scanner list, with a warning on its page, and named in the tooltip and in a tracker's table. The same rule as the *Active scanners* sensor.
+- `ble_floorplan/get_floorplan` and `ble_floorplan/subscribe` carry `offline`, the keys of those scanners; the subscription looks every 10 seconds and sends `{offline}` when it changed, because a silent scanner need not change any position.
+- A page check for a silent scanner.
+
 ## [0.17.1] - 2026-11-13
 
 ### Fixed
