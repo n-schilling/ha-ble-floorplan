@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.21.0";
+export const VERSION = "0.22.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -83,6 +83,8 @@ const TEXTS = {
     removeAll: "Remove all", covOff: "The measurement records only while the timeline is on: set the days it keeps in the settings.",
     covDays: "{n} days since {first}", covNone: "No measurement yet.", covReset: "Start anew",
     covResetAsk: "Forget the whole measurement? Useful after a scanner moved or came in.",
+    covStale: "{n} of the {m} measured days are from before the change on {date} ({reason}): there the measurement shows partly the old state. Start anew to measure only the current one.",
+    covReasonScanners: "scanners moved, added, removed or paused", covReasonCalibration: "calibration values changed",
     covRooms: "Rooms", covGoodScanners: "Good scanners", covLevel: "Level", covTime: "Time", covMiss: "Miss",
     covCellModel: "{good} scanners good · HDOP {hdop}", covCellMeasured: "Ø {good} scanners good · miss {miss} m · {time}",
   },
@@ -156,6 +158,8 @@ const TEXTS = {
     removeAll: "Alle entfernen", covOff: "Die Messung zeichnet nur auf, solange der Verlauf an ist: In den Einstellungen festlegen, wie viele Tage er aufbewahrt.",
     covDays: "{n} Tage seit {first}", covNone: "Noch keine Messung.", covReset: "Neu beginnen",
     covResetAsk: "Die ganze Messung vergessen? Sinnvoll, nachdem ein Scanner umgezogen oder dazugekommen ist.",
+    covStale: "{n} der {m} gemessenen Tage stammen von vor der Änderung am {date} ({reason}): Dort zeigt die Messung teils den alten Stand. „Neu beginnen“ misst nur noch den aktuellen.",
+    covReasonScanners: "Scanner verschoben, hinzugefügt, entfernt oder pausiert", covReasonCalibration: "Kalibrierwerte geändert",
     covRooms: "Räume", covGoodScanners: "Gute Scanner", covLevel: "Stufe", covTime: "Zeit", covMiss: "Abweichung",
     covCellModel: "{good} Scanner gut · HDOP {hdop}", covCellMeasured: "Ø {good} Scanner gut · Abweichung {miss} m · {time}",
   },

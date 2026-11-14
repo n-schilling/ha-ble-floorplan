@@ -69,8 +69,36 @@ STORE_SCHEMA = probatio.Schema(
     {
         probatio.Required("cell"): NUMBER,
         probatio.Optional("days", default=dict): {str: {str: {str: STATS}}},
+        probatio.Optional("basis", default=None): probatio.Any(None, dict),
+        probatio.Optional("change", default=None): probatio.Any(
+            None,
+            {
+                probatio.Required("at"): NUMBER,
+                probatio.Required("reason"): probatio.In(["scanners", "calibration"]),
+                probatio.Required("days"): [str],
+            },
+        ),
     }
 )
+
+
+def basis(plan: Floorplan) -> dict[str, Any]:
+    """Return what the measurement depends on, as stored: the scanner setup and the calibration.
+
+    Where a sample lands, which scanners count for it and how far the circles
+    miss follow from both; a change makes the days before it show the old state.
+    """
+    return {
+        "scanners": {s.key: [s.x, s.y, s.z, s.paused] for s in plan.scanners},
+        "calibration": {
+            "offsets": {s.key: s.rssi_offset for s in plan.scanners},
+            "pairs": {k: dict(v) for k, v in plan.pair_offsets.items()},
+            "ref_power": {t.key: t.ref_power for t in plan.trackers},
+            "ref_power_default": plan.settings.ref_power_default,
+            "attenuation": plan.settings.attenuation,
+            "max_distance": plan.settings.max_distance,
+        },
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +301,12 @@ class CoverageStore:
             hass, COVERAGE_STORAGE_VERSION, COVERAGE_STORAGE_KEY
         )
         self.days: Days = {}
+        # What the days were measured with, and the last change of it:
+        # {at (unix time), reason, days that held samples then}
+        self._basis: dict[str, Any] | None = None
+        self._change: dict[str, Any] | None = None
+        # The plan the basis was last compared for; a saved plan is a new object
+        self._plan: Floorplan | None = None
         self._save_pending = False
         # Set when Home Assistant stops or the entry unloads: nothing more is recorded
         self._closed = False
@@ -291,10 +325,32 @@ class CoverageStore:
             else:
                 if valid["cell"] == COVERAGE_CELL:
                     self.days = valid["days"]
+                    self._basis = valid["basis"]
+                    self._change = valid["change"]
         await self.async_prune(now, keep_days)
 
     def _data(self) -> dict[str, Any]:
-        return {"cell": COVERAGE_CELL, "days": self.days}
+        return {
+            "cell": COVERAGE_CELL,
+            "days": self.days,
+            "basis": self._basis,
+            "change": self._change,
+        }
+
+    @callback
+    def _compare(self, plan: Floorplan, now: float) -> None:
+        """Note when the scanner setup or the calibration changed while days were measured."""
+        self._plan = plan
+        now_basis = basis(plan)
+        if now_basis == self._basis:
+            return
+        before, self._basis = self._basis, now_basis
+        self._schedule_save()
+        if before is None or not self.days:
+            return
+        reason = "scanners" if now_basis["scanners"] != before["scanners"] else "calibration"
+        stale = set(self._change["days"]) if self._change is not None else set()
+        self._change = {"at": now, "reason": reason, "days": sorted(stale | set(self.days))}
 
     def _delayed_data(self) -> dict[str, Any]:
         self._save_pending = False
@@ -322,6 +378,8 @@ class CoverageStore:
         """Add a sample for every tracker the positions see, to today's cells."""
         if self._closed or not keep_days:
             return
+        if plan is not self._plan:
+            self._compare(plan, now)
         today: dict[str, Cells] | None = None
         for key, position in positions.items():
             if (got := sample(plan, position)) is None:
@@ -371,6 +429,7 @@ class CoverageStore:
             "good_rssi": COVERAGE_GOOD_RSSI,
             "max_hdop": COVERAGE_MAX_HDOP,
             "days": sorted(self.days),
+            "change": self._change_now(),
             "cells": cells_out,
             "rooms": [
                 {
@@ -383,9 +442,17 @@ class CoverageStore:
             ],
         }
 
+    def _change_now(self) -> dict[str, Any] | None:
+        """Return the last change with the days from before it that are still kept; None without."""
+        if self._change is None:
+            return None
+        days = [d for d in self._change["days"] if d in self.days]
+        return {**self._change, "days": days} if days else None
+
     async def async_reset(self) -> None:
         """Forget every day, after a scanner moved or came in: the old samples no longer hold."""
         self.days = {}
+        self._change = None
         await self._store.async_save(self._data())
 
     @callback

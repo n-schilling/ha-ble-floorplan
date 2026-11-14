@@ -1080,6 +1080,52 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("the coverage: model, probe scanner, measurement", coverage)
 
+    async def coverage_change() -> None:
+        # Calibration values changed after days were measured: the days before are named
+        plan = await _plan(api, instance)
+        kitchen = next(sc for sc in plan["scanners"] if sc["key"] == "kitchen")
+        reply = await api.ws(
+            instance.token,
+            {
+                "type": "ble_floorplan/set_scanner",
+                "key": "kitchen",
+                "rssi_offset": kitchen["rssi_offset"] + 2,
+            },
+        )
+        expect(reply["success"], str(reply))
+        try:
+            stale = page.locator(
+                f"{PANEL} ha-alert.covstale", has_text="calibration values changed"
+            )
+
+            async def noted() -> bool:
+                measured = await api.ws(instance.token, {"type": "ble_floorplan/coverage/measured"})
+                change = measured["result"]["change"]
+                return change is not None and change["reason"] == "calibration"
+
+            # Noted with the next computation, within a second or two
+            await _until(noted, "the change in the measurement", seconds=10)
+
+            async def shown() -> bool:
+                return await stale.count() == 1
+
+            # The page fetches the measurement again every minute
+            await _until(shown, "the hint on the days before the change", seconds=90)
+            await stale.locator("ha-button[data-act='cov-reset']").click()
+            await page.locator(f"{PANEL} ha-button[data-act='cov-reset-cancel']").click()
+        finally:
+            reply = await api.ws(
+                instance.token,
+                {
+                    "type": "ble_floorplan/set_scanner",
+                    "key": "kitchen",
+                    "rssi_offset": kitchen["rssi_offset"],
+                },
+            )
+            expect(reply["success"], str(reply))
+
+    await checks.run("a calibration change names the measured days before it", coverage_change)
+
     async def card_only_shows() -> None:
         card_page = await _open(browser, instance, ADMIN, f"/{DASHBOARD}/0")
         card = card_page.locator(CARD)

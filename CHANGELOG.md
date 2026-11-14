@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] - 2026-11-14
+
+### Added
+
+- Coverage: the measurement keeps what it was measured with, the scanner setup (places, heights, paused) and the calibration values (offsets, pair corrections, reference powers, exponent, maximum distance). When one of them changes while days are measured, the *Measured* card names how many days are from before the change, when it was and why, with **Start anew** right there; the days measured after it count as current. Kept over restarts; a reset clears it. Where a sample lands, which scanners count for it and how far their circles miss all follow from these values. Days are the unit: the day of a change itself counts as before it when it had samples then.
+- `ble_floorplan/coverage/measured` returns `change` (`at`, `reason` *scanners* or *calibration*, `days`), null without such days.
+
 ## [0.21.0] - 2026-11-14
 
 ### Added

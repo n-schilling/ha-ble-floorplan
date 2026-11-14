@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 import math
 from typing import Any
@@ -268,7 +269,9 @@ async def test_delayed_write_prune_and_reset(
     coverage.record(plan, {"tag": _position(2.0)}, NOON, 7)
     await coverage.async_reset()
     assert coverage.days == {}
-    assert hass_storage[COVERAGE_STORAGE_KEY]["data"] == {"cell": COVERAGE_CELL, "days": {}}
+    stored = hass_storage[COVERAGE_STORAGE_KEY]["data"]
+    assert stored["days"] == {}
+    assert stored["change"] is None
     await coverage.async_remove()
     assert COVERAGE_STORAGE_KEY not in hass_storage
 
@@ -431,3 +434,52 @@ async def test_edge_cells(hass: HomeAssistant) -> None:
     assert result["cells"][0][:2] == [20, 1]
     assert (20, 1) in cells
     assert [r["name"] for r in result["rooms"]] == ["Wide"]
+
+
+async def test_changes_mark_the_days_before(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
+    """A change of the calibration or the scanners names the days measured before it, until a reset."""
+    coverage = CoverageStore(hass)
+    await coverage.async_load(NOON, 7)
+    plan = make_plan()
+    # A change before anything was measured marks nothing
+    coverage.record(plan, {}, NOON, 7)
+    plan = replace(plan, settings=replace(plan.settings, attenuation=2.5))
+    coverage.record(plan, {"tag": _position(2.0)}, NOON, 7)
+    assert coverage.measured(plan)["change"] is None
+    # The same plan saved anew changes nothing
+    coverage.record(replace(plan), {"tag": _position(2.0)}, NOON + 1, 7)
+    assert coverage.measured(plan)["change"] is None
+
+    calibrated = replace(plan, pair_offsets={"living": {"tag": 3.0}})
+    coverage.record(calibrated, {"tag": _position(2.0)}, NOON + 10, 7)
+    assert coverage.measured(calibrated)["change"] == {
+        "at": NOON + 10,
+        "reason": "calibration",
+        "days": [DAY],
+    }
+
+    moved = replace(
+        calibrated, scanners=(replace(calibrated.scanners[0], x=2.0), *calibrated.scanners[1:])
+    )
+    coverage.record(moved, {"tag": _position(2.0)}, NOON + 86400, 7)
+    change = coverage.measured(moved)["change"]
+    assert change["reason"] == "scanners"
+    assert change["at"] == NOON + 86400
+    assert change["days"] == [DAY]
+
+    # Kept over a restart
+    await coverage.async_close()
+    again = CoverageStore(hass)
+    await again.async_load(NOON + 86400, 7)
+    assert again.measured(moved)["change"] == change
+    # The same plan after the restart: no new change
+    again.record(moved, {}, NOON + 86401, 7)
+    assert again.measured(moved)["change"] == change
+
+    # The days before the change pruned: nothing to mark
+    await again.async_prune(NOON + 9 * 86400, 7)
+    assert again.measured(moved)["change"] is None
+    await again.async_reset()
+    assert again.measured(moved)["change"] is None

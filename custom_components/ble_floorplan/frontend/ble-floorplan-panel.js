@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.21.0";
+} from "./ble-floorplan-plan.js?v=0.22.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -1206,6 +1206,14 @@ if (!customElements.get("ble-floorplan-panel")) {
         body += d.days.length
           ? `<div>${esc(t.covDays.replace("{n}", d.days.length).replace("{first}", new Date(`${d.days[0]}T00:00:00Z`).toLocaleDateString(this._hass.language)))}</div>`
           : `<div class="muted">${esc(t.covNone)}</div>`;
+        if (d.change) {
+          const lang = this._hass.locale?.language || this._hass.language;
+          const date = new Date(d.change.at * 1000).toLocaleString(lang, { dateStyle: "short", timeStyle: "short" });
+          const reason = d.change.reason === "scanners" ? t.covReasonScanners : t.covReasonCalibration;
+          body += `<ha-alert alert-type="warning" class="covstale">${esc(t.covStale.replace("{n}", d.change.days.length)
+            .replace("{m}", d.days.length).replace("{date}", date).replace("{reason}", reason))}` +
+            (c.confirm ? "" : `<ha-button slot="action" appearance="plain" data-act="cov-reset">${esc(t.covReset)}</ha-button>`) + `</ha-alert>`;
+        }
       } else {
         body += `<div class="muted">…</div>`;
       }
