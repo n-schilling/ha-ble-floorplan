@@ -358,6 +358,54 @@ def _host_two(hass: HomeAssistant) -> tuple[MockConfigEntry, dr.DeviceEntry]:
 
 
 @pytest.mark.usefixtures("entry")
+async def test_uptime_device_class_and_stable_firmware(hass: HomeAssistant) -> None:
+    """A sensor of the uptime device class is the start; the stable firmware wins over a beta one."""
+    entry, host = _host(hass, "bluetooth", model="Plug")
+    _adapter(hass, SCANNER_LIVING, via=host.id)
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-sys-started",
+        "2026-11-01T00:00:00+00:00",
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-sys-up",
+        "2026-11-14T10:00:00+00:00",
+        original_device_class="uptime",
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "update",
+        "plug-fwupdate_beta",
+        "on",
+        {"installed_version": "2.2.0", "latest_version": "2.3.0-beta1"},
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "update",
+        "plug-fwupdate",
+        "off",
+        {"installed_version": "2.2.0", "latest_version": "2.2.0"},
+    )
+    with patch(f"{MODULE}.async_current_scanners", return_value=[]):
+        result = await async_scanner_system(hass, SCANNER_LIVING)
+    assert result["started"] == "2026-11-14T10:00:00+00:00"
+    assert result["firmware"] == "2.2.0"
+    assert result["firmware_latest"] is None
+
+
+@pytest.mark.usefixtures("entry")
 async def test_integration_without_entry(hass: HomeAssistant) -> None:
     """A device whose entry is gone names no integration."""
     _, host = _host(hass, "bluetooth", model="Plug")

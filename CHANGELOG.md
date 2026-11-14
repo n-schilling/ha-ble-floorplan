@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.19.2] - 2026-11-14
+
+### Fixed
+
+- The system details find when a device last started also from a sensor of Home Assistant's *uptime* device class, as Shelly devices have it; before, only timestamp sensors counted, so a Shelly scanner showed no running time.
+- The firmware is read from the stable update entity when a device also has a beta one.
+
 ## [0.19.1] - 2026-11-14
 
 ### Fixed

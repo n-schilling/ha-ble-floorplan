@@ -20,7 +20,7 @@ import {
   planInfo,
   planSvg,
   texts,
-} from "./ble-floorplan-plan.js?v=0.19.1";
+} from "./ble-floorplan-plan.js?v=0.19.2";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";

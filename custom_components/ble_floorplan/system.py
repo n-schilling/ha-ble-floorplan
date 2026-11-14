@@ -68,9 +68,16 @@ def _integration_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None
 def _start_entity(entries: list[er.RegistryEntry]) -> er.RegistryEntry | None:
     """Return the sensor that says when the device last started.
 
-    A timestamp sensor named for it (uptime, last restart, …); without one,
-    the device's only diagnostic timestamp sensor.
+    A sensor of the device class made for it (uptime, as Shelly has it); else
+    a timestamp sensor named for it (uptime, last restart, …, as an ESPHome
+    uptime sensor); else the device's only diagnostic timestamp sensor.
     """
+    for entry in entries:
+        if (
+            entry.domain == "sensor"
+            and (entry.device_class or entry.original_device_class) == "uptime"
+        ):
+            return entry
     stamps = [
         e
         for e in entries
@@ -127,7 +134,11 @@ def _device_part(
     )
     firmware: str | None = host.sw_version
     latest: str | None = None
-    update = next((e.entity_id for e in entries if e.domain == "update"), None)
+    # The stable firmware before a beta one, as Shelly offers both
+    updates = sorted(
+        (e for e in entries if e.domain == "update"), key=lambda e: "beta" in e.unique_id
+    )
+    update = updates[0].entity_id if updates else None
     if update is not None and (state := hass.states.get(update)) is not None:
         firmware = state.attributes.get("installed_version") or firmware
         if state.state == STATE_ON:
