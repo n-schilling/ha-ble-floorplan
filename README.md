@@ -169,6 +169,16 @@ How a tracker's values follow from its runs: the scanner offsets and the exponen
 
 How the fit over all runs works: for each run and scanner, the median signal strength is one observation, and its true distance follows from the positions and heights of the run and the scanner. A least-squares fit over `rssi = ref_power + rssi_offset - 10 * attenuation * log10(distance)` gives the reference power of every tracker and the offset of every scanner, made to average zero. What the fit leaves per pair becomes the pair's correction.
 
+### Scanner quality
+
+How good a scanner is, and where its trouble lies, is gathered while Home Assistant runs, for the last 24 hours, in memory only. The list of scanners shows a light per scanner; a scanner's page shows it with **Details**, which opens three figures and the findings:
+
+- **Reception:** per tracker, how many advertisements the scanner took against the scanner that took the most, averaged over the trackers it heard. Mostly the device: a Shelly reports a fraction of what an ESPHome proxy does. Good from 60 %, fair from 35 %.
+- **Fidelity:** every second, for every tracker that three other scanners place, the position is solved without the scanner and its circle held against it. The spread of these misses is good up to 1.5 m, fair up to 3 m; the mean (offset) is what the calibration corrects. When the trackers lie around the scanner in enough directions and its misses grow towards one side, the scanner stands elsewhere than the plan says: the page names how far and offers to look at the suggested place, to save or to cancel. In a corner, where all trackers lie on one side, such a shift cannot be told from an offset.
+- **Contribution:** the share of the cells of the coverage model on its level that get worse without the scanner. Good from 10 %, fair from 3 %.
+
+The findings: too little data yet; check its place in the plan; the site disturbs it (its misses scatter while the others agree); it receives seldom; hardly a contribution; or well placed.
+
 ### Coverage
 
 The *Coverage* tab shows two maps, each for one tracker or for all of them:
@@ -359,6 +369,7 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
 | `ble_floorplan/candidates` | admins | Returns the `scanners` (`source`, `name`) and `trackers` (`device_id` or `address`, `name`) that are not on the plan yet. |
 | `ble_floorplan/scanner_system` | admins | `key`: returns the scanner's `model`, `manufacturer`, `integration`, `device_id`, `started` (`started_live` false for the last start known), `signal` (dBm), `firmware`, `firmware_latest` (when an update is available), `last_seen` (s), `in_range` (devices in the last minute), `mode`, `connectable`, `slots`, `slots_free`; null for what is not known. |
+| `ble_floorplan/scanner_quality` | admins | With `key`: `rate` (`value`, `trackers`, `state`), `fidelity` (`n`, `bias`, `spread`, `outliers`, `shift` `{dx, dy, m}` or null, `state`), `contribution` (`worse`, `cells`, `share`, `state`), `findings` (`few_data`, `plan_position`, `site`, `device`, `redundant`, `good`), `since` (unix time) and `hours`. Without: `{scanner: {rate, fidelity, state}}`. States are `good`, `fair`, `poor`, `unknown`. |
 | `ble_floorplan/add_scanner` | admins | `source`, optionally `name`, `z` and `floor`: puts a scanner in the middle of the plan, on the first floor without one. |
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |

@@ -59,6 +59,7 @@ from .const import (
     WS_HISTORY,
     WS_REMOVE_SCANNER,
     WS_REMOVE_TRACKER,
+    WS_SCANNER_QUALITY,
     WS_SCANNER_SYSTEM,
     WS_SET_FLOORPLAN,
     WS_SET_LAYOUT,
@@ -79,6 +80,7 @@ from .model import (
     with_scanner_position,
     with_settings,
 )
+from .quality import contribution
 from .solver import CalibrationError, solve
 from .system import async_scanner_system
 
@@ -120,6 +122,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_set_floorplan)
     async_register_command(hass, ws_candidates)
     async_register_command(hass, ws_scanner_system)
+    async_register_command(hass, ws_scanner_quality)
     async_register_command(hass, ws_add_scanner)
     async_register_command(hass, ws_add_tracker)
     async_register_command(hass, ws_remove_scanner)
@@ -688,6 +691,33 @@ async def ws_scanner_system(
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
         return
     connection.send_result(msg["id"], await async_scanner_system(hass, scanner.source))
+
+
+@require_admin
+@websocket_command(
+    {probatio.Required("type"): WS_SCANNER_QUALITY, probatio.Optional("key"): cv.string}
+)
+@async_response
+async def ws_scanner_quality(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return how good a scanner is, with the findings; without a key, reception and fidelity of each."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    plan = runtime.store.plan
+    quality = runtime.coordinator.quality
+    if "key" not in msg:
+        connection.send_result(
+            msg["id"], {s.key: quality.summary(s.key) for s in plan.scanners if not s.paused}
+        )
+        return
+    if (scanner := plan.scanner(msg["key"])) is None:
+        connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
+        return
+    # The contribution walks the coverage model twice: off the event loop
+    part = await hass.async_add_executor_job(contribution, plan, scanner.key)
+    connection.send_result(msg["id"], quality.report(scanner.key, part))
 
 
 @require_admin

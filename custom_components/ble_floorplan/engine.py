@@ -96,6 +96,16 @@ def _solve(measurements: Sequence[Measurement], weights: Sequence[float]) -> Poi
     return (x, y)
 
 
+def solve_point(measurements: Sequence[Measurement], start: Point) -> Point:
+    """Return the weighted least-squares position of the measurements from the start point.
+
+    As they are: no robust weights, no rooms. Starting near the answer keeps
+    a few scanners from settling on the mirror image.
+    """
+    weights = [1.0 / max(m.distance, 0.5) ** 2 for m in measurements]
+    return _gauss_newton(measurements, weights, start[0], start[1])
+
+
 def _residual(point: Point, m: Measurement) -> float:
     return abs(math.hypot(point[0] - m.x, point[1] - m.y) - m.distance)
 

@@ -11,7 +11,7 @@ import {
   roomPoints,
   snap,
   toPlan,
-} from "./ble-floorplan-plan.js?v=0.24.0";
+} from "./ble-floorplan-plan.js?v=0.25.0";
 
 // A door is this wide when placed, in metres
 const DOOR_WIDTH = 0.9;

@@ -99,6 +99,7 @@ async def test_not_loaded(
         *CALIBRATION_MESSAGES,
         *CATALOG_MESSAGES,
         {"type": WS_HISTORY, "day": "2026-10-26"},
+        {"type": "ble_floorplan/scanner_quality"},
     ):
         await client.send_json_auto_id(message)
         msg = await client.receive_json()

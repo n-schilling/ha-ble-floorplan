@@ -114,6 +114,28 @@ DEFAULT_AWAY_SECONDS: Final = 120.0
 DEFAULT_HISTORY_DAYS: Final = 0
 # A scanner counts as active when it received anything this recently (s)
 SCANNER_ACTIVE_SECONDS: Final = 60.0
+# Scanner quality, kept per hour for this many hours
+QUALITY_HOURS: Final = 24
+# A tracker counts for the reception once its best scanner took this many advertisements
+QUALITY_MIN_TRACKER_SAMPLES: Final = 60
+# Reception against the best scanner: good from, fair from
+QUALITY_RATE_GOOD: Final = 0.6
+QUALITY_RATE_FAIR: Final = 0.35
+# Misses are taken where this many other scanners place the tracker
+QUALITY_MIN_SCANNERS: Final = 3
+# Fidelity needs this many misses; their spread in metres is good up to, fair up to
+QUALITY_MIN_MISSES: Final = 300
+QUALITY_SPREAD_GOOD: Final = 1.5
+QUALITY_SPREAD_FAIR: Final = 3.0
+# A miss larger than this counts as an outlier, in metres
+QUALITY_OUTLIER: Final = 2.5
+# The trackers must lie in enough directions around the scanner (determinant of
+# the spread of the direction vectors, at most 0.25) for a shift, and it must be this large (m)
+QUALITY_DIRECTIONS: Final = 0.03
+QUALITY_SHIFT: Final = 0.75
+# Contribution: share of the cells of its level that get worse without the scanner
+QUALITY_CONTRIBUTION_GOOD: Final = 0.1
+QUALITY_CONTRIBUTION_FAIR: Final = 0.03
 # How often a subscription looks for scanners that went silent or came back (s)
 SCANNER_CHECK_SECONDS: Final = 10.0
 # A wall is crossed only through an opening this close (m)
@@ -143,6 +165,7 @@ WS_SET_TRACKER: Final = f"{DOMAIN}/set_tracker"
 WS_SET_SETTINGS: Final = f"{DOMAIN}/set_settings"
 WS_CANDIDATES: Final = f"{DOMAIN}/candidates"
 WS_SCANNER_SYSTEM: Final = f"{DOMAIN}/scanner_system"
+WS_SCANNER_QUALITY: Final = f"{DOMAIN}/scanner_quality"
 WS_ADD_SCANNER: Final = f"{DOMAIN}/add_scanner"
 WS_ADD_TRACKER: Final = f"{DOMAIN}/add_tracker"
 WS_REMOVE_SCANNER: Final = f"{DOMAIN}/remove_scanner"

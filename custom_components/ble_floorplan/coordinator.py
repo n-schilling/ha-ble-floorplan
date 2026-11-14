@@ -32,6 +32,7 @@ from .engine import (
 )
 from .history import HistoryStore
 from .model import Floorplan, Tracker, with_calibration
+from .quality import Heard as QualityHeard, QualityTracker
 from .solver import CalibrationError, fit_tracker
 from .store import FloorplanStore
 
@@ -139,6 +140,8 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self._smoother = Smoother()
         self._rooms = RoomTracker()
         self._levels = LevelTracker()
+        # How good each scanner is: reception and fidelity, in memory
+        self.quality = QualityTracker()
         # Monotonic time of the first computation and of the last sighting per tracker
         self._started: float | None = None
         self._last_seen: dict[str, float] = {}
@@ -155,6 +158,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
     async def _async_update_data(self) -> Positions:
         """Compute the positions and add them to the timeline and the coverage."""
         monotonic = MONOTONIC_TIME()
+        self.quality.begin(dt_util.utcnow().timestamp())
         positions = self.compute(monotonic)
         if self.calibration.tick(monotonic):
             await self.async_stop_calibration(auto=True)
@@ -302,6 +306,8 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
                 continue
             sample = (stamp, device.advertisement.rssi)
             samples.append(sample)
+            if scanner.source in sources:
+                self.quality.count(key, sources[scanner.source])
             if run is not None and run.tracker == key and scanner.source in sources:
                 self.calibration.add_sample(sources[scanner.source], sample[0], sample[1])
 
@@ -365,6 +371,14 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             return TrackerPosition(
                 tracker.key, address, None, None, None, None, None, None, 0, readings
             )
+        self.quality.misses(
+            [
+                QualityHeard(key, s.x, s.y, r.distance)
+                for key, r in readings.items()
+                if r.used and r.distance is not None and (s := plan.scanner(key)) is not None
+            ],
+            raw,
+        )
         x, y = self._smoother.smooth(tracker.key, raw, now, level_plan)
         room = self._rooms.room(tracker.key, x, y, now, level_plan)
         floor = next((r.floor for r in level_plan.rooms if r.name == room), None)

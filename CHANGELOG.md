@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.25.0] - 2026-11-14
+
+### Added
+
+- Scanner quality: reception against the best scanner, fidelity (the spread of the scanner's misses against the position the other scanners give, and the shift its misses suggest) and contribution to the coverage, over the last 24 hours in memory. A light per scanner in the list; on a scanner's page **Details** opens the three figures with the findings: too little data, check its place in the plan (with a look at the suggested place), the site disturbs it, it receives seldom, hardly a contribution, or well placed.
+- `ble_floorplan/scanner_quality`.
+
 ## [0.24.0] - 2026-11-14
 
 ### Added

@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.24.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.24.0";
+} from "./ble-floorplan-plan.js?v=0.25.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.25.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -58,6 +58,8 @@ if (!customElements.get("ble-floorplan-panel")) {
   const LEVEL_KEY = "ble-floorplan-panel-level";
   // The system details of the open scanner are fetched again after this long
   const SYSTEM_REFETCH_MS = 10000;
+  // The scanner quality changes slowly: fetched again after a minute
+  const QUALITY_REFETCH_MS = 60000;
 
   // Tab, icon, text
   const TABS = [
@@ -146,6 +148,9 @@ if (!customElements.get("ble-floorplan-panel")) {
       // The system details of the open scanner: {key, at, data}, fetched while its page is shown
       this._sys = null;
       this._sysLoading = false;
+      // Scanner quality: the overlay of one scanner, the lights of the list
+      this._q = { open: null, data: null, at: 0, loading: false };
+      this._qList = { data: null, at: 0, loading: false };
       this._sysOpen = loadLabels(SYSTEM_KEY, { open: false }).open === true;
       this._labelMenu = false;
       // The scanner and the tracker open on their pages
@@ -442,6 +447,8 @@ if (!customElements.get("ble-floorplan-panel")) {
       const plan = this._plan;
       if (this._tab === "coverage") this._covLoad();
       if (this._tab === "scanners" && this._selScanner) this._sysLoad(this._selScanner);
+      if (this._tab === "scanners") this._qListLoad();
+      if (this._q.open) this._qLoad();
       const showMap = this._tab !== "settings" && !!plan?.rooms.length;
       const showSheet = !this._tlOn;
       const sub = this._subpage;
@@ -719,7 +726,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       const empty = !this._plan.rooms.length && this._tab !== "plan" && this._tab !== "settings"
         ? this._alert("info", t.startHere)
         : "";
-      return this._noteHtml() + empty + page() + `<div class="about">${esc(this._aboutText())}</div>`;
+      return this._noteHtml() + empty + page() + `<div class="about">${esc(this._aboutText())}</div>` + this._qOverlay();
     }
 
     _planSheet() {
@@ -803,7 +810,7 @@ if (!customElements.get("ble-floorplan-panel")) {
             ? this._item("sel-scanner", x.key, `<span class="icon-bg offline">${icon("scanner")}</span>`, x.name,
               `<span class="offline">${esc(t.offline)}</span> · ${where}`)
             : this._item("sel-scanner", x.key, `<span class="icon-bg">${icon("scanner")}</span>`, x.name,
-              `${where} · ${esc(t.hears)} ${esc(t.trackerCount.replace("{n}", heard))}`);
+              `${this._qDot(x.key)}${where} · ${esc(t.hears)} ${esc(t.trackerCount.replace("{n}", heard))}`);
         });
         return this._card(t.scanners, items.join("") || `<div class="muted">${esc(t.none)}</div>`, "", "list") + this._addCard("scanner");
       }
@@ -845,12 +852,99 @@ if (!customElements.get("ble-floorplan-panel")) {
           [t.height, `${fmt(s.z)} m`],
           [t.offset, `${s.rssi_offset > 0 ? "+" : ""}${fmt(s.rssi_offset)} dB`],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
-        ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}` + this._sysHtml(s.key);
+        ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}` + (s.paused ? "" : this._qRow(s.key)) + this._sysHtml(s.key);
         actions = this._btn("remove-scanner", t.remove, { kind: "danger", disabled: !!this._confirm }) +
           `<span>${this._btn(s.paused ? "resume-scanner" : "pause-scanner", s.paused ? t.resume : t.pause)}` +
           `${this._btn("move", t.move)}${this._btn("edit-scanner", t.edit)}</span>`;
       }
       return this._card("", body, actions);
+    }
+
+    // ---- Scanner quality ----
+
+    // The lights of the list: reception and fidelity of every scanner, once a minute
+    async _qListLoad() {
+      const q = this._qList;
+      if (q.loading || Date.now() - q.at < QUALITY_REFETCH_MS) return;
+      q.loading = true;
+      try {
+        q.data = await this._hass.callWS({ type: "ble_floorplan/scanner_quality" });
+      } catch {
+        q.data = null;
+      }
+      q.at = Date.now();
+      q.loading = false;
+      this._render();
+    }
+
+    async _qLoad() {
+      const q = this._q;
+      if (q.loading || (q.data?.key === q.open && Date.now() - q.at < QUALITY_REFETCH_MS)) return;
+      q.loading = true;
+      const key = q.open;
+      try {
+        q.data = { key, ...(await this._hass.callWS({ type: "ble_floorplan/scanner_quality", key })) };
+      } catch (err) {
+        q.data = { key, error: String(err?.message || err) };
+      }
+      q.at = Date.now();
+      q.loading = false;
+      this._render();
+    }
+
+    // On the scanner's page: its light and the way to the overlay
+    _qRow(key) {
+      const t = this._t;
+      const state = this._qList.data?.[key]?.state || "unknown";
+      return `<div class="qrow"><span class="qdot ${state}"></span><span>${esc(t.qTitle)}: ${esc(t["q_" + state])}</span>` +
+        `${this._btn("quality", t.qBtn)}</div>`;
+    }
+
+    _qDot(key) {
+      const state = this._qList.data?.[key]?.state;
+      if (!state || state === "unknown") return "";
+      return `<span class="qdot ${state}" title="${esc(this._t.qTitle)}: ${esc(this._t["q_" + state])}"></span>`;
+    }
+
+    _qOverlay() {
+      const q = this._q;
+      if (!q.open) return "";
+      const t = this._t;
+      const fmt = this._fmt;
+      const s = this._plan.scanners.find((x) => x.key === q.open);
+      const d = q.data?.key === q.open ? q.data : null;
+      let body;
+      if (!d) body = `<div class="muted">…</div>`;
+      else if (d.error) body = this._alert("error", d.error);
+      else {
+        const tile = (title, state, value, sub) =>
+          `<div class="qtile ${state}"><div class="qhead"><span class="qdot ${state}"></span>${esc(title)}</div>` +
+          `<div class="qval">${value}</div><div class="qsub">${esc(sub)}</div><div class="qstate">${esc(t["q_" + state])}</div></div>`;
+        const r = d.rate;
+        const f = d.fidelity;
+        const c = d.contribution;
+        const pct = (v) => (v == null ? "–" : `${fmt(v * 100, 0)} %`);
+        const tiles = tile(t.qRate, r.state, pct(r.value), t.qRateSub.replace("{n}", r.trackers)) +
+          tile(t.qFid, f.state, f.spread == null ? "–" : `± ${fmt(f.spread, 1)} m`,
+            f.spread == null ? t.qFewMisses.replace("{n}", f.n) : t.qFidSub.replace("{bias}", `${f.bias > 0 ? "+" : ""}${fmt(f.bias, 1)}`).replace("{out}", pct(f.outliers))) +
+          tile(t.qPart, c.state, pct(c.share), t.qPartSub.replace("{worse}", c.worse).replace("{cells}", c.cells));
+        const findings = d.findings.map((code) => {
+          let text = t["f_" + code] || code;
+          if (code === "plan_position" && f.shift) {
+            text = text.replace("{m}", fmt(f.shift.m, 1)).replace("{dx}", `${f.shift.dx > 0 ? "+" : ""}${fmt(f.shift.dx, 1)}`)
+              .replace("{dy}", `${f.shift.dy > 0 ? "+" : ""}${fmt(f.shift.dy, 1)}`);
+          }
+          const kind = code === "good" ? "success" : code === "few_data" ? "info" : "warning";
+          return this._alert(kind, text);
+        }).join("");
+        const since = d.since ? new Date(d.since * 1000).toLocaleString(this._hass.locale?.language || this._hass.language, { dateStyle: "short", timeStyle: "short" }) : "–";
+        body = `<div class="qtiles">${tiles}</div>${findings}` +
+          `<div class="muted small">${esc(t.qSince.replace("{time}", since).replace("{h}", d.hours))}</div>`;
+      }
+      const tryShift = d?.fidelity?.shift ? this._btn("quality-try", t.qTry) : "";
+      return `<div class="qback" data-act="quality-close"></div><div class="qdialog" role="dialog">` +
+        this._card(`${t.qTitle} · ${esc(s?.name || q.open)}`, body, `<span>${tryShift}</span>${this._btn("quality-close", t.close, { kind: "filled" })}`) +
+        `</div>`;
     }
 
     // The system details of the scanner: fetched when its page opens, then every few seconds
@@ -1615,6 +1709,24 @@ if (!customElements.get("ble-floorplan-panel")) {
           });
           return;
         }
+        case "quality":
+          this._q = { open: this._selScanner, data: null, at: 0, loading: false };
+          break;
+        case "quality-close":
+          this._q.open = null;
+          break;
+        case "quality-try": {
+          // Look at the place the misses suggest: the scanner there, to save or to cancel
+          const sh = this._q.data?.fidelity?.shift;
+          const sc = plan.scanners.find((x) => x.key === this._q.open);
+          this._q.open = null;
+          if (sh && sc) {
+            this._mode = "move";
+            this._dragPos = { [sc.key]: [snap(sc.x + sh.dx), snap(sc.y + sh.dy)] };
+            this._note = null;
+          }
+          break;
+        }
         case "edit-scanner": {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const pairs = {};
@@ -2283,6 +2395,29 @@ if (!customElements.get("ble-floorplan-panel")) {
     table.data th { text-align: left; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-medium, 500); padding: 8px 12px 8px 0; white-space: nowrap; }
     table.data td { padding: 6px 12px 6px 0; border-top: 1px solid var(--divider-color); }
     /* A going run: a bar per scanner, full and green once it has enough */
+    /* Scanner quality: lights, the overlay with its three tiles */
+    .qdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle;
+      background: var(--disabled-text-color, #9e9e9e); }
+    .qdot.good { background: var(--success-color, #43a047); }
+    .qdot.fair { background: var(--warning-color, #ffa600); }
+    .qdot.poor { background: var(--error-color, #db4437); }
+    .qrow { display: flex; align-items: center; gap: 4px; margin-top: 12px; padding: 4px 4px 4px 12px; border-radius: 12px;
+      background: color-mix(in srgb, var(--primary-text-color) 4%, transparent); }
+    .qrow > span:nth-child(2) { flex: 1; }
+    .qback { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.32); }
+    .qdialog { position: fixed; z-index: 21; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+    .qdialog ha-card { margin: 0; }
+    .qtiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    @media (max-width: 560px) { .qtiles { grid-template-columns: 1fr; } }
+    .qtile { border: 1px solid var(--divider-color); border-radius: 12px; padding: 10px 12px; }
+    .qtile.good { border-color: color-mix(in srgb, var(--success-color, #43a047) 50%, transparent); }
+    .qtile.fair { border-color: color-mix(in srgb, var(--warning-color, #ffa600) 60%, transparent); }
+    .qtile.poor { border-color: color-mix(in srgb, var(--error-color, #db4437) 60%, transparent); }
+    .qhead { font-size: var(--ha-font-size-s, 12px); color: var(--secondary-text-color); }
+    .qval { font-size: 24px; font-weight: var(--ha-font-weight-medium, 500); margin: 4px 0; }
+    .qsub { font-size: var(--ha-font-size-s, 12px); color: var(--secondary-text-color); }
+    .qstate { font-size: var(--ha-font-size-s, 12px); margin-top: 4px; }
     .bar { width: 96px; height: 6px; border-radius: 3px; background: var(--divider-color); overflow: hidden; }
     .bar i { display: block; height: 100%; background: var(--primary-color); }
     .bar.done i { background: var(--success-color, #43a047); }

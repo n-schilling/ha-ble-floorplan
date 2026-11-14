@@ -1239,6 +1239,32 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         "phone width and dark mode: tabs at the bottom, no sideways scrolling", phone_and_dark
     )
 
+    async def scanner_quality() -> None:
+        # The made-up scanners hear steadily: after a little while the lights come up
+        await _goto(page, instance, "scanners")
+        await _until(
+            lambda: _count_at_least(page.locator(f"{PANEL} .item .qdot"), 1),
+            "a quality light in the list",
+            seconds=150,
+        )
+        await page.locator(f"{PANEL} .item[data-key='living']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='quality']").click()
+        dialog = page.locator(f"{PANEL} .qdialog")
+        await dialog.locator(".qtile").nth(2).wait_for()
+        expect(await dialog.locator(".qtile").count() == 3, "three tiles")
+        text = await dialog.inner_text()
+        expect("Reception" in text and "Fidelity" in text and "Contribution" in text, text)
+        await dialog.locator("ha-alert").first.wait_for()
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "scanner-quality.png"))
+        await page.locator(f"{PANEL} .qdialog ha-button[data-act='quality-close']").click()
+        await dialog.wait_for(state="detached")
+
+    await checks.run(
+        "the quality of a scanner: lights in the list, three tiles and findings", scanner_quality
+    )
+
     async def at(x: float, y: float) -> tuple[float, float]:
         """The point of the screen where the plan has x, y."""
         point = await page.locator(PANEL).evaluate(

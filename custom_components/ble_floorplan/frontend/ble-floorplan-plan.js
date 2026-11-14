@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.24.0";
+export const VERSION = "0.25.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -43,6 +43,18 @@ const TEXTS = {
     jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
     walls: "Through walls only at doors",
     exteriorDoors: "Leave a building only through its doors", floorsSec: "Floors", floor: "Floor",
+    qTitle: "Quality", qTry: "View suggestion",
+    qRate: "Reception", qRateSub: "against the best scanner, over {n} trackers", qFid: "Fidelity",
+    qFidSub: "spread of the misses · offset {bias} m · outliers {out}", qFewMisses: "{n} of 300 misses so far",
+    qPart: "Contribution", qPartSub: "{worse} of {cells} cells get worse without it",
+    q_good: "good", q_fair: "fair", q_poor: "poor", q_unknown: "too little data",
+    qBtn: "Details", qSince: "Gathered since {time} ({h} h so far, 24 h at most); kept in memory only, a restart starts afresh.",
+    f_few_data: "Too little data yet: reception needs a tracker heard a while, fidelity some minutes of a tracker placed by three other scanners.",
+    f_plan_position: "Check its place in the plan: its circles say it stands about {m} m off (x {dx} m, y {dy} m).",
+    f_site: "The site disturbs it: its distances scatter while the other scanners agree. Reflections, metal or something in the way; move it a little or higher.",
+    f_device: "It receives seldom: few advertisements against the best scanner. Typical for a Shelly; an ESPHome proxy hears more.",
+    f_redundant: "Hardly a contribution: almost no cell of the coverage needs it. One too many here, or better placed elsewhere.",
+    f_good: "Well placed: good reception, its circles fit, it adds to the coverage.",
     edEdit: "Draw", edYaml: "Floor plan as YAML", edIntro: "Draw rooms, doors, stairs, floors and buildings on the plan; the YAML below holds the same.",
     edTitle: "Drawing", edSelect: "Select", edRect: "Room", edPoly: "Polygon room", edDoor: "Door", edStairs: "Stairs",
     edHintSelect: "Tap a room, door or stairs to change it; drag it to move, drag a corner to resize, the square in an edge's middle adds a corner. Drag the empty plan to pan.",
@@ -142,6 +154,18 @@ const TEXTS = {
     jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
     walls: "Wände nur an Türen passieren",
     exteriorDoors: "Gebäude nur durch ihre Türen verlassen", floorsSec: "Etagen", floor: "Etage",
+    qTitle: "Qualität", qTry: "Vorschlag ansehen",
+    qRate: "Empfang", qRateSub: "gegen den besten Scanner, über {n} Tracker", qFid: "Modelltreue",
+    qFidSub: "Streuung der Abweichung · Versatz {bias} m · Ausreißer {out}", qFewMisses: "bisher {n} von 300 Messungen",
+    qPart: "Beitrag", qPartSub: "{worse} von {cells} Zellen würden ohne ihn schlechter",
+    q_good: "gut", q_fair: "mittel", q_poor: "schlecht", q_unknown: "zu wenig Daten",
+    qBtn: "Details", qSince: "Gesammelt seit {time} (bisher {h} h, höchstens 24 h); nur im Speicher, ein Neustart beginnt von vorn.",
+    f_few_data: "Noch zu wenig Daten: Für den Empfang muss ein Tracker eine Weile gehört werden, für die Modelltreue einige Minuten ein Tracker, den drei andere Scanner orten.",
+    f_plan_position: "Position im Plan prüfen: Seine Kreise sagen, dass er etwa {m} m daneben steht (x {dx} m, y {dy} m).",
+    f_site: "Der Standort stört: Seine Abstände streuen stark, während die anderen Scanner sich einig sind. Reflexionen, Metall oder etwas im Weg; etwas versetzen oder höher stellen.",
+    f_device: "Er empfängt selten: wenige Pakete gegenüber dem besten Scanner. Typisch für einen Shelly; ein ESPHome-Proxy hört mehr.",
+    f_redundant: "Kaum ein Beitrag: Fast keine Zelle der Abdeckung braucht ihn. Hier einer zu viel, oder woanders besser aufgehoben.",
+    f_good: "Gut platziert: guter Empfang, seine Kreise passen, er trägt zur Abdeckung bei.",
     edEdit: "Zeichnen", edYaml: "Grundriss als YAML", edIntro: "Räume, Türen, Treppen, Etagen und Gebäude im Grundriss zeichnen; das YAML unten enthält dasselbe.",
     edTitle: "Zeichnen", edSelect: "Auswählen", edRect: "Raum", edPoly: "Raum als Vieleck", edDoor: "Tür", edStairs: "Treppe",
     edHintSelect: "Raum, Tür oder Treppe antippen, um sie zu ändern; ziehen verschiebt, an einer Ecke ziehen ändert die Größe, das Quadrat in einer Kantenmitte fügt eine Ecke ein. Leeren Grundriss ziehen verschiebt die Ansicht.",
