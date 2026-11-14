@@ -24,7 +24,9 @@ from . import SCANNER_KITCHEN, SCANNER_LIVING, FakeScanner
 MODULE = "custom_components.ble_floorplan.system"
 
 
-def _host(hass: HomeAssistant, domain: str, **device: Any) -> tuple[MockConfigEntry, dr.DeviceEntry]:
+def _host(
+    hass: HomeAssistant, domain: str, **device: Any
+) -> tuple[MockConfigEntry, dr.DeviceEntry]:
     """Add the device a remote scanner runs on, under an entry of the domain."""
     entry = MockConfigEntry(domain=domain)
     entry.add_to_hass(hass)
@@ -37,13 +39,18 @@ def _host(hass: HomeAssistant, domain: str, **device: Any) -> tuple[MockConfigEn
     return entry, host
 
 
-def _adapter(hass: HomeAssistant, source: str, via: str | None = None, **device: Any) -> dr.DeviceEntry:
+def _adapter(
+    hass: HomeAssistant, source: str, via: str | None = None, **device: Any
+) -> dr.DeviceEntry:
     """Add the scanner's own Bluetooth device, as Home Assistant's Bluetooth does, linked to the one it runs on."""
     entry = MockConfigEntry(domain="bluetooth", unique_id=source)
     entry.add_to_hass(hass)
     registry = dr.async_get(hass)
     adapter = registry.async_get_or_create(
-        config_entry_id=entry.entry_id, connections={(CONNECTION_BLUETOOTH, source)}, name="Adapter", **device
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_BLUETOOTH, source)},
+        name="Adapter",
+        **device,
     )
     if via is not None:
         linked = registry.async_update_device(adapter.id, via_device_id=via)
@@ -63,9 +70,13 @@ def _entity(
     **extra: Any,
 ) -> str:
     """Add an entity of the device with its state."""
-    entity_id = er.async_get(hass).async_get_or_create(
-        domain, entry.domain, unique_id, config_entry=entry, device_id=device.id, **extra
-    ).entity_id
+    entity_id = (
+        er.async_get(hass)
+        .async_get_or_create(
+            domain, entry.domain, unique_id, config_entry=entry, device_id=device.id, **extra
+        )
+        .entity_id
+    )
     if state is not None:
         hass.states.async_set(entity_id, state, attributes or {})
     return entity_id
@@ -90,13 +101,37 @@ def _manager(*allocations: SimpleNamespace) -> MagicMock:
 @pytest.mark.usefixtures("entry")
 async def test_remote_scanner(hass: HomeAssistant) -> None:
     """The device the scanner runs on: type, start, signal, firmware; Bluetooth: reception, mode, slots."""
-    entry, host = _host(hass, "bluetooth", manufacturer="Espressif", model="esp32", sw_version="1.0 (build)")
+    entry, host = _host(
+        hass, "bluetooth", manufacturer="Espressif", model="esp32", sw_version="1.0 (build)"
+    )
     _adapter(hass, SCANNER_LIVING, via=host.id)
-    _entity(hass, entry, host, "sensor", "proxy-sensor-last_start", "2026-11-13T18:18:40+00:00",
-            original_device_class=SensorDeviceClass.TIMESTAMP)
-    _entity(hass, entry, host, "sensor", "proxy-wifi", "-72.0", original_device_class=SensorDeviceClass.SIGNAL_STRENGTH)
-    _entity(hass, entry, host, "update", "proxy-firmware", "on",
-            {"installed_version": "2026.10.2", "latest_version": "2026.11.0"})
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "proxy-sensor-last_start",
+        "2026-11-13T18:18:40+00:00",
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "proxy-wifi",
+        "-72.0",
+        original_device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "update",
+        "proxy-firmware",
+        "on",
+        {"installed_version": "2026.10.2", "latest_version": "2026.11.0"},
+    )
     scanner = _scanner(
         SCANNER_LIVING,
         idle=2.04,
@@ -107,7 +142,12 @@ async def test_remote_scanner(hass: HomeAssistant) -> None:
     with (
         patch(f"{MODULE}.async_current_scanners", return_value=[scanner]),
         patch(f"{MODULE}.MONOTONIC_TIME", return_value=1000.0),
-        patch(f"{MODULE}.get_manager", return_value=_manager(SimpleNamespace(slots=0, free=0), SimpleNamespace(slots=3, free=2))),
+        patch(
+            f"{MODULE}.get_manager",
+            return_value=_manager(
+                SimpleNamespace(slots=0, free=0), SimpleNamespace(slots=3, free=2)
+            ),
+        ),
     ):
         result = await async_scanner_system(hass, SCANNER_LIVING)
     assert result == {
@@ -132,7 +172,9 @@ async def test_remote_scanner(hass: HomeAssistant) -> None:
 @pytest.mark.usefixtures("entry")
 async def test_builtin_adapter(hass: HomeAssistant) -> None:
     """A built-in adapter is its own device: no integration named, firmware from the device, no slots told."""
-    adapter = _adapter(hass, SCANNER_LIVING, manufacturer="Raspberry Pi", model="bcm43438-bt", sw_version="6.18")
+    adapter = _adapter(
+        hass, SCANNER_LIVING, manufacturer="Raspberry Pi", model="bcm43438-bt", sw_version="6.18"
+    )
     with (
         patch(f"{MODULE}.async_current_scanners", return_value=[_scanner(SCANNER_LIVING)]),
         patch(f"{MODULE}.get_manager", return_value=_manager()),
@@ -166,11 +208,32 @@ async def test_unavailable_device(hass: HomeAssistant) -> None:
     """The device is gone: the start is the last one known, the signal unknown; an integration not loaded is named by its domain."""
     entry, host = _host(hass, "esphome", manufacturer="Espressif", model="esp32")
     _adapter(hass, SCANNER_LIVING, via=host.id)
-    start = _entity(hass, entry, host, "sensor", "proxy-sensor-uptime", "unavailable",
-                    original_device_class=SensorDeviceClass.TIMESTAMP)
-    _entity(hass, entry, host, "sensor", "proxy-wifi", "unavailable", original_device_class=SensorDeviceClass.SIGNAL_STRENGTH)
+    start = _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "proxy-sensor-uptime",
+        "unavailable",
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "proxy-wifi",
+        "unavailable",
+        original_device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    )
     hass.config.components.add("recorder")
-    history = {start: [State(start, "2026-11-12T08:00:00+00:00"), State(start, "2026-11-13T18:18:40+00:00"), State(start, "unavailable")]}
+    history = {
+        start: [
+            State(start, "2026-11-12T08:00:00+00:00"),
+            State(start, "2026-11-13T18:18:40+00:00"),
+            State(start, "unavailable"),
+        ]
+    }
     recorder = MagicMock()
 
     async def run(func: Any, *args: Any) -> Any:
@@ -180,7 +243,9 @@ async def test_unavailable_device(hass: HomeAssistant) -> None:
     with (
         patch(f"{MODULE}.async_current_scanners", return_value=[]),
         patch("homeassistant.components.recorder.get_instance", return_value=recorder),
-        patch("homeassistant.components.recorder.history.get_last_state_changes", return_value=history),
+        patch(
+            "homeassistant.components.recorder.history.get_last_state_changes", return_value=history
+        ),
     ):
         result = await async_scanner_system(hass, SCANNER_LIVING)
     assert result["integration"] == "esphome"
@@ -203,11 +268,35 @@ async def test_start_sensor_choice(hass: HomeAssistant) -> None:
     """Without a named start sensor the only diagnostic timestamp counts; without a recorder no last start; a bad signal is none."""
     entry, host = _host(hass, "bluetooth", model="Plug")
     _adapter(hass, SCANNER_LIVING, via=host.id)
-    _entity(hass, entry, host, "sensor", "plug-boot-time", None, original_device_class=SensorDeviceClass.TIMESTAMP,
-            entity_category=EntityCategory.DIAGNOSTIC)
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-boot-time",
+        None,
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    )
     # Renamed in the registry, but still not one about starting
-    _entity(hass, entry, host, "sensor", "plug-next", "2026-11-20T00:00:00+00:00", original_device_class=SensorDeviceClass.TIMESTAMP)
-    _entity(hass, entry, host, "sensor", "plug-rssi", "strong", original_device_class=SensorDeviceClass.SIGNAL_STRENGTH)
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-next",
+        "2026-11-20T00:00:00+00:00",
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-rssi",
+        "strong",
+        original_device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    )
     with patch(f"{MODULE}.async_current_scanners", return_value=[]):
         result = await async_scanner_system(hass, SCANNER_LIVING)
     # boot-time is the start sensor; without a state and without a recorder nothing is told
@@ -218,22 +307,42 @@ async def test_start_sensor_choice(hass: HomeAssistant) -> None:
     entry2, host2 = _host_two(hass)
     _adapter(hass, SCANNER_KITCHEN, via=host2.id)
     for uid in ("a", "b"):
-        _entity(hass, entry2, host2, "sensor", f"x-{uid}", "2026-11-13T18:18:40+00:00",
-                original_device_class=SensorDeviceClass.TIMESTAMP, entity_category=EntityCategory.DIAGNOSTIC)
+        _entity(
+            hass,
+            entry2,
+            host2,
+            "sensor",
+            f"x-{uid}",
+            "2026-11-13T18:18:40+00:00",
+            original_device_class=SensorDeviceClass.TIMESTAMP,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
     with patch(f"{MODULE}.async_current_scanners", return_value=[]):
         assert (await async_scanner_system(hass, SCANNER_KITCHEN))["started"] is None
 
     # One diagnostic timestamp, not named: it is the start
-    _entity(hass, entry2, host2, "sensor", "x-c", "2026-11-13T18:18:40+00:00",
-            original_device_class=SensorDeviceClass.TIMESTAMP, entity_category=EntityCategory.DIAGNOSTIC)
-    er.async_get(hass).async_update_entity(
-        er.async_get(hass).async_get_entity_id("sensor", "bluetooth", "x-a") or "", entity_category=None
+    _entity(
+        hass,
+        entry2,
+        host2,
+        "sensor",
+        "x-c",
+        "2026-11-13T18:18:40+00:00",
+        original_device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
     )
     er.async_get(hass).async_update_entity(
-        er.async_get(hass).async_get_entity_id("sensor", "bluetooth", "x-b") or "", entity_category=None
+        er.async_get(hass).async_get_entity_id("sensor", "bluetooth", "x-a") or "",
+        entity_category=None,
+    )
+    er.async_get(hass).async_update_entity(
+        er.async_get(hass).async_get_entity_id("sensor", "bluetooth", "x-b") or "",
+        entity_category=None,
     )
     with patch(f"{MODULE}.async_current_scanners", return_value=[]):
-        assert (await async_scanner_system(hass, SCANNER_KITCHEN))["started"] == "2026-11-13T18:18:40+00:00"
+        assert (await async_scanner_system(hass, SCANNER_KITCHEN))[
+            "started"
+        ] == "2026-11-13T18:18:40+00:00"
 
 
 def _host_two(hass: HomeAssistant) -> tuple[MockConfigEntry, dr.DeviceEntry]:
@@ -241,7 +350,9 @@ def _host_two(hass: HomeAssistant) -> tuple[MockConfigEntry, dr.DeviceEntry]:
     entry = MockConfigEntry(domain="bluetooth")
     entry.add_to_hass(hass)
     host = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id, connections={(CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:92")}, name="Plug 2"
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:92")},
+        name="Plug 2",
     )
     return entry, host
 
@@ -264,7 +375,8 @@ async def test_ws_scanner_system(
     """The page asks by the scanner's key; an unknown key is not found."""
     client = await hass_ws_client(hass)
     with patch(
-        "custom_components.ble_floorplan.websocket.async_scanner_system", return_value={"model": "esp32"}
+        "custom_components.ble_floorplan.websocket.async_scanner_system",
+        return_value={"model": "esp32"},
     ) as system:
         await client.send_json_auto_id({"type": WS_SCANNER_SYSTEM, "key": "living"})
         msg = await client.receive_json()
