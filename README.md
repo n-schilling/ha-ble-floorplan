@@ -14,39 +14,29 @@ What it is for, for example:
 
 ## Screenshots
 
-The page with the plan, the trackers where the scanners hear them, and the floor plan as YAML; everything made up for these pictures:
-
-<img src="docs/screenshots/plan.png" alt="The Floor plan tab: the plan of a made-up flat with four scanners and two trackers, next to it the rooms as YAML" width="700">
-
-A tracker opens as a subpage: its distance circles on the plan, the distance and signal strength at every scanner:
+Everything made up for these pictures. A tracker on the page: its distance circles on the plan, the distance and signal strength at every scanner:
 
 <img src="docs/screenshots/tracker.png" alt="The details of a key tag: circles around four scanners, a table of distances and signal strengths" width="700">
 
-A scanner, with what it hears from every tracker:
+Drawing the plan: an upper floor over the faint ground floor, stairs selected, the floors and buildings beside it:
 
-<img src="docs/screenshots/scanner.png" alt="The details of a scanner: position, height, offset and the trackers it hears" width="700">
+<img src="docs/screenshots/editor.png" alt="The Floor plan tab in Draw mode: a room on an upper floor, stairs with their handles, the tools and the stairs' floors" width="700">
 
-Calibration runs, each a dot on the plan where it was taken:
+A guided calibration run, with the progress of every scanner, and where runs are still missing:
 
-<img src="docs/screenshots/calibration.png" alt="The Calibration tab: a form for a new run and the list of two finished runs" width="700">
+<img src="docs/screenshots/calibration-run.png" alt="The Calibration tab during a run: a crosshair on the plan, a bar per scanner and the table of rooms and trackers" width="700">
 
-The coverage: the model of the made-up flat, with a probe scanner placed in the middle:
+The coverage model, with a probe scanner placed:
 
 <img src="docs/screenshots/coverage.png" alt="The Coverage tab: the plan covered with coloured cells, the legend and a probe scanner P1" width="700">
 
-The timeline, dragged back to an earlier moment:
+The quality of a scanner: reception, fidelity, contribution and the finding:
 
-<img src="docs/screenshots/timeline.png" alt="The Timeline tab: the plan with the trackers of that moment and a vertical time axis with a bar per tracker" width="700">
+<img src="docs/screenshots/scanner-quality.png" alt="The quality of a scanner: three tiles and the finding well placed" width="700">
 
-The settings, as Home Assistant's own forms:
-
-<img src="docs/screenshots/settings.png" alt="The Settings tab: number fields and switches of the engine" width="700">
-
-The card on a dashboard, a tracker tapped:
+The card on a dashboard, a tracker tapped, and the page on a phone in dark mode:
 
 <img src="docs/screenshots/card.png" alt="The card: the plan with the trackers and below it the readings of the key tag" width="700">
-
-On a phone, in dark mode, with the tabs at the bottom:
 
 <img src="docs/screenshots/phone-dark.png" alt="The Trackers tab on a phone in dark mode" width="300">
 
@@ -435,7 +425,7 @@ The page checks start a throwaway Home Assistant with a made-up flat, reachable 
 uv venv --python 3.14 .venv-panel && uv pip install --python .venv-panel/bin/python -r requirements_panel.txt
 ```
 
-They use an installed Google Chrome, otherwise Playwright's Chromium (`.venv-panel/bin/python -m playwright install chromium`). The pictures in this README come from the same run:
+They use an installed Google Chrome, otherwise Playwright's Chromium (`.venv-panel/bin/python -m playwright install chromium`). The pictures in this README come from the same run; `--all-screenshots` keeps those of every check as well:
 
 ```bash
 .venv-panel/bin/python -I scripts/panel/check_panel.py --browser chromium --screenshots docs/screenshots

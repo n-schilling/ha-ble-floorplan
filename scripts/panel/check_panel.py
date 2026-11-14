@@ -1323,6 +1323,16 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await page.screenshot(path=str(shots / "scanner-actions.png"))
         if size is not None:
             await page.set_viewport_size(size)
+        # For the picture, enough misses for a finding: a few minutes of the made-up trackers
+        if shots is not None:
+
+            async def fidelity_known() -> bool:
+                reply = await api.ws(
+                    instance.token, {"type": "ble_floorplan/scanner_quality", "key": "living"}
+                )
+                return bool(reply["result"]["fidelity"]["state"] != "unknown")
+
+            await _until(fidelity_known, "enough misses of the living room proxy", seconds=240)
         await page.locator(f"{PANEL} ha-button[data-act='quality']").click()
         dialog = page.locator(f"{PANEL} .qdialog")
         await dialog.locator(".qtile").nth(2).wait_for()
@@ -1436,12 +1446,29 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     return checks
 
 
+# The pictures the README shows; the checks take more, for a look while developing
+README_SHOTS = {
+    "tracker.png",
+    "editor.png",
+    "calibration-run.png",
+    "coverage.png",
+    "scanner-quality.png",
+    "card.png",
+    "phone-dark.png",
+}
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "--screenshots", type=Path, help="write the README pictures into this directory"
+    )
+    parser.add_argument(
+        "--all-screenshots",
+        action="store_true",
+        help="keep the pictures of every check, not only those of the README",
     )
     parser.add_argument("--keep", action="store_true", help="keep the temporary directory")
     parser.add_argument("--browser", choices=["chrome", "chromium"], default="chromium")
@@ -1450,6 +1477,7 @@ async def main() -> int:
     if args.screenshots is not None:
         args.screenshots.mkdir(parents=True, exist_ok=True)
 
+    started = time.time()
     directory = Path(tempfile.mkdtemp(prefix="ble-floorplan-panel-"))
     instance = Instance(directory)
     checks = Checks()
@@ -1488,6 +1516,10 @@ async def main() -> int:
     for line in errors:
         checks.failed.append(f"log: {line}")
         print(f"FAIL log: {line}")
+    if args.screenshots is not None and not args.all_screenshots:
+        for path in args.screenshots.glob("*.png"):
+            if path.name not in README_SHOTS and path.stat().st_mtime >= started:
+                path.unlink()
     print(f"\n{len(checks.passed)} passed, {len(checks.failed)} failed")
     if args.keep or checks.failed:
         print(f"Files kept in {directory}")
