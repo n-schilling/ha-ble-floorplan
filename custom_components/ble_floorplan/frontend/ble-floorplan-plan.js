@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.25.0";
+export const VERSION = "0.26.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -43,6 +43,8 @@ const TEXTS = {
     jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
     walls: "Through walls only at doors",
     exteriorDoors: "Leave a building only through its doors", floorsSec: "Floors", floor: "Floor",
+    ignore: "Ignore", unignore: "Suggest again", ignoredTitle: "Ignored suggestions",
+    ignoredHint: "Scanners and devices the page no longer offers to add, so new ones stand out.",
     qTitle: "Quality", qTry: "View suggestion",
     qRate: "Reception", qRateSub: "against the best scanner, over {n} trackers", qFid: "Fidelity",
     qFidSub: "spread of the misses · offset {bias} m · outliers {out}", qFewMisses: "{n} of 300 misses so far",
@@ -81,7 +83,7 @@ const TEXTS = {
     samples: "samples", rotation: "Rotation",
     noPlan: "No floor plan yet: an administrator sets it up in BLE Floorplan in the sidebar.",
     notLoaded: "BLE Floorplan is not set up.", unknown: "–",
-    plan: "Floor plan", add: "Add", name: "Name", allOnPlan: "Every one Home Assistant knows is on the plan.",
+    plan: "Floor plan", add: "Add", name: "Name",
     layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant. See the README.",
     confirmRemove: "Take {name} off the plan?", startHere: "No rooms yet: write the floor plan on the right, then add scanners and trackers.",
     timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
@@ -154,6 +156,8 @@ const TEXTS = {
     jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
     walls: "Wände nur an Türen passieren",
     exteriorDoors: "Gebäude nur durch ihre Türen verlassen", floorsSec: "Etagen", floor: "Etage",
+    ignore: "Ignorieren", unignore: "Wieder vorschlagen", ignoredTitle: "Ignorierte Vorschläge",
+    ignoredHint: "Scanner und Geräte, die die Seite nicht mehr zum Hinzufügen anbietet, damit neue auffallen.",
     qTitle: "Qualität", qTry: "Vorschlag ansehen",
     qRate: "Empfang", qRateSub: "gegen den besten Scanner, über {n} Tracker", qFid: "Modelltreue",
     qFidSub: "Streuung der Abweichung · Versatz {bias} m · Ausreißer {out}", qFewMisses: "bisher {n} von 300 Messungen",
@@ -192,7 +196,7 @@ const TEXTS = {
     samples: "Samples", rotation: "Drehung",
     noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn in BLE Floorplan in der Seitenleiste ein.",
     notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
-    plan: "Grundriss", add: "Hinzufügen", name: "Name", allOnPlan: "Alle, die Home Assistant kennt, sind auf dem Plan.",
+    plan: "Grundriss", add: "Hinzufügen", name: "Name",
     layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant. Siehe README.",
     confirmRemove: "{name} vom Plan nehmen?", startHere: "Noch keine Räume: rechts den Grundriss eintragen, dann Scanner und Tracker hinzufügen.",
     timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",

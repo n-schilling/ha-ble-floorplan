@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.25.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.25.0";
+} from "./ble-floorplan-plan.js?v=0.26.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.26.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -363,7 +363,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         this._loadingLayout = false;
         this._render();
       }
-      if ((this._tab === "scanners" || this._tab === "trackers") && this._candidates == null && !this._loadingCandidates) {
+      if (["scanners", "trackers", "settings"].includes(this._tab) && this._candidates == null && !this._loadingCandidates) {
         this._loadingCandidates = true;
         try {
           this._candidates = await this._hass.callWS({ type: "ble_floorplan/candidates" });
@@ -750,10 +750,11 @@ if (!customElements.get("ble-floorplan-panel")) {
       const t = this._t;
       const cand = this._candidates;
       const title = kind === "scanner" ? t.addScanner : t.addTracker;
-      if (cand == null) return this._card(title, `<div class="muted">…</div>`);
+      if (cand == null) return "";
       const items = kind === "scanner" ? cand.scanners : cand.trackers;
-      if (!items.length) return this._card(title, `<div class="muted">${esc(t.allOnPlan)}</div>`);
-      const value = (c) => (kind === "scanner" ? c.source : c.device_id ? `device:${c.device_id}` : `address:${c.address}`);
+      // Nothing new to add: no card at all; ignored suggestions are in the settings
+      if (!items.length) return "";
+      const value = (c) => c.id;
       const options = items.map((c) => [value(c), kind === "scanner" ? `${c.name} (${c.source})` : `${c.name}${c.address ? ` (${c.address})` : ""}`]);
       const chosen = this._add[kind] && options.some(([v]) => v === this._add[kind]) ? this._add[kind] : options[0][0];
       this._add[kind] = chosen;
@@ -783,7 +784,22 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._add.height = v.height ?? null;
         }
       });
-      return this._card(title, body, `<span></span>${this._btn(`add-${kind}`, t.add, { kind: "filled" })}`);
+      return this._card(title, body,
+        `<span>${this._btn("ignore", t.ignore, { data: ` data-key="${esc(chosen)}"` })}</span>${this._btn(`add-${kind}`, t.add, { kind: "filled" })}`);
+    }
+
+    // The suggestions that are ignored, to suggest again; nothing while there are none
+    _ignoredCard() {
+      const t = this._t;
+      const items = this._candidates?.ignored || [];
+      if (!items.length) return "";
+      const rows = items.map((c) => {
+        const what = c.kind === "scanner" ? t.scanner : t.tracker;
+        const addr = c.source || c.address || "";
+        return `<tr><td>${esc(c.name)}<div class="muted small">${esc(what)}${addr ? ` · ${esc(addr)}` : ""}</div></td>` +
+          `<td class="n">${this._btn("unignore", t.unignore, { data: ` data-key="${esc(c.id)}"` })}</td></tr>`;
+      }).join("");
+      return this._card(t.ignoredTitle, `<div class="muted small">${esc(t.ignoredHint)}</div><table class="data">${rows}</table>`);
     }
 
     _pairsText(scannerKey, trackerKey) {
@@ -1271,7 +1287,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       const save = `<span></span>${this._btn("save-settings", t.save, { kind: "filled" })}`;
       // The floor rules only matter for a plan of several levels
       const secs = ["engine", "motion", "roomRules", ...(levelsOf(plan).length > 1 ? ["floorsSec"] : []), "robust", "timeline"];
-      return secs
+      return this._ignoredCard() + secs
         .map((id) => this._card(t[id], form(id) + (id === "timeline" ? `<div class="muted small">${esc(t.timelineHint)}</div>` : ""), save))
         .join("");
     }
@@ -1727,6 +1743,12 @@ if (!customElements.get("ble-floorplan-panel")) {
           }
           break;
         }
+        case "ignore":
+        case "unignore":
+          this._call({ type: "ble_floorplan/ignore", item: key, ignored: act === "ignore" }, (result) => {
+            this._candidates = result;
+          });
+          return;
         case "edit-scanner": {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
           const pairs = {};
@@ -1811,7 +1833,9 @@ if (!customElements.get("ble-floorplan-panel")) {
           return;
         }
         case "add-scanner":
-          this._call({ type: "ble_floorplan/add_scanner", source: this._add.scanner, z: this._add.z ?? 1 }, (result) => {
+          // The choice is the suggestion's id: scanner:<source>
+          const source = (this._candidates?.scanners || []).find((x) => x.id === this._add.scanner)?.source;
+          this._call({ type: "ble_floorplan/add_scanner", source, z: this._add.z ?? 1 }, (result) => {
             this._candidates = null;
             this._add = {};
             // A new scanner lands in the middle: straight on to its place
@@ -1823,7 +1847,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           return;
         case "add-tracker": {
           const value = this._add.tracker;
-          const c = (this._candidates?.trackers || []).find((x) => (x.device_id ? `device:${x.device_id}` : `address:${x.address}`) === value);
+          const c = (this._candidates?.trackers || []).find((x) => x.id === value);
           const msg = { type: "ble_floorplan/add_tracker", name: (this._add.name || c?.name || "").trim() || value, height: this._add.height ?? 1 };
           if (value.startsWith("device:")) msg.device_id = value.slice(7);
           else msg.address = value.slice(8);
@@ -2358,9 +2382,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     .card-content { padding: 0 16px 16px; }
     .card-content.top { padding-top: 16px; }
     ha-card.list .card-content { padding: 0 0 8px; }
-    .card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px;
+    /* Left the destructive action, right the others; too narrow, the right group goes
+       to a line of its own, aligned right, before its buttons wrap among themselves */
+    .card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; padding: 8px;
       border-top: 1px solid var(--divider-color); }
-    .card-actions > span { display: flex; gap: 8px; flex-wrap: wrap; }
+    .card-actions > span { display: flex; gap: 4px 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .card-actions > :last-child { flex: 0 0 auto; max-width: 100%; margin-left: auto; }
     ha-alert { display: block; margin-bottom: 16px; }
     ha-card ha-alert { margin: 0 0 12px; }
     ha-alert ha-button { margin-inline-start: 8px; }

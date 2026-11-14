@@ -57,6 +57,7 @@ from .const import (
     WS_GET_FLOORPLAN,
     WS_GET_LAYOUT,
     WS_HISTORY,
+    WS_IGNORE,
     WS_REMOVE_SCANNER,
     WS_REMOVE_TRACKER,
     WS_SCANNER_QUALITY,
@@ -121,6 +122,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_set_settings)
     async_register_command(hass, ws_set_floorplan)
     async_register_command(hass, ws_candidates)
+    async_register_command(hass, ws_ignore)
     async_register_command(hass, ws_scanner_system)
     async_register_command(hass, ws_scanner_quality)
     async_register_command(hass, ws_add_scanner)
@@ -691,6 +693,32 @@ async def ws_scanner_system(
         connection.send_error(msg["id"], ERR_NOT_FOUND, f"no scanner {msg['key']}")
         return
     connection.send_result(msg["id"], await async_scanner_system(hass, scanner.source))
+
+
+@require_admin
+@websocket_command(
+    {
+        probatio.Required("type"): WS_IGNORE,
+        # scanner:<source>, device:<device id> or address:<address>, as candidates names it
+        probatio.Required("item"): probatio.All(
+            cv.string, probatio.Match(r"^(scanner|device|address):.+$")
+        ),
+        probatio.Optional("ignored", default=True): cv.boolean,
+    }
+)
+@async_response
+async def ws_ignore(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
+    """Stop or start suggesting a scanner or a device; returns the suggestions as candidates does."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    plan = runtime.store.plan
+    ignored = [i for i in plan.ignored if i != msg["item"]]
+    if msg["ignored"]:
+        ignored.append(msg["item"])
+    plan = replace(plan, ignored=tuple(ignored))
+    await runtime.store.async_save(plan)
+    connection.send_result(msg["id"], candidates(hass, plan))
 
 
 @require_admin

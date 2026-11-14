@@ -81,13 +81,38 @@ def scanner_names(hass: HomeAssistant) -> dict[str, str]:
     return names
 
 
+def candidate_id(item: dict[str, Any]) -> str:
+    """Return how a suggestion is named in the ignore list."""
+    if "source" in item:
+        return f"scanner:{item['source']}"
+    if "device_id" in item:
+        return f"device:{item['device_id']}"
+    return f"address:{item['address']}"
+
+
 def candidates(hass: HomeAssistant, plan: Floorplan) -> dict[str, list[dict[str, Any]]]:
     """Return the scanners and the trackable devices that are not on the plan yet.
 
     Trackers are Private BLE Devices (phones and watches with changing
     addresses) and devices with a fixed Bluetooth address; scanners and the
-    integration's own devices are left out.
+    integration's own devices are left out. Each has its `id`; the ignored
+    ones come apart, under `ignored`, with their `kind`.
     """
+    found = _candidates(hass, plan)
+    ignored = set(plan.ignored)
+    result: dict[str, list[dict[str, Any]]] = {"scanners": [], "trackers": [], "ignored": []}
+    for kind in ("scanners", "trackers"):
+        for item in found[kind]:
+            item = {"id": candidate_id(item), **item}
+            if item["id"] in ignored:
+                result["ignored"].append({**item, "kind": kind[:-1]})
+            else:
+                result[kind].append(item)
+    return result
+
+
+def _candidates(hass: HomeAssistant, plan: Floorplan) -> dict[str, list[dict[str, Any]]]:
+    """Return every scanner and trackable device not on the plan, ignored or not."""
     sources = scanner_names(hass)
     on_plan_sources = {s.source for s in plan.scanners}
     scanners = [

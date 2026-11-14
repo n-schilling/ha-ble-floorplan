@@ -302,6 +302,9 @@ FLOORPLAN_SCHEMA = probatio.All(
             ),
             probatio.Optional("settings", default=dict): SETTINGS_SCHEMA,
             probatio.Optional("pair_offsets", default=dict): PAIR_OFFSETS_SCHEMA,
+            # Suggestions of the page that are not wanted: scanner:<source>,
+            # device:<device id> or address:<address>
+            probatio.Optional("ignored", default=list): [cv.string],
         }
     ),
     _floor_references,
@@ -638,6 +641,8 @@ class Floorplan:
     pair_offsets: PairOffsets = field(default_factory=dict)
     floors: tuple[Floor, ...] = ()
     stairs: tuple[Stairs, ...] = ()
+    # Scanners and devices the page no longer suggests
+    ignored: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -665,6 +670,7 @@ class Floorplan:
             },
             floors=floors,
             stairs=tuple(Stairs.from_dict(s) for s in valid["stairs"]),
+            ignored=tuple(dict.fromkeys(valid["ignored"])),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -678,7 +684,7 @@ class Floorplan:
         }
         if self.stairs:
             data["stairs"] = [s.as_dict() for s in self.stairs]
-        return data | {
+        data |= {
             "scanners": [s.as_dict() for s in self.scanners],
             "trackers": [t.as_dict() for t in self.trackers],
             "settings": self.settings.as_dict(),
@@ -686,6 +692,9 @@ class Floorplan:
                 scanner: dict(trackers) for scanner, trackers in self.pair_offsets.items()
             },
         }
+        if self.ignored:
+            data["ignored"] = list(self.ignored)
+        return data
 
     # ---- Floors and levels ----
 

@@ -2,6 +2,18 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.26.0] - 2026-11-14
+
+### Added
+
+- Suggestions can be ignored: **Ignore** beside **Add** for scanners and trackers. Ignored ones are no longer offered and are listed under *Ignored suggestions* on the *Settings* tab, each with **Suggest again**. The list is kept with the plan (`ignored`).
+- `ble_floorplan/ignore`; `ble_floorplan/candidates` gives every suggestion its `id` and returns the `ignored` ones.
+
+### Changed
+
+- The cards *Add scanner* and *Add tracker* are left out while there is nothing new to add.
+- The buttons under a card stay in order where the sheet is narrow: the right group moves to a line of its own instead of wrapping button by button.
+
 ## [0.25.0] - 2026-11-14
 
 ### Added

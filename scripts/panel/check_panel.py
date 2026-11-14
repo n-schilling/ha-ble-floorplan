@@ -1239,6 +1239,36 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         "phone width and dark mode: tabs at the bottom, no sideways scrolling", phone_and_dark
     )
 
+    async def ignored_suggestions() -> None:
+        # Off the plan, the hall plug is a suggestion; ignored, the card goes and the settings list it
+        before = await _plan(api, instance)
+        reply = await api.ws(
+            instance.token, {"type": "ble_floorplan/remove_scanner", "key": "hall"}
+        )
+        expect(reply["success"], str(reply))
+        await _goto(page, instance, "scanners")
+        card = page.locator(f"{PANEL} ha-card", has_text="Add scanner")
+        await card.wait_for()
+        await card.locator("ha-button[data-act='ignore']").click()
+        await card.wait_for(state="detached")
+        await _goto(page, instance, "settings")
+        ignored = page.locator(f"{PANEL} ha-card", has_text="Ignored suggestions")
+        await ignored.wait_for()
+        expect("Hall" in await ignored.inner_text(), await ignored.inner_text())
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "ignored.png"))
+        await ignored.locator("ha-button[data-act='unignore']").click()
+        await ignored.wait_for(state="detached")
+        await _goto(page, instance, "scanners")
+        await page.locator(f"{PANEL} ha-card", has_text="Add scanner").wait_for()
+        reply = await api.ws(
+            instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": before}
+        )
+        expect(reply["success"], str(reply))
+
+    await checks.run("suggestions are ignored and suggested again", ignored_suggestions)
+
     async def scanner_quality() -> None:
         # The made-up scanners hear steadily: after a little while the lights come up
         await _goto(page, instance, "scanners")
@@ -1248,6 +1278,19 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             seconds=150,
         )
         await page.locator(f"{PANEL} .item[data-key='living']").click()
+        # The buttons under the scanner: the right ones on one line, also where the sheet is narrow
+        size = page.viewport_size
+        await page.set_viewport_size({"width": 1000, "height": 900})
+        tops = await page.locator(f"{PANEL} .card-actions ha-button").evaluate_all(
+            "els => els.map(e => Math.round(e.getBoundingClientRect().top))"
+        )
+        right = tops[1:]
+        expect(len(set(right)) == 1, f"buttons on {len(set(right))} lines: {tops}")
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "scanner-actions.png"))
+        if size is not None:
+            await page.set_viewport_size(size)
         await page.locator(f"{PANEL} ha-button[data-act='quality']").click()
         dialog = page.locator(f"{PANEL} .qdialog")
         await dialog.locator(".qtile").nth(2).wait_for()

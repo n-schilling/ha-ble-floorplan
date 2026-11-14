@@ -26,6 +26,7 @@ from custom_components.ble_floorplan.const import (
     WS_ADD_TRACKER,
     WS_CANDIDATES,
     WS_GET_LAYOUT,
+    WS_IGNORE,
     WS_REMOVE_SCANNER,
     WS_REMOVE_TRACKER,
     WS_SET_LAYOUT,
@@ -157,12 +158,30 @@ async def test_candidates(
     await client.send_json_auto_id({"type": WS_CANDIDATES})
     msg = await client.receive_json()
     assert msg["success"], msg
-    assert msg["result"]["scanners"] == [{"source": SCANNER_HALL, "name": "Hall proxy"}]
+    hall = {"id": f"scanner:{SCANNER_HALL}", "source": SCANNER_HALL, "name": "Hall proxy"}
+    keys = {"id": f"address:{KEYS}", "address": KEYS, "name": "Keys"}
+    watch = {"id": f"device:{devices}", "device_id": devices, "name": "Watch"}
+    assert msg["result"]["scanners"] == [hall]
     # The tag is on the plan, the scanners are scanners, the integration's own devices are its own
-    assert msg["result"]["trackers"] == [
-        {"address": KEYS, "name": "Keys"},
-        {"device_id": devices, "name": "Watch"},
-    ]
+    assert msg["result"]["trackers"] == [keys, watch]
+    assert msg["result"]["ignored"] == []
+
+    # Ignored: no longer suggested, listed apart; kept in the plan; shown again on request
+    await client.send_json_auto_id({"type": WS_IGNORE, "item": keys["id"]})
+    msg = await client.receive_json()
+    assert msg["result"]["trackers"] == [watch]
+    assert msg["result"]["ignored"] == [{**keys, "kind": "tracker"}]
+    await client.send_json_auto_id({"type": WS_IGNORE, "item": hall["id"]})
+    msg = await client.receive_json()
+    assert msg["result"]["scanners"] == []
+    assert entry.runtime_data.store.plan.as_dict()["ignored"] == [keys["id"], hall["id"]]
+    await client.send_json_auto_id({"type": WS_IGNORE, "item": keys["id"], "ignored": False})
+    msg = await client.receive_json()
+    assert msg["result"]["trackers"] == [keys, watch]
+    assert msg["result"]["ignored"] == [{**hall, "kind": "scanner"}]
+    await client.send_json_auto_id({"type": WS_IGNORE, "item": "phone"})
+    msg = await client.receive_json()
+    assert msg["error"]["code"] == "invalid_format"
 
 
 async def test_add_and_remove_scanner(

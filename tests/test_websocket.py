@@ -100,6 +100,7 @@ async def test_not_loaded(
         *CATALOG_MESSAGES,
         {"type": WS_HISTORY, "day": "2026-10-26"},
         {"type": "ble_floorplan/scanner_quality"},
+        {"type": "ble_floorplan/ignore", "item": "scanner:AA:BB:CC:DD:EE:04"},
     ):
         await client.send_json_auto_id(message)
         msg = await client.receive_json()
