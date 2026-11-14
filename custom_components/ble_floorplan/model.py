@@ -130,6 +130,7 @@ SCANNER_SCHEMA = probatio.Schema(
         probatio.Optional("y", default=0.0): NUMBER,
         probatio.Optional("z", default=0.0): NUMBER,
         probatio.Optional("rssi_offset", default=0.0): NUMBER,
+        probatio.Optional("paused", default=False): cv.boolean,
     }
 )
 
@@ -142,6 +143,7 @@ TRACKER_SCHEMA = probatio.All(
             probatio.Optional("device_id"): cv.string,
             probatio.Optional("height", default=0.0): NUMBER,
             probatio.Optional("ref_power", default=None): probatio.Any(None, NUMBER),
+            probatio.Optional("paused", default=False): cv.boolean,
         }
     ),
     _one_address,
@@ -317,6 +319,8 @@ class Scanner:
     z: float = 0.0
     # Added to the reference power for this scanner, in dB
     rssi_offset: float = 0.0
+    # Paused by the user: left out of the positions and of the active scanners until resumed
+    paused: bool = False
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -333,7 +337,7 @@ class Scanner:
             "y": self.y,
             "z": self.z,
             "rssi_offset": self.rssi_offset,
-        }
+        } | ({"paused": True} if self.paused else {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +353,8 @@ class Tracker:
     height: float = 0.0
     # RSSI at one metre in dBm; None takes the default of the settings
     ref_power: float | None = None
+    # Paused by the user: no position, its entities unavailable, until resumed
+    paused: bool = False
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -365,6 +371,8 @@ class Tracker:
                 "device_id": self.device_id,
                 "height": self.height,
                 "ref_power": self.ref_power,
+                # Only when paused, as the other optional values only when set
+                "paused": True if self.paused else None,
             }
         )
 

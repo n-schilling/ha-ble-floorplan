@@ -881,6 +881,41 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         "the system details of a scanner are folded and open on demand", system_details
     )
 
+    async def pause_and_resume() -> None:
+        # A paused scanner and tracker: grey with "paused", left out until resumed
+        await _goto(page, instance, "scanners")
+        await page.locator(f"{PANEL} .item[data-key='hall']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='pause-scanner']").click()
+        await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="Paused").wait_for()
+        await page.locator(f"{PANEL} svg g.scanner.paused[data-key='hall']").wait_for()
+        plan = await _plan(api, instance)
+        expect(
+            next(s for s in plan["scanners"] if s["key"] == "hall").get("paused") is True,
+            "scanner paused",
+        )
+        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").click()
+        item = page.locator(f"{PANEL} .item[data-key='hall']")
+        await item.locator(".icon-bg.paused").wait_for()
+        expect("paused" in await item.inner_text(), await item.inner_text())
+        await item.click()
+        await page.locator(f"{PANEL} ha-button[data-act='resume-scanner']").click()
+        await page.locator(f"{PANEL} svg g.scanner.paused").wait_for(state="detached")
+
+        await _goto(page, instance, "trackers")
+        await page.locator(f"{PANEL} .item[data-key='tag']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='pause-tracker']").click()
+        await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="Paused").wait_for()
+        await page.locator(f"{PANEL} svg g.tracker[data-key='tag']").wait_for(state="detached")
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "tracker-paused.png"))
+        await page.locator(f"{PANEL} ha-button[data-act='resume-tracker']").click()
+        await page.locator(f"{PANEL} svg g.tracker[data-key='tag']").wait_for()
+        plan = await _plan(api, instance)
+        expect(all(not x.get("paused") for x in plan["scanners"] + plan["trackers"]), str(plan))
+
+    await checks.run("a scanner and a tracker are paused and resumed", pause_and_resume)
+
     async def silent_scanner() -> None:
         # A scanner Home Assistant does not have: silent, as one without power
         plan = await _plan(api, instance)

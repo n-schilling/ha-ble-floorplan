@@ -133,6 +133,8 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         # Monotonic time of the first computation and of the last sighting per tracker
         self._started: float | None = None
         self._last_seen: dict[str, float] = {}
+        # The room of the last sighting per tracker, kept until it counts as away
+        self._last_room: dict[str, str | None] = {}
         # device_id -> entity_id of the device tracker of a Private BLE Device
         self._tracker_entities: dict[str, str] = {}
 
@@ -155,22 +157,39 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         plan = self.plan
         if self._started is None:
             self._started = now
-        sources = {s.source: s.key for s in plan.scanners}
+        sources = {s.source: s.key for s in plan.scanners if not s.paused}
         positions: Positions = {}
         for tracker in plan.trackers:
+            if tracker.paused:
+                # Starts afresh when resumed: no smoothing, room or sighting carried over
+                self._smoother.reset(tracker.key)
+                self._rooms.reset(tracker.key)
+                self._last_seen.pop(tracker.key, None)
+                self._last_room.pop(tracker.key, None)
+                positions[tracker.key] = TrackerPosition(
+                    tracker.key, None, None, None, None, None, None, None, 0
+                )
+                continue
             address = self._address_of(tracker)
             if address is not None:
                 self._collect(tracker.key, address, sources)
             position = self._locate(tracker, address, now, plan)
             if position.seen:
                 self._last_seen[tracker.key] = now
+                self._last_room[tracker.key] = position.room
             last = self._last_seen.get(tracker.key)
             away = plan.settings.away_seconds
             if last is not None:
                 present: bool | None = now - last <= away
             else:
                 present = None if now - self._started < away else False
-            positions[tracker.key] = replace(position, present=present)
+            room = position.room
+            if not position.seen:
+                # A short gap keeps the last room: unknown only once the tracker counts as away
+                room = self._last_room.get(tracker.key) if present else None
+                if not present:
+                    self._last_room.pop(tracker.key, None)
+            positions[tracker.key] = replace(position, present=present, room=room)
         return positions
 
     async def async_start_calibration(
@@ -262,6 +281,9 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         nearest: str | None = None
         nearest_distance = float("inf")
         for scanner in plan.scanners:
+            if scanner.paused:
+                readings[scanner.key] = Reading(None, None, False)
+                continue
             samples = self._samples.get((tracker.key, scanner.source))
             if samples:
                 # Drop what fell out of the window; the newest sample defines it

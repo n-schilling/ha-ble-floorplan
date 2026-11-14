@@ -128,7 +128,9 @@ async def test_stale_and_reset(
     await coordinator.async_refresh()
     gone = coordinator.data["tag"]
     assert not gone.seen
-    assert gone.room is None
+    # A gap keeps the last room until the tracker counts as away
+    assert gone.room == "Living room"
+    assert gone.present
     assert gone.readings["living"].distance is None
     # Back: the position is taken as is
     scanner_devices[TAG] = _tag_adverts(scanners, 1040.0, (7.0, 1.0, 9.0))
@@ -136,6 +138,12 @@ async def test_stale_and_reset(
     await coordinator.async_refresh()
     back = coordinator.data["tag"]
     assert back.x == back.raw_x
+    # Away: the room is unknown, also when the gap ends later
+    clock(1041.0 + 121.0)
+    await coordinator.async_refresh()
+    away = coordinator.data["tag"]
+    assert away.present is False
+    assert away.room is None
 
 
 async def test_far_scanner_ignored(

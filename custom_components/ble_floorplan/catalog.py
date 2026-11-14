@@ -58,7 +58,7 @@ def alive_sources(hass: HomeAssistant) -> set[str]:
 def offline_scanners(hass: HomeAssistant, plan: Floorplan) -> list[str]:
     """Return the keys of the plan's scanners that received nothing within the last minute."""
     alive = alive_sources(hass)
-    return [s.key for s in plan.scanners if s.source not in alive]
+    return [s.key for s in plan.scanners if not s.paused and s.source not in alive]
 
 
 def scanner_names(hass: HomeAssistant) -> dict[str, str]:

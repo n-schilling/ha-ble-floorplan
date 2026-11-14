@@ -176,6 +176,7 @@ def _sources(plan: Floorplan, tracker: Tracker | None) -> list[_Source]:
             s.rssi_offset + (plan.pair_offset(s.key, tracker.key) if tracker else 0.0),
         )
         for s in plan.scanners
+        if not s.paused
     ]
 
 

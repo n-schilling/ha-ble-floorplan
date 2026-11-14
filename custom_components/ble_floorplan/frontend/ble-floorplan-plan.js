@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.19.2";
+export const VERSION = "0.20.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -27,6 +27,9 @@ const TEXTS = {
     sysMode: "Scan mode", sysActive: "active", sysPassive: "passive", sysSlots: "Connection slots",
     sysSlotsUsed: "{used} of {n} in use", sysReceiveOnly: "none, receive only", sysDevice: "Device",
     sysOpenDevice: "Open in Home Assistant", sysNotInHa: "not in Home Assistant",
+    paused: "paused", pause: "Pause", resume: "Resume", pausedNote: "Paused", resumedNote: "Resumed",
+    pausedScannerHint: "Paused: this scanner adds nothing to the positions and does not count as an active scanner until you resume it.",
+    pausedTrackerHint: "Paused: this tracker gets no position and its entities are unavailable until you resume it.",
     offline: "not reachable", offlineHint: "This scanner has received nothing for over a minute. Is it powered and connected to Home Assistant?",
     hintMeasure: "Tap the plan where the tracker lies, then start.",
     hintMove: "Tap the plan where the scanner is, or drag it; then save.", runs: "Runs", duration: "Length",
@@ -92,6 +95,9 @@ const TEXTS = {
     sysMode: "Scanmodus", sysActive: "aktiv", sysPassive: "passiv", sysSlots: "Verbindungsplätze",
     sysSlotsUsed: "{used} von {n} belegt", sysReceiveOnly: "keine, nur Empfang", sysDevice: "Gerät",
     sysOpenDevice: "In Home Assistant öffnen", sysNotInHa: "nicht in Home Assistant",
+    paused: "pausiert", pause: "Pausieren", resume: "Fortsetzen", pausedNote: "Pausiert", resumedNote: "Fortgesetzt",
+    pausedScannerHint: "Pausiert: Dieser Scanner fließt nicht in die Positionen ein und zählt nicht als aktiver Scanner, bis du ihn fortsetzt.",
+    pausedTrackerHint: "Pausiert: Dieser Tracker bekommt keine Position, seine Entitäten sind nicht verfügbar, bis du ihn fortsetzt.",
     offline: "nicht erreichbar", offlineHint: "Dieser Scanner hat seit über einer Minute nichts empfangen. Hat er Strom und ist er mit Home Assistant verbunden?",
     hintMeasure: "Auf den Grundriss tippen, wo der Tracker liegt, dann starten.",
     hintMove: "Auf den Grundriss tippen, wo der Scanner hängt, oder ihn ziehen; dann speichern.", runs: "Messläufe", duration: "Dauer",
@@ -194,14 +200,14 @@ export const trackerColor = (plan, key) => {
 export const planInfo = (plan, positions, scannerPos, offline = []) => {
   const info = { trackers: {}, scanners: {} };
   for (const s of plan.scanners) {
-    info.scanners[s.key] = { name: s.name, p: scannerPos(s), z: s.z, offline: offline.includes(s.key), trackers: [] };
+    info.scanners[s.key] = { name: s.name, p: scannerPos(s), z: s.z, offline: offline.includes(s.key), paused: !!s.paused, trackers: [] };
   }
   plan.trackers.forEach((tr, i) => {
     const color = COLORS[i % COLORS.length];
     const pos = positions[tr.key] || {};
     const readings = pos.readings || {};
     const seen = pos.x != null && pos.y != null;
-    info.trackers[tr.key] = { name: tr.name, color, readings, p: seen ? pos : null, room: pos.room };
+    info.trackers[tr.key] = { name: tr.name, color, readings, p: seen ? pos : null, room: pos.room, paused: !!tr.paused };
     for (const s of plan.scanners) {
       const r = readings[s.key] || {};
       info.scanners[s.key].trackers.push({ key: tr.key, name: tr.name, color, d: r.distance ?? null, rssi: r.rssi, used: !!r.used });
@@ -343,7 +349,7 @@ export const planSvg = (plan, o) => {
     .map((s) => {
       const [x, y] = o.scannerPos(s);
       const cls = `scanner${o.movable === s.key ? " movable" : ""}${o.openScanner === s.key ? " open" : ""}` +
-        `${o.offline?.includes(s.key) ? " offline" : ""}`;
+        `${o.offline?.includes(s.key) ? " offline" : ""}${s.paused ? " paused" : ""}`;
       return (
         `<g class="${cls}" data-key="${esc(s.key)}">` +
         `<rect x="${x - 0.22}" y="${y - 0.22}" width="0.44" height="0.44" rx="0.08"/>` +
@@ -383,12 +389,12 @@ export const detailHtml = (info, kind, key, t, fmt) => {
     const rows = Object.values(info.scanners)
       .map((s) => {
         const e = s.trackers.find((x) => x.key === key) || {};
-        const status = s.offline ? t.offline : e.d == null ? t.notSeen : e.used ? "" : t.ignored;
+        const status = s.paused ? t.paused : s.offline ? t.offline : e.d == null ? t.notSeen : e.used ? "" : t.ignored;
         return `<tr class="${e.used ? "" : "ign"}"><td>${esc(s.name)}</td><td class="num">${e.d == null ? "" : `${fmt(e.d)} m`}</td>` +
           `<td class="num">${e.rssi == null ? "" : `${fmt(e.rssi, 0)} dBm`}</td><td>${status}</td></tr>`;
       })
       .join("");
-    const posText = tr.p
+    const posText = tr.paused ? t.paused : tr.p
       ? `${esc(tr.room ?? t.unknown)} (${fmt(tr.p.x)} / ${fmt(tr.p.y)} m) · ${tr.p.scanner_count} ${t.count}`
       : t.notSeen;
     return `<b><span class="dot" style="background:${tr.color}"></span>${esc(tr.name)}</b><div class="sub">${t.position}: ${posText}</div><table>${rows}</table>`;
@@ -403,7 +409,7 @@ export const detailHtml = (info, kind, key, t, fmt) => {
         `<td>${e.d == null ? t.notSeen : e.used ? "" : t.ignored}</td></tr>`
     )
     .join("");
-  const off = s.offline ? `<div class="sub offline">${esc(t.offline)}</div>` : "";
+  const off = s.paused ? `<div class="sub">${esc(t.paused)}</div>` : s.offline ? `<div class="sub offline">${esc(t.offline)}</div>` : "";
   return `<b>${esc(s.name)}</b>${off}<div class="sub">${t.position} ${fmt(s.p[0])} / ${fmt(s.p[1])} m · ${t.height} ${fmt(s.z)} m</div><table>${rows}</table>`;
 };
 
@@ -756,6 +762,8 @@ export const PLAN_CSS = `
   .scanner.movable rect { fill: var(--primary-color); }
   .scanner.offline rect { fill: var(--card-background-color); stroke: var(--error-color); stroke-width: 0.08; stroke-dasharray: 0.1 0.06; }
   .scanner.offline .slabel, .sub.offline { fill: var(--error-color); color: var(--error-color); }
+  .scanner.paused rect { fill: var(--card-background-color); stroke: var(--disabled-text-color, #9e9e9e); stroke-width: 0.06; }
+  .scanner.paused .slabel { fill: var(--disabled-text-color, #9e9e9e); }
   .slabel { font-size: 0.3px; fill: var(--primary-text-color); text-anchor: middle; }
   .tlabel { font-size: 0.36px; font-weight: 600; text-anchor: middle; }
   .range { fill: none; stroke-width: 0.04; stroke-dasharray: 0.12 0.1; opacity: 0.8; }

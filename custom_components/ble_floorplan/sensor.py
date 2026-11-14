@@ -65,13 +65,13 @@ def _async_remove_stale(
 
 
 class RoomSensor(TrackerEntity, SensorEntity):
-    """The room the tracker is in; unknown while no scanner sees it or the room has no name.
+    """The room the tracker is in; unknown once it counts as away or the room has no name.
 
-    The attributes change with every advertisement: the recorder keeps the
-    room only, the timeline keeps the way.
+    A short gap in the readings keeps the last room. The state changes only
+    with the room: the position, the nearest scanner and the distances change
+    with every advertisement and would write a recorder row each time, so
+    they are on the page and in the timeline instead.
     """
-
-    _unrecorded_attributes = frozenset({"x", "y", "nearest_scanner", "scanner_count", "distances"})
 
     def __init__(self, coordinator: FloorplanCoordinator, tracker: Tracker) -> None:
         """Initialize the sensor."""
@@ -81,29 +81,13 @@ class RoomSensor(TrackerEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the room name."""
         position = self.position
-        return (position.room or None) if position is not None and position.seen else None
+        return (position.room or None) if position is not None else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the position, the nearest scanner and the distance of every scanner."""
-        position = self.position
-        if position is None or not position.seen:
-            return {}
-        plan = self.coordinator.plan
-        nearest = plan.scanner(position.nearest) if position.nearest is not None else None
-        distances = {}
-        for key, reading in position.readings.items():
-            scanner = plan.scanner(key)
-            name = scanner.name if scanner is not None else key
-            distances[name] = round(reading.distance, 2) if reading.distance is not None else None
-        return {
-            "x": round(position.x, 2) if position.x is not None else None,
-            "y": round(position.y, 2) if position.y is not None else None,
-            "nearest_scanner": nearest.name if nearest is not None else None,
-            "scanner_count": position.scanner_count,
-            "distances": distances,
-            "area_id": plan.area_of(position.room),
-        }
+        """Return the Home Assistant area of the room."""
+        room = self.native_value
+        return {"area_id": self.coordinator.plan.area_of(room)} if room is not None else {}
 
 
 class PositionSensor(TrackerEntity, SensorEntity):
@@ -161,11 +145,13 @@ class ActiveScannersSensor(SensorEntity):
     def _update(self) -> None:
         plan = self.coordinator.plan
         alive = alive_sources(self.hass)
-        active = [s.name for s in plan.scanners if s.source in alive]
-        inactive = [s.name for s in plan.scanners if s.source not in alive]
+        watched = [s for s in plan.scanners if not s.paused]
+        active = [s.name for s in watched if s.source in alive]
+        inactive = [s.name for s in watched if s.source not in alive]
         self._attr_native_value = len(active)
         self._attr_extra_state_attributes = {
-            "total": len(plan.scanners),
+            "total": len(watched),
+            "paused": [s.name for s in plan.scanners if s.paused],
             "active": active,
             "inactive": inactive,
         }

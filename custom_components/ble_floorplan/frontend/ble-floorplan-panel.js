@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.19.2";
+} from "./ble-floorplan-plan.js?v=0.20.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -711,6 +711,10 @@ if (!customElements.get("ble-floorplan-panel")) {
           const info = this._info.scanners[x.key];
           const heard = info.trackers.filter((e) => e.d != null).length;
           const where = `${fmt(x.x)} / ${fmt(x.y)} m · ${t.height} ${fmt(x.z)} m`;
+          if (x.paused) {
+            return this._item("sel-scanner", x.key, `<span class="icon-bg paused">${icon("scanner")}</span>`, x.name,
+              `${esc(t.paused)} · ${where}`);
+          }
           return info.offline
             ? this._item("sel-scanner", x.key, `<span class="icon-bg offline">${icon("scanner")}</span>`, x.name,
               `<span class="offline">${esc(t.offline)}</span> · ${where}`)
@@ -749,14 +753,15 @@ if (!customElements.get("ble-floorplan-panel")) {
         const pairs = plan.trackers.map((tr) => [tr.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
         const kind = this._sysKind(this._sys?.key === s.key ? this._sys.data : null);
         body = (kind ? `<div class="kind">${icon("scanner")}<span>${esc(kind)}</span></div>` : "") +
-          this._confirmHtml() + (info.offline ? this._alert("warning", t.offlineHint) : "") + this._kv([
+          this._confirmHtml() + (s.paused ? this._alert("info", t.pausedScannerHint) : info.offline ? this._alert("warning", t.offlineHint) : "") + this._kv([
           [t.position, `${fmt(s.x)} / ${fmt(s.y)} m`],
           [t.height, `${fmt(s.z)} m`],
           [t.offset, `${s.rssi_offset > 0 ? "+" : ""}${fmt(s.rssi_offset)} dB`],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
         ]) + `<div class="subhead">${esc(t.hears)}</div>${hears}` + this._sysHtml(s.key);
         actions = this._btn("remove-scanner", t.remove, { kind: "danger", disabled: !!this._confirm }) +
-          `<span>${this._btn("move", t.move)}${this._btn("edit-scanner", t.edit)}</span>`;
+          `<span>${this._btn(s.paused ? "resume-scanner" : "pause-scanner", s.paused ? t.resume : t.pause)}` +
+          `${this._btn("move", t.move)}${this._btn("edit-scanner", t.edit)}</span>`;
       }
       return this._card("", body, actions);
     }
@@ -846,21 +851,24 @@ if (!customElements.get("ble-floorplan-panel")) {
       if (!tr) {
         const items = plan.trackers.map((x) => {
           const info = this._info.trackers[x.key];
-          const status = info.p ? `${esc(info.room || t.unknown)} · ${esc(t.seenBy.replace("{n}", info.p.scanner_count))}` : esc(t.notSeen);
-          return this._item("sel-tracker", x.key, `<span class="icon-bg" style="background:${info.color}">${icon("tracker")}</span>`, x.name, status);
+          const status = x.paused ? esc(t.paused)
+            : info.p ? `${esc(info.room || t.unknown)} · ${esc(t.seenBy.replace("{n}", info.p.scanner_count))}` : esc(t.notSeen);
+          const bg = x.paused ? `class="icon-bg paused"` : `class="icon-bg" style="background:${info.color}"`;
+          return this._item("sel-tracker", x.key, `<span ${bg}>${icon("tracker")}</span>`, x.name, status);
         });
         return this._card(t.trackers, items.join("") || `<div class="muted">${esc(t.none)}</div>`, "", "list") + this._addCard("tracker");
       }
       const info = this._info.trackers[tr.key];
-      const status = info.p
+      const status = tr.paused ? esc(t.paused) : info.p
         ? `${esc(info.room || t.unknown)} · ${fmt(info.p.x)} / ${fmt(info.p.y)} m · ${esc(t.seenBy.replace("{n}", info.p.scanner_count))}`
         : esc(t.notSeen);
       const readings = `<table class="data"><tr><th>${esc(t.scanner)}</th><th class="n">m</th><th class="n">dBm</th></tr>` +
         plan.scanners.map((s) => {
           const r = info.readings[s.key] || {};
           const off = this._info.scanners[s.key].offline;
+          const cell = s.paused ? esc(t.paused) : off ? `<span class="offline">${esc(t.offline)}</span>` : r.distance == null ? esc(t.notSeen) : fmt(r.distance);
           return `<tr class="${r.distance == null || !r.used ? "ign" : ""}"><td>${esc(s.name)}</td>` +
-            `<td class="n">${off ? `<span class="offline">${esc(t.offline)}</span>` : r.distance == null ? esc(t.notSeen) : fmt(r.distance)}</td><td class="n">${r.rssi == null ? "" : fmt(r.rssi, 0)}</td></tr>`;
+            `<td class="n">${cell}</td><td class="n">${r.rssi == null ? "" : fmt(r.rssi, 0)}</td></tr>`;
         }).join("") + `</table>`;
       let body;
       let actions;
@@ -887,13 +895,15 @@ if (!customElements.get("ble-floorplan-panel")) {
       } else {
         const ref = tr.ref_power == null ? `${esc(t.default)} (${fmt(plan.settings.ref_power_default, 0)} dBm)` : `${fmt(tr.ref_power)} dBm`;
         const pairs = plan.scanners.map((s) => [s.name, this._pairsText(s.key, tr.key)]).filter(([, v]) => v);
-        body = this._confirmHtml() + `<div class="status"><span class="dot" style="background:${info.color}"></span>${status}</div>` + this._kv([
+        body = this._confirmHtml() + (tr.paused ? this._alert("info", t.pausedTrackerHint) : "") +
+          `<div class="status"><span class="dot" style="background:${tr.paused ? "var(--disabled-text-color, #9e9e9e)" : info.color}"></span>${status}</div>` + this._kv([
           [t.height, `${fmt(tr.height, 2)} m`],
           [t.refPower, ref],
           [t.pairs, pairs.length ? pairs.map(([n, v]) => `${esc(n)} ${v}`).join(" · ") : esc(t.none)],
         ]) + `<div class="subhead">${esc(t.heardBy)}</div>${readings}`;
         actions = this._btn("remove-tracker", t.remove, { kind: "danger", disabled: !!this._confirm }) +
-          `<span>${this._btn("measure-tracker", t.measure)}${this._btn("edit-tracker", t.edit)}</span>`;
+          `<span>${this._btn(tr.paused ? "resume-tracker" : "pause-tracker", tr.paused ? t.resume : t.pause)}` +
+          `${this._btn("measure-tracker", t.measure, { disabled: !!tr.paused })}${this._btn("edit-tracker", t.edit)}</span>`;
       }
       return this._card("", body, actions);
     }
@@ -1407,6 +1417,17 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._form = { name: s.name, x: s.x, y: s.y, z: s.z, rssi_offset: s.rssi_offset, pairs };
           this._note = null;
           break;
+        }
+        case "pause-scanner":
+        case "resume-scanner":
+        case "pause-tracker":
+        case "resume-tracker": {
+          const [what, kind] = act.split("-");
+          const sel = kind === "scanner" ? this._selScanner : this._selTracker;
+          this._call({ type: `ble_floorplan/set_${kind}`, key: sel, paused: what === "pause" }, () => {
+            this._note = { kind: "ok", text: what === "pause" ? t.pausedNote : t.resumedNote };
+          });
+          return;
         }
         case "save-scanner": {
           const s = plan.scanners.find((x) => x.key === this._selScanner);
@@ -2001,6 +2022,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     .item:hover { background: var(--secondary-background-color); }
     .icon-bg { display: flex; padding: 8px; border-radius: 50%; color: var(--text-primary-color, #fff); background: var(--primary-color); flex: none;
       --mdc-icon-size: 20px; }
+    .icon-bg.paused { background: var(--disabled-text-color, #9e9e9e); color: var(--text-primary-color, #fff); }
     .icon-bg.offline { background: var(--error-color); color: var(--text-primary-color, #fff); }
     .offline { color: var(--error-color); }
     .text { display: flex; flex: 1; flex-direction: column; min-width: 0; }

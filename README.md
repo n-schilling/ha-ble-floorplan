@@ -2,7 +2,7 @@
 
 [![Marketplace: custom](https://img.shields.io/badge/Marketplace-custom-41BDF5.svg)](#installation)
 
-A Home Assistant integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor with its coordinates and a presence tracker. A page in the sidebar, for administrators only, sets everything up; a dashboard card shows the plan with the trackers moving live.
+A Home Assistant integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor and a presence tracker. A page in the sidebar, for administrators only, sets everything up; a dashboard card shows the plan with the trackers moving live.
 
 What it is for, for example:
 
@@ -309,11 +309,13 @@ Each tracker becomes a device with these entities:
 
 | Entity | Description |
 |---|---|
-| Room (`sensor`) | The room the tracker is in, unknown while no scanner sees it or the room has no name. Attributes: `x`, `y` in metres, `nearest_scanner`, `scanner_count`, `distances` (the floor distance to every scanner, null when not seen) and `area_id`. The recorder keeps the room and `area_id` only. |
+| Room (`sensor`) | The room the tracker is in; a short gap in the readings keeps the last room, so it is unknown once the tracker counts as away or when the room has no name. Attribute: `area_id`. Nothing that changes with every advertisement, so the recorder gets a row per room change only; the position and the distances are on the page and in the timeline. |
 | Position X, Position Y (`sensor`, diagnostic) | Only with the option *Position sensors*: the coordinates on the plan in metres, rounded to a decimetre. |
 | Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds`, `not_home` after that. Right after a start of Home Assistant it stays unknown until the tracker is seen or `away_seconds` passed. |
 
-The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with the names of the active and inactive ones as attributes.
+The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with `total` and the names of the active and inactive ones as attributes. Paused scanners count neither way; the attribute `paused` names them.
+
+A scanner or a tracker can be **paused** on its page until it is resumed there, over restarts too: a paused scanner adds nothing to the positions, a paused tracker gets no position and its entities are unavailable. Both are drawn grey on the plan and the card.
 
 ### WebSocket commands
 
@@ -332,8 +334,8 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/add_tracker` | admins | `device_id` or `address`, `name`, optionally `height`: adds a tracker. |
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |
 | `ble_floorplan/remove_tracker` | admins | `key`: takes a tracker off the plan, with its pair corrections. |
-| `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `rssi_offset`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
-| `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `ref_power` (null for the default), `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
+| `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `rssi_offset`, `paused`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
+| `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `ref_power` (null for the default), `paused`, `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`: starts a run (one at a time). |
 | `ble_floorplan/calibration/stop` | admins | Stops the run and saves the tracker's values; returns the run and `fit` (null when no scanner has three samples). |

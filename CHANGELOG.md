@@ -2,6 +2,19 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] - 2026-11-14
+
+### Added
+
+- **Pause** a scanner or a tracker on its page, and **Resume** it there; it stays paused over a restart. A paused scanner adds nothing to the positions, the coverage model and the calibration, is not marked as not reachable and counts neither as active nor as missing in *Active scanners* (attribute `paused` lists it, `total` leaves it out). A paused tracker gets no position, its entities are unavailable rather than away, and it starts afresh when resumed. Both are drawn grey with *paused* on the plan, in the lists, in the tooltips and on the card.
+- `ble_floorplan/set_scanner` and `ble_floorplan/set_tracker` take `paused`; the plan stores it only when set.
+- A page check that pauses and resumes a scanner and a tracker.
+
+### Changed
+
+- The room sensor carries only `area_id` as attribute. The position, the nearest scanner, the scanner count and the distances changed with every advertisement and wrote a recorder row each second (some 55,000 a day per tracker) although the room changed only a few dozen times; they remain on the page and in the timeline.
+- A tracker that is briefly not seen keeps its last room until it counts as away (*away_seconds*), instead of turning unknown after 30 seconds; unknown now means away.
+
 ## [0.19.2] - 2026-11-14
 
 ### Fixed

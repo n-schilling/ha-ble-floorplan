@@ -45,6 +45,12 @@ class TrackerEntity(CoordinatorEntity[FloorplanCoordinator]):
         self._attr_device_info = tracker_device(tracker)
 
     @property
+    def available(self) -> bool:
+        """Return False while the tracker is paused: it is not measured, not away."""
+        tracker = self.coordinator.plan.tracker(self._key)
+        return super().available and not (tracker is not None and tracker.paused)
+
+    @property
     def position(self) -> TrackerPosition | None:
         """Return the computed position of the tracker."""
         return self.coordinator.data.get(self._key)

@@ -162,9 +162,14 @@ def _plan(plan: Floorplan, admin: bool) -> dict[str, Any]:
         "rooms": [r.as_dict() for r in plan.rooms],
         "openings": [list(o) for o in plan.openings],
         "scanners": [
-            {"key": s.key, "name": s.name, "x": s.x, "y": s.y, "z": s.z} for s in plan.scanners
+            {"key": s.key, "name": s.name, "x": s.x, "y": s.y, "z": s.z}
+            | ({"paused": True} if s.paused else {})
+            for s in plan.scanners
         ],
-        "trackers": [{"key": t.key, "name": t.name} for t in plan.trackers],
+        "trackers": [
+            {"key": t.key, "name": t.name} | ({"paused": True} if t.paused else {})
+            for t in plan.trackers
+        ],
     }
 
 
@@ -293,6 +298,7 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
         probatio.Optional("y"): NUMBER,
         probatio.Optional("z"): NUMBER,
         probatio.Optional("rssi_offset"): NUMBER,
+        probatio.Optional("paused"): cv.boolean,
         probatio.Optional("pair_offsets"): PAIRS,
     }
 )
@@ -300,7 +306,7 @@ def _check_pairs(keys: Any, lookup: Any, what: str) -> str | None:
 async def ws_set_scanner(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a scanner: name, position, height, offset, its pairs; what is not given stays.
+    """Change a scanner: name, position, height, offset, paused, its pairs; what is not given stays.
 
     The key stays with a new name, and with it the pairs and the calibration runs.
     """
@@ -322,6 +328,8 @@ async def ws_set_scanner(
         changed = replace(changed, name=msg["name"])
     if "rssi_offset" in msg:
         changed = replace(changed, rssi_offset=msg["rssi_offset"])
+    if "paused" in msg:
+        changed = replace(changed, paused=msg["paused"])
     plan = replace_scanner(plan, changed)
     if pairs:
         plan = with_pair_offsets(plan, scanner.key, pairs)
@@ -340,6 +348,7 @@ async def ws_set_scanner(
         probatio.Optional("name"): NAME,
         probatio.Optional("height"): NUMBER,
         probatio.Optional("ref_power"): probatio.Any(None, NUMBER),
+        probatio.Optional("paused"): cv.boolean,
         probatio.Optional("pair_offsets"): PAIRS,
     }
 )
@@ -347,7 +356,7 @@ async def ws_set_scanner(
 async def ws_set_tracker(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a tracker: name, height, reference power (null for the default), its pairs per scanner.
+    """Change a tracker: name, height, reference power (null for the default), paused, its pairs per scanner.
 
     The key stays with a new name, and with it the entity ids, the pairs and the
     calibration runs; the tracker's device takes the name without a reload.
@@ -370,6 +379,8 @@ async def ws_set_tracker(
         changed = replace(changed, height=msg["height"])
     if "ref_power" in msg:
         changed = replace(changed, ref_power=msg["ref_power"])
+    if "paused" in msg:
+        changed = replace(changed, paused=msg["paused"])
     plan = replace(
         plan, trackers=tuple(changed if t.key == tracker.key else t for t in plan.trackers)
     )

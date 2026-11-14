@@ -65,7 +65,7 @@ async def test_values(
     scanners: dict[str, FakeScanner],
     clock: Callable[[float], None],
 ) -> None:
-    """Room with its attributes, the coordinates in metres."""
+    """The room with its area only, the coordinates in metres."""
     scanner_devices[TAG] = [
         scanner_device(scanners["living"], TAG, rssi_exact(2.0, -60, 0.8, 0.3), 1000.0),  # type: ignore[arg-type]
         scanner_device(scanners["kitchen"], TAG, rssi_exact(6.5, -60, 2.0, 0.3), 1000.0),  # type: ignore[arg-type]
@@ -76,22 +76,17 @@ async def test_values(
     room = hass.states.get("sensor.tag_room")
     assert room is not None
     assert room.state == "Living room"
-    attributes: dict[str, Any] = dict(room.attributes)
-    assert attributes["nearest_scanner"] == "Living room scanner"
-    assert attributes["scanner_count"] == 2
-    assert attributes["distances"] == {
-        "Living room scanner": 2.0,
-        "Kitchen plug": 6.5,
-        "Bedroom proxy": None,
-    }
-    assert attributes["x"] == pytest.approx(room.attributes["x"])
+    # Nothing that changes with every advertisement: each change writes a recorder row
+    assert set(room.attributes) <= {"area_id", "friendly_name", "icon"}
+    position = entry.runtime_data.coordinator.data["tag"]
     x = hass.states.get("sensor.tag_position_x")
     y = hass.states.get("sensor.tag_position_y")
     assert x is not None and y is not None
     assert x.attributes["unit_of_measurement"] == "m"
     # Rounded to a decimetre
-    assert float(x.state) == round(attributes["x"], 1)
-    assert float(y.state) == round(attributes["y"], 1)
+    assert position.x is not None and position.y is not None
+    assert float(x.state) == round(position.x, 1)
+    assert float(y.state) == round(position.y, 1)
     expected = trilaterate(
         [Measurement(1, 1, 2.0), Measurement(9, 1, 6.5)], entry.runtime_data.store.plan
     )
