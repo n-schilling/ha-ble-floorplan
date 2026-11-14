@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.20.0";
+export const VERSION = "0.21.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -44,6 +44,11 @@ const TEXTS = {
     walls: "Through walls only at doors", awaySeconds: "Away after (s) without a sighting", roomHold: "Hold time (s)",
     roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
     calibration: "Calibration", noRuns: "No runs yet.", running: "running",
+    date: "Date", setupMoved: "{name} moved", setupAdded: "{name} new", setupRemoved: "{name} removed",
+    setupUnknown: "scanner setup not recorded", clearRuns: "Delete all",
+    staleRuns: "{n} of {m} runs were measured with another scanner setup: scanners moved, added or removed since. Their values no longer fit; delete them and measure again.",
+    unknownRuns: "{n} of {m} runs are older than the record of the scanner setup: whether it changed since is not known.",
+    confirmClear: "Delete all {n} runs? The values saved from them stay until you measure again.", cleared: "All runs deleted.",
     samples: "samples", rotation: "Rotation",
     noPlan: "No floor plan yet: an administrator sets it up in BLE Floorplan in the sidebar.",
     notLoaded: "BLE Floorplan is not set up.", unknown: "–",
@@ -112,6 +117,11 @@ const TEXTS = {
     walls: "Wände nur an Türen passieren", awaySeconds: "Abwesend nach (s) ohne Empfang", roomHold: "Haltezeit (s)",
     roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
     calibration: "Kalibrierung", noRuns: "Noch keine Messläufe.", running: "läuft",
+    date: "Datum", setupMoved: "{name} verschoben", setupAdded: "{name} neu", setupRemoved: "{name} entfernt",
+    setupUnknown: "Scanner-Aufbau nicht gespeichert", clearRuns: "Alle löschen",
+    staleRuns: "{n} von {m} Messläufen stammen von einem anderen Scanner-Aufbau: Seither wurden Scanner verschoben, hinzugefügt oder entfernt. Ihre Werte passen nicht mehr; am besten löschen und neu messen.",
+    unknownRuns: "{n} von {m} Messläufen sind älter als die Aufzeichnung des Scanner-Aufbaus: Ob er sich seither geändert hat, ist nicht bekannt.",
+    confirmClear: "Alle {n} Messläufe löschen? Die daraus gespeicherten Werte bleiben, bis du neu misst.", cleared: "Alle Messläufe gelöscht.",
     samples: "Samples", rotation: "Drehung",
     noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn in BLE Floorplan in der Seitenleiste ein.",
     notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",

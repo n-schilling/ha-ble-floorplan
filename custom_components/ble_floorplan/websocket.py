@@ -42,6 +42,7 @@ from .const import (
     WS_ADD_SCANNER,
     WS_ADD_TRACKER,
     WS_CALIBRATION_APPLY,
+    WS_CALIBRATION_CLEAR,
     WS_CALIBRATION_DELETE,
     WS_CALIBRATION_FIT,
     WS_CALIBRATION_LIST,
@@ -128,6 +129,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_calibration_stop)
     async_register_command(hass, ws_calibration_list)
     async_register_command(hass, ws_calibration_delete)
+    async_register_command(hass, ws_calibration_clear)
     async_register_command(hass, ws_calibration_solve)
     async_register_command(hass, ws_calibration_apply)
     async_register_command(hass, ws_calibration_fit)
@@ -537,6 +539,20 @@ async def ws_calibration_delete(
     await runtime.calibration.async_delete(run.id)
     fit = None if run.running else await runtime.coordinator.async_fit_tracker(run.tracker)
     connection.send_result(msg["id"], {**runtime.calibration.as_event(), "fit": fit})
+
+
+@require_admin
+@websocket_command({probatio.Required("type"): WS_CALIBRATION_CLEAR})
+@async_response
+async def ws_calibration_clear(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Delete every run, a going one included; the trackers and scanners keep their values."""
+    if (runtime := _runtime(hass)) is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
+        return
+    await runtime.calibration.async_clear()
+    connection.send_result(msg["id"], runtime.calibration.as_event())
 
 
 @require_admin

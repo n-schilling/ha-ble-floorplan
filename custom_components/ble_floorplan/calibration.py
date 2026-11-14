@@ -39,6 +39,9 @@ RUN_SCHEMA = probatio.Schema(
         probatio.Required("started"): cv.string,
         probatio.Optional("duration", default=None): probatio.Any(None, NUMBER),
         probatio.Optional("samples", default=dict): {cv.slug: [SAMPLE]},
+        probatio.Optional("scanners", default=None): probatio.Any(
+            None, {cv.slug: probatio.ExactSequence([NUMBER, NUMBER, NUMBER])}
+        ),
     }
 )
 DATA_SCHEMA = probatio.Schema({probatio.Optional("runs", default=list): [RUN_SCHEMA]})
@@ -61,6 +64,10 @@ class CalibrationRun:
     duration: float | None = None
     # Scanner key -> samples
     samples: dict[str, list[Sample]] = field(default_factory=dict)
+    # Where the plan's scanners stood when the run started: key -> (x, y, z);
+    # None for a run recorded before it was kept. A scanner moved, added or
+    # taken off since makes the run describe another setup.
+    scanners: dict[str, tuple[float, float, float]] | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -77,6 +84,11 @@ class CalibrationRun:
                 scanner: [(s[0], s[1]) for s in samples]
                 for scanner, samples in data["samples"].items()
             },
+            scanners=(
+                {key: (p[0], p[1], p[2]) for key, p in scanners.items()}
+                if (scanners := data.get("scanners")) is not None
+                else None
+            ),
         )
 
     @property
@@ -96,7 +108,13 @@ class CalibrationRun:
             "duration": self.duration,
             "running": self.running,
             "counts": {scanner: len(samples) for scanner, samples in self.samples.items()},
-        }
+        } | self._scanners_dict()
+
+    def _scanners_dict(self) -> dict[str, Any]:
+        """Return where the scanners stood, nothing for a run recorded before it was kept."""
+        if self.scanners is None:
+            return {}
+        return {"scanners": {k: list(p) for k, p in self.scanners.items()}}
 
     def as_dict(self) -> dict[str, Any]:
         """Return the run as stored, samples included."""
@@ -111,7 +129,7 @@ class CalibrationRun:
             "samples": {
                 scanner: [list(s) for s in samples] for scanner, samples in self.samples.items()
             },
-        }
+        } | self._scanners_dict()
 
 
 class CalibrationStore:
@@ -176,12 +194,23 @@ class CalibrationStore:
         }
 
     async def async_start(
-        self, tracker: str, x: float, y: float, height: float, now: float
+        self,
+        tracker: str,
+        x: float,
+        y: float,
+        height: float,
+        now: float,
+        scanners: dict[str, tuple[float, float, float]] | None = None,
     ) -> CalibrationRun:
-        """Start a run at the monotonic time now; raises RuntimeError while one is going."""
+        """Start a run at the monotonic time now, with where the scanners stand.
+
+        Raises RuntimeError while one is going.
+        """
         if self.active is not None:
             raise RuntimeError("a calibration run is going")
-        run = CalibrationRun(ulid_now(), tracker, x, y, height, dt_util.utcnow().isoformat())
+        run = CalibrationRun(
+            ulid_now(), tracker, x, y, height, dt_util.utcnow().isoformat(), scanners=scanners
+        )
         self.runs.append(run)
         self.active = run
         self._start = now
@@ -221,6 +250,13 @@ class CalibrationStore:
         await self._async_save()
         self._notify()
         return True
+
+    async def async_clear(self) -> None:
+        """Delete every run, the active one included."""
+        self.runs = []
+        self.active = None
+        await self._async_save()
+        self._notify()
 
     def _notify(self) -> None:
         for listener in list(self._listeners):

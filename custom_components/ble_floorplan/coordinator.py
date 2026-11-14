@@ -196,7 +196,10 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         self, tracker_key: str, x: float, y: float, height: float
     ) -> CalibrationRun:
         """Start recording the tracker's advertisements at its true position."""
-        return await self.calibration.async_start(tracker_key, x, y, height, MONOTONIC_TIME())
+        scanners = {s.key: (s.x, s.y, s.z) for s in self.plan.scanners}
+        return await self.calibration.async_start(
+            tracker_key, x, y, height, MONOTONIC_TIME(), scanners
+        )
 
     async def async_stop_calibration(self) -> tuple[CalibrationRun, dict[str, Any] | None]:
         """Stop the recording and save the tracker's values from its runs, as fit_tracker does."""

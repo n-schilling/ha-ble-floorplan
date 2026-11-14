@@ -19,6 +19,7 @@ from homeassistant.helpers import device_registry as dr
 from custom_components.ble_floorplan.const import (
     DOMAIN,
     WS_CALIBRATION_APPLY,
+    WS_CALIBRATION_CLEAR,
     WS_CALIBRATION_DELETE,
     WS_CALIBRATION_FIT,
     WS_CALIBRATION_LIST,
@@ -61,6 +62,7 @@ CALIBRATION_MESSAGES: list[dict[str, Any]] = [
     {"type": WS_CALIBRATION_STOP},
     {"type": WS_CALIBRATION_LIST},
     {"type": WS_CALIBRATION_DELETE, "run_id": "x"},
+    {"type": WS_CALIBRATION_CLEAR},
     {"type": WS_CALIBRATION_SOLVE},
     {"type": WS_CALIBRATION_APPLY, "trackers": {"tag": -50}},
     {"type": WS_CALIBRATION_FIT, "tracker": "tag"},
@@ -858,3 +860,25 @@ async def test_rename_scanner(
         await client.send_json_auto_id({"type": WS_SET_SCANNER, "key": "living", "name": name})
         msg = await client.receive_json()
         assert msg["error"]["code"] == "invalid_format", name
+
+
+async def test_calibration_keeps_the_scanners_and_clears(
+    hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    """A run started on the page keeps where the scanners stood; clear deletes every run, a going one too."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": WS_CALIBRATION_START, "tracker": "tag", "x": 1, "y": 1})
+    msg = await client.receive_json()
+    assert msg["result"]["scanners"] == {
+        "living": [1.0, 1.0, 0.8],
+        "kitchen": [9.0, 1.0, 2.0],
+        "bedroom": [1.0, 8.0, 0.5],
+    }
+    stored = entry.runtime_data.calibration.runs[0]
+    assert stored.scanners is not None and stored.scanners["kitchen"] == (9.0, 1.0, 2.0)
+
+    await client.send_json_auto_id({"type": WS_CALIBRATION_CLEAR})
+    msg = await client.receive_json()
+    assert msg["result"] == {"active": None, "runs": []}
+    assert entry.runtime_data.calibration.active is None
+    assert entry.runtime_data.calibration.runs == []

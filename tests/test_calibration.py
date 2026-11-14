@@ -207,3 +207,15 @@ def test_run_from_dict_defaults() -> None:
     )
     assert run.running
     assert run.samples == {}
+
+
+async def test_scanners_round_trip(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
+    """Where the scanners stood is stored with a run and read back; a run before it has none."""
+    _stored(hass_storage, [RUN, {**RUN, "id": "02RUN", "scanners": {"living": [1.0, 2.0, 0.5]}}])
+    store = CalibrationStore(hass)
+    old, new = await store.async_load()
+    assert old.scanners is None
+    assert "scanners" not in old.summary()
+    assert new.scanners == {"living": (1.0, 2.0, 0.5)}
+    assert new.summary()["scanners"] == {"living": [1.0, 2.0, 0.5]}
+    assert new.as_dict()["scanners"] == {"living": [1.0, 2.0, 0.5]}

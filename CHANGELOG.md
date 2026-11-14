@@ -2,6 +2,15 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] - 2026-11-14
+
+### Added
+
+- Calibration: every run keeps where the scanners stood when it started. The list marks a run whose setup changed since, naming each scanner moved (by more than 5 cm, height included), added or removed, and says above the table how many runs no longer fit. Runs recorded before show *scanner setup not recorded*.
+- Calibration: the date and time of every run.
+- Calibration: **Delete all** removes every run, a going one too, after a confirmation; the values saved from them stay. WebSocket command `ble_floorplan/calibration/clear`, for administrators.
+- The run summaries of `ble_floorplan/calibration/list` and the subscription carry `scanners` (`{key: [x, y, z]}`) when it was recorded.
+
 ## [0.20.0] - 2026-11-14
 
 ### Added

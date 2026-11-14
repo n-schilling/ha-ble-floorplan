@@ -36,7 +36,7 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.20.0";
+} from "./ble-floorplan-plan.js?v=0.21.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -134,7 +134,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._layout = null;
       // The next calibration run: tracker, height, true position
       this._measure = { tracker: null, height: null, x: null, y: null };
-      this._cal = { fitN: false, proposal: null };
+      this._cal = { fitN: false, proposal: null, confirmClear: false };
       // The coverage: the map shown, for which tracker, the probe scanners, the
       // result and what it was fetched for; `stamp` asks for a fresh measurement
       this._cov = { mode: "model", tracker: ANY, probes: [], data: null, key: null, loading: false, stamp: 0, confirm: false };
@@ -954,17 +954,33 @@ if (!customElements.get("ble-floorplan-panel")) {
           `<span></span>${this._btn("cal-start", t.start, { kind: "filled", disabled: !ready })}`);
       }
       const runs = this._calibration.runs;
+      const lang = this._hass.locale?.language || this._hass.language;
       const cols = plan.scanners.map((s) => `<th class="n" title="${esc(s.name)}">${esc(s.name)}</th>`).join("");
-      const rows = runs.map((r) => {
+      const setups = runs.map((r) => this._runSetup(r));
+      const rows = runs.map((r, i) => {
         const counts = plan.scanners.map((s) => `<td class="n">${r.counts?.[s.key] || 0}</td>`).join("");
         const length = r.running ? esc(t.running) : `${Math.round(r.duration)} s`;
-        return `<tr class="${r.running ? "live" : ""}"><td class="nowrap"><span class="dot" style="background:${trackerColor(plan, r.tracker)}"></span>${esc(name(r.tracker))}</td>` +
-          `<td class="n">${fmt(r.x)} / ${fmt(r.y)}</td><td class="n">${length}</td>${counts}` +
+        const when = new Date(r.started).toLocaleString(lang, { dateStyle: "short", timeStyle: "short" });
+        const setup = setups[i];
+        const note = setup.state === "changed" ? `<div class="setup changed">${esc(setup.text)}</div>`
+          : setup.state === "unknown" ? `<div class="setup">${esc(t.setupUnknown)}</div>` : "";
+        return `<tr class="${r.running ? "live" : setup.state === "changed" ? "stale" : ""}"><td class="nowrap"><span class="dot" style="background:${trackerColor(plan, r.tracker)}"></span>${esc(name(r.tracker))}${note}</td>` +
+          `<td class="nowrap">${esc(when)}</td><td class="n">${fmt(r.x)} / ${fmt(r.y)}</td><td class="n">${length}</td>${counts}` +
           `<td>${iconButton("delete", t.delete, `class="small" data-act="cal-delete" data-key="${esc(r.id)}"${this._busy ? " disabled" : ""}`)}</td></tr>`;
       }).join("");
       const table = runs.length
-        ? `<div class="scroll"><table class="data runs"><tr><th>${esc(t.tracker)}</th><th class="n">x / y</th><th class="n">${esc(t.duration)}</th>${cols}<th></th></tr>${rows}</table></div>`
+        ? `<div class="scroll"><table class="data runs"><tr><th>${esc(t.tracker)}</th><th>${esc(t.date)}</th><th class="n">x / y</th><th class="n">${esc(t.duration)}</th>${cols}<th></th></tr>${rows}</table></div>`
         : `<div class="muted">${esc(t.noRuns)}</div>`;
+      const stale = setups.filter((x) => x.state === "changed").length;
+      const unknown = setups.filter((x) => x.state === "unknown").length;
+      const count = (text, n) => text.replace("{n}", n).replace("{m}", runs.length);
+      const hints = (stale ? this._alert("warning", count(t.staleRuns, stale)) : "") +
+        (unknown ? this._alert("info", count(t.unknownRuns, unknown)) : "") +
+        (this._cal.confirmClear
+          ? `<ha-alert alert-type="warning">${esc(t.confirmClear.replace("{n}", runs.length))}` +
+            `<ha-button slot="action" appearance="plain" data-act="cal-clear-cancel">${esc(t.cancel)}</ha-button>` +
+            `<ha-button slot="action" variant="danger" data-act="cal-clear-ok">${esc(t.clearRuns)}</ha-button></ha-alert>`
+          : "");
       const finished = runs.some((r) => !r.running);
       let preview = "";
       const pr = this._cal.proposal;
@@ -994,7 +1010,27 @@ if (!customElements.get("ble-floorplan-panel")) {
         }) + preview,
         `<span></span><span>${this._btn("cal-solve", t.compute, { disabled: !finished })}` +
         `${pr ? this._btn("cal-apply", t.apply, { kind: "filled", disabled: !!active }) : ""}</span>`);
-      return run + this._card(t.runs, `<div class="muted small">${esc(t.calHint)}</div>${table}`) + advanced;
+      return run + this._card(t.runs, `${hints}<div class="muted small">${esc(t.calHint)}</div>${table}`,
+        runs.length ? this._btn("cal-clear", t.clearRuns, { kind: "danger", disabled: this._cal.confirmClear }) : "") + advanced;
+    }
+
+    // Whether the scanners stand as they did when the run started: same, changed (with what), unknown
+    _runSetup(r) {
+      const t = this._t;
+      if (!r.scanners) return { state: "unknown" };
+      const plan = this._plan;
+      const parts = [];
+      for (const s of plan.scanners) {
+        const p = r.scanners[s.key];
+        if (!p) parts.push(t.setupAdded.replace("{name}", s.name));
+        else if (Math.abs(p[0] - s.x) > 0.05 || Math.abs(p[1] - s.y) > 0.05 || Math.abs(p[2] - s.z) > 0.05) {
+          parts.push(t.setupMoved.replace("{name}", s.name));
+        }
+      }
+      for (const key of Object.keys(r.scanners)) {
+        if (!plan.scanners.some((s) => s.key === key)) parts.push(t.setupRemoved.replace("{name}", key));
+      }
+      return parts.length ? { state: "changed", text: parts.join(", ") } : { state: "same" };
     }
 
     _settingsSheet() {
@@ -1547,6 +1583,21 @@ if (!customElements.get("ble-floorplan-panel")) {
             this._cov.stamp += 1;
           });
           return;
+        case "cal-clear":
+          this._cal.confirmClear = true;
+          this._render();
+          return;
+        case "cal-clear-cancel":
+          this._cal.confirmClear = false;
+          this._render();
+          return;
+        case "cal-clear-ok":
+          this._cal.confirmClear = false;
+          this._cal.proposal = null;
+          this._call({ type: "ble_floorplan/calibration/clear" }, () => {
+            this._note = { kind: "ok", text: this._t.cleared };
+          });
+          return;
         case "cal-delete":
           this._call({ type: "ble_floorplan/calibration/delete", run_id: key }, (result) => {
             if (result.fit) this._note = this._fitNote(result.fit);
@@ -2052,6 +2103,9 @@ if (!customElements.get("ble-floorplan-panel")) {
     tr.live td { color: var(--primary-color); }
     .runs th { max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
     .runs td { vertical-align: middle; }
+    .runs .setup { font-size: var(--ha-font-size-s, 12px); color: var(--secondary-text-color); white-space: normal; }
+    .runs .setup.changed { color: var(--warning-color); }
+    tr.stale td { color: var(--secondary-text-color); }
     .diff tr.sec td { color: var(--secondary-text-color); font-size: var(--ha-font-size-s, 12px); padding-top: 12px; border: 0; }
     .diff tr.changed td:nth-child(3) { font-weight: 600; color: var(--primary-color); }
     .scroll { overflow-x: auto; }

@@ -162,9 +162,9 @@ def _rssi(tracker: dict[str, Any], scanner: dict[str, Any], x: float, y: float, 
 
 
 def _runs(rng: random.Random) -> dict[str, Any]:
-    """Two finished calibration runs of the key tag."""
+    """Three finished runs of the key tag: with today's scanners, with a moved one and one missing, and from before the setup was kept."""
     runs = []
-    for i, (x, y) in enumerate([(2.0, 2.0), (8.0, 7.0)]):
+    for i, (x, y) in enumerate([(2.0, 2.0), (8.0, 7.0), (4.0, 6.0)]):
         samples = {
             s["key"]: [
                 [float(t), round(_rssi(TRACKERS[0], s, x, y, 0.3) + rng.choice([-2, -1, 0, 1, 2]))]
@@ -184,6 +184,13 @@ def _runs(rng: random.Random) -> dict[str, Any]:
                 "samples": samples,
             }
         )
+    setup = {sc["key"]: [sc["x"], sc["y"], sc["z"]] for sc in SCANNERS}
+    runs[0]["scanners"] = setup
+    runs[1]["scanners"] = {
+        k: [p[0] + 1.0, p[1], p[2]] if k == "kitchen" else p
+        for k, p in setup.items()
+        if k != "hall"
+    }
     return {"runs": runs}
 
 
@@ -971,13 +978,45 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     async def calibration_runs() -> None:
         await _goto(page, instance, "calibration")
         rows = page.locator(f"{PANEL} table.runs tr")
-        await rows.nth(2).wait_for()
-        expect(await rows.count() == 3, f"{await rows.count() - 1} runs listed")
+        await rows.nth(3).wait_for()
+        expect(await rows.count() == 4, f"{await rows.count() - 1} runs listed")
+        # The date, and what changed in the scanner setup since a run
+        expect("Date" in await rows.nth(0).inner_text(), await rows.nth(0).inner_text())
+        changed = page.locator(f"{PANEL} table.runs .setup.changed")
+        expect(await changed.count() == 1, f"{await changed.count()} runs marked changed")
+        text = await changed.inner_text()
+        expect("Kitchen plug moved" in text and "Hall plug new" in text, text)
+        expect(
+            await page.locator(f"{PANEL} table.runs .setup:not(.changed)").count() == 1,
+            "one run of unknown setup",
+        )
+        await page.locator(
+            f"{PANEL} ha-alert[alert-type='warning']", has_text="another scanner setup"
+        ).wait_for()
+        await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="not known").wait_for()
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "calibration.png"))
 
     await checks.run("the calibration runs are listed", calibration_runs)
+
+    async def clear_runs() -> None:
+        # Delete all asks first; Cancel keeps the runs
+        await _goto(page, instance, "calibration")
+        await page.locator(f"{PANEL} ha-button[data-act='cal-clear']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='cal-clear-cancel']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='cal-clear-cancel']").wait_for(
+            state="detached"
+        )
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/calibration/list"})
+        expect(len(reply["result"]["runs"]) == 3, "cancel deleted runs")
+        await page.locator(f"{PANEL} ha-button[data-act='cal-clear']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='cal-clear-ok']").click()
+        await page.locator(f"{PANEL} table.runs").wait_for(state="detached")
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/calibration/list"})
+        expect(reply["result"]["runs"] == [], str(reply["result"]))
+
+    await checks.run("all calibration runs are deleted after a confirmation", clear_runs)
 
     async def timeline() -> None:
         await _goto(page, instance, "timeline")
