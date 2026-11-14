@@ -11,7 +11,7 @@ import {
   roomPoints,
   snap,
   toPlan,
-} from "./ble-floorplan-plan.js?v=0.27.0";
+} from "./ble-floorplan-plan.js?v=0.28.0";
 
 // A door is this wide when placed, in metres
 const DOOR_WIDTH = 0.9;
@@ -558,7 +558,7 @@ export class PlanEditor {
       : "";
     const head = h._card(t.edTitle, toolRow + `<div class="muted small">${esc(hint)}</div>` + (this.dirty ? "" : ""),
       `<span>${h._btn("ed-undo", t.edUndo, { disabled: !this.undo.length })}${polyBtns}</span>` +
-      `<span>${h._btn("ed-cancel", t.cancel)}${h._btn("ed-save", t.save, { kind: "filled", disabled: !this.dirty })}</span>`);
+      `<span>${h._btn("ed-cancel", t.edDiscardYes, { disabled: !this.dirty })}${h._btn("ed-save", t.save, { kind: "filled", disabled: !this.dirty })}</span>`);
     const confirm = this.confirmCancel
       ? `<ha-alert alert-type="warning">${esc(t.edDiscard)}` +
         `<ha-button slot="action" appearance="plain" data-act="ed-cancel-no">${esc(t.cancel)}</ha-button>` +

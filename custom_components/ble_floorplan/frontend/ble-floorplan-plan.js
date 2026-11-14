@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.27.0";
+export const VERSION = "0.28.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -59,7 +59,8 @@ const TEXTS = {
     f_device: "It receives seldom: few advertisements against the best scanner. Typical for a Shelly; an ESPHome proxy hears more.",
     f_redundant: "Hardly a contribution: almost no cell of the coverage needs it. One too many here, or better placed elsewhere.",
     f_good: "Well placed: good reception, its circles fit, it adds to the coverage.",
-    edEdit: "Draw", edYaml: "Floor plan as YAML", edIntro: "Draw rooms, doors, stairs, floors and buildings on the plan; the YAML below holds the same.",
+    planModeLocked: "Save or discard the changes first.",
+    edEdit: "Draw", edYaml: "Floor plan as YAML",
     edTitle: "Drawing", edSelect: "Select", edRect: "Room", edPoly: "Polygon room", edDoor: "Door", edStairs: "Stairs",
     edHintSelect: "Tap a room, door or stairs to change it; drag it to move, drag a corner to resize, the square in an edge's middle adds a corner. Drag the empty plan to pan.",
     edHintRect: "Drag a rectangle on the plan.", edHintPoly: "Tap the corners one after the other; tap the first again, press Enter or Done to close it.",
@@ -174,7 +175,8 @@ const TEXTS = {
     f_device: "Er empfängt selten: wenige Pakete gegenüber dem besten Scanner. Typisch für einen Shelly; ein ESPHome-Proxy hört mehr.",
     f_redundant: "Kaum ein Beitrag: Fast keine Zelle der Abdeckung braucht ihn. Hier einer zu viel, oder woanders besser aufgehoben.",
     f_good: "Gut platziert: guter Empfang, seine Kreise passen, er trägt zur Abdeckung bei.",
-    edEdit: "Zeichnen", edYaml: "Grundriss als YAML", edIntro: "Räume, Türen, Treppen, Etagen und Gebäude im Grundriss zeichnen; das YAML unten enthält dasselbe.",
+    planModeLocked: "Erst speichern oder verwerfen.",
+    edEdit: "Zeichnen", edYaml: "Grundriss als YAML",
     edTitle: "Zeichnen", edSelect: "Auswählen", edRect: "Raum", edPoly: "Raum als Vieleck", edDoor: "Tür", edStairs: "Treppe",
     edHintSelect: "Raum, Tür oder Treppe antippen, um sie zu ändern; ziehen verschiebt, an einer Ecke ziehen ändert die Größe, das Quadrat in einer Kantenmitte fügt eine Ecke ein. Leeren Grundriss ziehen verschiebt die Ansicht.",
     edHintRect: "Ein Rechteck im Grundriss aufziehen.", edHintPoly: "Die Ecken nacheinander antippen; zum Schließen die erste erneut antippen, Enter oder „Fertig“.",

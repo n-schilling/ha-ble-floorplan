@@ -678,11 +678,32 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await page.locator(f"{PANEL} ha-menu-button[slot=navigationIcon]").wait_for()
         about = (await page.locator(f"{PANEL} .about").first.inner_text()).strip()
         expect(about == f"BLE Floorplan {VERSION} · commit {instance.commit}", about)
-        layout = await page.locator(f"{PANEL} textarea").input_value()
-        expect("Living room" in layout, "the floor plan as YAML is missing")
+        # Drawing is the start; YAML is the other way, one of the two at a time
+        await page.locator(f"{PANEL} ha-button[data-act='ed-tool']").first.wait_for()
+        expect(await page.locator(f"{PANEL} textarea").count() == 0, "the YAML beside the drawing")
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "plan.png"))
+        await page.locator(f"{PANEL} ha-button[data-act='plan-mode'][data-key='yaml']").click()
+        textarea = page.locator(f"{PANEL} textarea")
+        await textarea.wait_for()
+        expect(
+            await page.locator(f"{PANEL} ha-button[data-act='ed-tool']").count() == 0,
+            "tools beside the YAML",
+        )
+        layout = await textarea.input_value()
+        expect("Living room" in layout, "the floor plan as YAML is missing")
+        # The text field fits the window and scrolls in itself
+        box = await textarea.bounding_box()
+        size = page.viewport_size
+        assert box is not None and size is not None
+        expect(
+            box["y"] + box["height"] <= size["height"],
+            f"the YAML ends at {box['y'] + box['height']}",
+        )
+        if shots is not None:
+            await _settle(page)
+            await page.screenshot(path=str(shots / "plan-yaml.png"))
 
     await checks.run("floor plan with the YAML and the version at the bottom", plan_and_version)
 
@@ -1348,7 +1369,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         before = await _plan(api, instance)
         layout = {k: before[k] for k in ("rooms", "openings") if k in before}
         await _goto(page, instance, "plan")
-        await page.locator(f"{PANEL} ha-button[data-act='ed-start']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='plan-mode'][data-key='draw']").click()
         tool = f"{PANEL} ha-button[data-act='ed-tool']"
         # A room beside the flat, then a door in its left wall
         await page.locator(f"{tool}[data-key='rect']").click()
@@ -1386,7 +1407,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await _settle(page)
             await page.screenshot(path=str(shots / "editor.png"))
         await page.locator(f"{PANEL} ha-button[data-act='ed-save']").click()
-        await page.locator(f"{PANEL} ha-button[data-act='ed-start']").wait_for()
+        await page.locator(f"{PANEL} ha-button[data-act='ed-save'][disabled]").wait_for()
         saved = await _plan(api, instance)
         expect(len(saved["floors"]) == 3, str(saved.get("floors")))
         expect(saved["stairs"][0]["floor"] == floors[-1]["key"], str(saved.get("stairs")))

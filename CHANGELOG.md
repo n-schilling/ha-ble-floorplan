@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.28.0] - 2026-11-14
+
+### Changed
+
+- The *Floor plan* tab edits the plan one way at a time: **Draw** or **YAML**, chosen at the top and kept. Drawing starts right away, without a button first; **Save** and **Discard** act once something changed, and the choice is locked while changes are unsaved. The YAML field fits the window and scrolls in itself.
+- The (i) beside a switch on the *Settings* tab lines up with it.
+
 ## [0.27.0] - 2026-11-14
 
 ### Changed

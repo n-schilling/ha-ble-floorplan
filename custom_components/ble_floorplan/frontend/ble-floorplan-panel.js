@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.27.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.27.0";
+} from "./ble-floorplan-plan.js?v=0.28.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.28.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -54,6 +54,8 @@ if (!customElements.get("ble-floorplan-panel")) {
   const LABELS_KEY = "ble-floorplan-panel-labels";
   // Whether the system details of a scanner are open, per viewer
   const SYSTEM_KEY = "ble-floorplan-panel-system";
+  // How the floor plan is edited: drawn or as YAML, kept across visits
+  const PLAN_MODE_KEY = "ble-floorplan-panel-planmode";
   // The level shown, kept across visits
   const LEVEL_KEY = "ble-floorplan-panel-level";
   // The system details of the open scanner are fetched again after this long
@@ -151,6 +153,13 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._sysLoading = false;
       // The settings whose explanation is open
       this._infoOpen = new Set();
+      let mode = null;
+      try {
+        mode = window.localStorage.getItem(PLAN_MODE_KEY);
+      } catch {
+        // no storage
+      }
+      this._planMode = mode === "yaml" ? "yaml" : "draw";
       // Scanner quality: the overlay of one scanner, the lights of the list
       this._q = { open: null, data: null, at: 0, loading: false };
       this._qList = { data: null, at: 0, loading: false };
@@ -307,6 +316,8 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._stamp = new Date();
       if (event.floorplan) {
         this._plan = event.floorplan;
+        // A plan changed elsewhere: an untouched drawing starts from it
+        if (this._editor.active && !this._editor.dirty) this._editor.start(this._plan);
         this._bounds = computeBounds(this._plan);
       }
       if (event.positions) this._positions = event.positions;
@@ -448,6 +459,8 @@ if (!customElements.get("ble-floorplan-panel")) {
     _render() {
       if (!this._hass) return;
       const plan = this._plan;
+      // Drawing is the plan tab's way of editing: the draft is there as soon as the plan is
+      if (this._tab === "plan" && this._planMode === "draw" && plan && !this._editor.active) this._editor.start(plan);
       if (this._tab === "coverage") this._covLoad();
       if (this._tab === "scanners" && this._selScanner) this._sysLoad(this._selScanner);
       if (this._tab === "scanners") this._qListLoad();
@@ -732,15 +745,20 @@ if (!customElements.get("ble-floorplan-panel")) {
       return this._noteHtml() + empty + page() + `<div class="about">${esc(this._aboutText())}</div>` + this._qOverlay();
     }
 
+    // Drawn or as YAML, one of the two; the choice is locked while changes are unsaved
     _planSheet() {
       const t = this._t;
-      if (this._editor.active) return this._editor.sheet();
-      const empty = this._plan.rooms.length ? "" : this._alert("info", t.startHere);
-      const draw = this._card(t.plan, `<div class="muted small">${esc(t.edIntro)}</div>`,
-        `<span></span>${this._btn("ed-start", t.edEdit, { kind: "filled" })}`);
-      const body = `<textarea data-f="layout" rows="22" spellcheck="false" wrap="off">${esc(this._layout ?? "…")}</textarea>` +
+      const busy = (this._editor.active && this._editor.dirty) || !!this._layoutEdited;
+      const mode = (key, label) =>
+        `<ha-button appearance="${this._planMode === key ? "filled" : "plain"}" data-act="plan-mode" data-key="${key}"` +
+        `${busy && this._planMode !== key ? " disabled" : ""}>${esc(label)}</ha-button>`;
+      const switcher = `<div class="planmode">${mode("draw", t.edEdit)}${mode("yaml", "YAML")}` +
+        `${busy ? `<span class="muted small">${esc(t.planModeLocked)}</span>` : ""}</div>`;
+      if (this._planMode === "draw") return switcher + (this._editor.active ? this._editor.sheet() : "");
+      const body = `<textarea class="layout" data-f="layout" spellcheck="false" wrap="off">${esc(this._layout ?? "…")}</textarea>` +
         `<div class="muted small">${esc(t.layoutHint)}</div>`;
-      return empty + draw + this._card(t.edYaml, body, `<span></span>${this._btn("save-layout", t.save, { kind: "filled", disabled: this._layout == null })}`);
+      return switcher + this._card(t.edYaml, body,
+        `<span></span>${this._btn("save-layout", t.save, { kind: "filled", disabled: this._layout == null })}`);
     }
 
     _item(act, key, lead, headline, supporting, active) {
@@ -1698,13 +1716,22 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._mode = null;
           this._dragPos = null;
           break;
-        case "ed-start":
-          this._editor.start(plan);
+        case "plan-mode":
+          this._planMode = key;
+          try {
+            window.localStorage.setItem(PLAN_MODE_KEY, key);
+          } catch {
+            // no storage
+          }
+          if (key === "yaml") this._editor.stop();
           this._note = null;
           break;
         case "ed-save":
           this._call({ type: "ble_floorplan/set_layout", layout: this._editor.layout() }, (result) => {
-            this._editor.stop();
+            // Drawing goes on from what was saved
+            this._plan = result.floorplan;
+            this._bounds = computeBounds(this._plan);
+            this._editor.start(this._plan);
             this._layout = result.yaml;
             this._layoutEdited = false;
             this._note = { kind: "ok", text: t.planSaved };
@@ -2493,6 +2520,12 @@ if (!customElements.get("ble-floorplan-panel")) {
     .covsw.up { background: none; border: 1px dashed var(--primary-text-color); }
     th .covsw { margin-right: 0; }
     /* The floor plan as YAML: Home Assistant's code colours, without loading its editor */
+    .planmode { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+    .planmode .muted { margin-left: 8px; }
+    /* The YAML fills the window and scrolls in itself */
+    textarea.layout { height: calc(100vh - 340px); height: calc(100dvh - 340px); }
+    .sheet .srow { align-items: flex-start; }
+    .sheet .srow > .sinfo { margin-top: 4px; }
     textarea { width: 100%; min-height: 240px; padding: 12px; border: 0; border-radius: 4px 4px 0 0; resize: vertical; outline: 0;
       background: var(--code-editor-background-color, var(--secondary-background-color)); color: var(--primary-text-color);
       border-bottom: 1px solid var(--input-idle-line-color, var(--secondary-text-color));
