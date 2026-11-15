@@ -191,6 +191,12 @@ def test_contribution() -> None:
     paused = replace(plan, scanners=tuple(replace(s, paused=True) for s in plan.scanners))
     assert contribution(paused, "kitchen")["state"] == "unknown"
     assert contribution(replace(plan, rooms=()), "kitchen")["state"] == "unknown"
+    # A second scanner right beside one adds hardly any precision; the first one alone does
+    kitchen = plan.scanner("kitchen")
+    assert kitchen is not None
+    twin = replace(kitchen, key="twin", source="AA:BB:CC:DD:EE:0E", x=kitchen.x + 0.1)
+    doubled = replace(plan, scanners=(*plan.scanners, twin))
+    assert contribution(doubled, "twin")["worse"] < part["worse"]
     # Far off the plan: no cell needs it
     far = replace(plan.scanners[1], key="far", source="AA:BB:CC:DD:EE:0F", x=80.0, y=80.0)
     assert contribution(replace(plan, scanners=(*plan.scanners, far)), "far")["state"] == "poor"

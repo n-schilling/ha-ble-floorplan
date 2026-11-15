@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.30.0] - 2026-11-15
+
+### Changed
+
+- Scanner quality: the contribution counts how precisely positions would be found without the scanner, not only whether a cell stays covered. A cell counts as worse when its level drops or its expected position error grows by a quarter or more; the error weighs each good scanner by its distance, so a near scanner counts much and a far one little. In a flat with many scanners every cell used to stay covered without any one of them, and nearly every scanner showed *Hardly a contribution*. Fair now starts at 5 % (was 3 %), so a second scanner right beside another stays poor.
+- The tile reads "… cells would be less precise without it", the finding names both: covered worse or located less precisely.
+
 ## [0.29.0] - 2026-11-15
 
 ### Added

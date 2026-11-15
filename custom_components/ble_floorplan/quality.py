@@ -17,9 +17,12 @@ that grows towards one side means the scanner stands elsewhere than the plan
 says: misses m ≈ a + dx·cos θ + dy·sin θ over the directions θ to the
 trackers give (dx, dy), where it rather stands.
 
-Contribution: how many cells of the coverage model get worse without the
-scanner, on its level. Good reception with no contribution is a scanner in
-the wrong place or one too many.
+Contribution: how many tracked cells of the coverage model, on its level,
+get worse without the scanner: a lower level, or positions expected to be
+off by a quarter more. Not only whether a cell is covered at all counts, but
+how precisely: a near scanner pins a position much better than a far one.
+Good reception with no contribution is a scanner in the wrong place or one
+too many.
 
 Everything is kept per hour, for as many hours as the setting quality_hours
 says, and written to storage every few minutes, so a restart keeps it.
@@ -45,6 +48,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     DEFAULT_QUALITY_HOURS,
+    QUALITY_CONTRIBUTION_ERROR,
     QUALITY_CONTRIBUTION_FAIR,
     QUALITY_CONTRIBUTION_GOOD,
     QUALITY_DIRECTIONS,
@@ -61,7 +65,7 @@ from .const import (
     QUALITY_STORAGE_KEY,
     QUALITY_STORAGE_VERSION,
 )
-from .coverage import model
+from .coverage import precision
 from .engine import Measurement, solve_point
 from .model import NUMBER, Floorplan, Scanner
 
@@ -450,15 +454,21 @@ def _shift(sums: list[float]) -> dict[str, float] | None:
 
 
 def contribution(plan: Floorplan, scanner: str) -> dict[str, Any]:
-    """Return how many cells of the coverage model on the scanner's level get worse without it."""
+    """Return how many tracked cells on the scanner's level get worse without it: a lower level or a larger error."""
     own = plan.scanner(scanner)
     if own is None or own.paused:
         return {"worse": 0, "cells": 0, "share": None, "state": UNKNOWN}
     level = plan.floor(own.floor).elevation
     without = replace(plan, scanners=tuple(s for s in plan.scanners if s.key != scanner))
-    before = {(c[0], c[1]): c[2] for c in model(plan, None, (), level)["cells"]}
-    after = {(c[0], c[1]): c[2] for c in model(without, None, (), level)["cells"]}
-    worse = sum(1 for cell, lvl in before.items() if after.get(cell, lvl) < lvl)
+    before = precision(plan, level)
+    after = precision(without, level)
+    worse = sum(
+        1
+        for cell, (lvl, error) in before.items()
+        if after[cell][0] < lvl
+        # Where three good scanners are missing already, there is no precision to lose
+        or (math.isfinite(error) and after[cell][1] >= error * QUALITY_CONTRIBUTION_ERROR)
+    )
     if not before:
         return {"worse": 0, "cells": 0, "share": None, "state": UNKNOWN}
     share = worse / len(before)

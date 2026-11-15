@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.29.0";
+export const VERSION = "0.30.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -48,7 +48,7 @@ const TEXTS = {
     qTitle: "Quality", qTry: "View suggestion",
     qRate: "Reception", qRateSub: "against the best scanner, over {n} trackers", qFid: "Fidelity",
     qFidSub: "spread of the misses · offset {bias} m · outliers {out}", qFewMisses: "{n} of 300 misses so far",
-    qPart: "Contribution", qPartSub: "{worse} of {cells} cells get worse without it",
+    qPart: "Contribution", qPartSub: "{worse} of {cells} cells would be less precise without it",
     q_good: "good", q_fair: "fair", q_poor: "poor", q_unknown: "too little data",
     qBtn: "Details", qSince: "Gathered since {time} ({h} h so far, the last {max} h count); kept over restarts. Starts afresh when the scanner moves or its calibration changes.",
     qualitySec: "Scanner quality", qualityHours: "Hours looked back over (1–720)", info: "Explanation",
@@ -58,7 +58,7 @@ const TEXTS = {
     f_site: "The site disturbs it: its distances scatter while the other scanners agree. Reflections, metal or something in the way; move it a little or higher.",
     f_device: "It receives seldom: few advertisements against the best scanner. Typical for a Shelly; an ESPHome proxy hears more.",
     f_reception: "It receives seldom: few advertisements against the best scanner. Far from where the trackers are, or shielded: metal, a wall, the floor? Higher and more in the open helps.",
-    f_redundant: "Hardly a contribution: almost no cell of the coverage needs it. One too many here, or better placed elsewhere.",
+    f_redundant: "Hardly a contribution: without it, almost no cell would be covered worse or located less precisely. One too many here, or better placed elsewhere.",
     f_good: "Well placed: good reception, its circles fit, it adds to the coverage.",
     planModeLocked: "Save or discard the changes first.",
     edEdit: "Draw", edYaml: "Floor plan as YAML",
@@ -165,7 +165,7 @@ const TEXTS = {
     qTitle: "Qualität", qTry: "Vorschlag ansehen",
     qRate: "Empfang", qRateSub: "gegen den besten Scanner, über {n} Tracker", qFid: "Modelltreue",
     qFidSub: "Streuung der Abweichung · Versatz {bias} m · Ausreißer {out}", qFewMisses: "bisher {n} von 300 Messungen",
-    qPart: "Beitrag", qPartSub: "{worse} von {cells} Zellen würden ohne ihn schlechter",
+    qPart: "Beitrag", qPartSub: "{worse} von {cells} Zellen wären ohne ihn ungenauer",
     q_good: "gut", q_fair: "mittel", q_poor: "schlecht", q_unknown: "zu wenig Daten",
     qBtn: "Details", qSince: "Gesammelt seit {time} (bisher {h} h, es zählen die letzten {max} h); bleibt über Neustarts erhalten. Beginnt neu, wenn der Scanner verschoben oder seine Kalibrierung geändert wird.",
     qualitySec: "Scanner-Qualität", qualityHours: "Zeitraum in Stunden (1–720)", info: "Erklärung",
@@ -175,7 +175,7 @@ const TEXTS = {
     f_site: "Der Standort stört: Seine Abstände streuen stark, während die anderen Scanner sich einig sind. Reflexionen, Metall oder etwas im Weg; etwas versetzen oder höher stellen.",
     f_device: "Er empfängt selten: wenige Pakete gegenüber dem besten Scanner. Typisch für einen Shelly; ein ESPHome-Proxy hört mehr.",
     f_reception: "Er empfängt selten: wenige Pakete gegenüber dem besten Scanner. Weit weg von den Trackern oder abgeschirmt: Metall, eine Wand, der Boden? Höher und freier hilft.",
-    f_redundant: "Kaum ein Beitrag: Fast keine Zelle der Abdeckung braucht ihn. Hier einer zu viel, oder woanders besser aufgehoben.",
+    f_redundant: "Kaum ein Beitrag: Ohne ihn wäre fast keine Zelle schlechter abgedeckt oder ungenauer geortet. Hier einer zu viel, oder woanders besser aufgehoben.",
     f_good: "Gut platziert: guter Empfang, seine Kreise passen, er trägt zur Abdeckung bei.",
     planModeLocked: "Erst speichern oder verwerfen.",
     edEdit: "Zeichnen", edYaml: "Grundriss als YAML",

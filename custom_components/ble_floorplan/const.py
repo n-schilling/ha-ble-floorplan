@@ -137,9 +137,11 @@ QUALITY_OUTLIER: Final = 2.5
 # the spread of the direction vectors, at most 0.25) for a shift, and it must be this large (m)
 QUALITY_DIRECTIONS: Final = 0.03
 QUALITY_SHIFT: Final = 0.75
-# Contribution: share of the cells of its level that get worse without the scanner
+# Contribution: share of the tracked cells of its level that get worse without the
+# scanner: a lower level, or an expected position error this many times as large
+QUALITY_CONTRIBUTION_ERROR: Final = 1.25
 QUALITY_CONTRIBUTION_GOOD: Final = 0.1
-QUALITY_CONTRIBUTION_FAIR: Final = 0.03
+QUALITY_CONTRIBUTION_FAIR: Final = 0.05
 # How often a subscription looks for scanners that went silent or came back (s)
 SCANNER_CHECK_SECONDS: Final = 10.0
 # A wall is crossed only through an opening this close (m)

@@ -245,6 +245,54 @@ def _model_cell(
     return level(len(good), dop), len(good), dop
 
 
+def _error(
+    x: float, y: float, sources: Iterable[_Source], ref_power: float, height: float, n: float
+) -> float:
+    """Return how far off a position at the point is expected to be, in units that cancel when compared.
+
+    The distance read from an RSSI scatters in proportion to the distance, so
+    each good scanner pins the point along its direction with a weight of
+    1/r². The error is sqrt(trace(J⁻¹)) of J = Σ u·uᵀ/r²: a near scanner
+    helps much, a far one little, scanners on one line hardly across it.
+    Infinite with fewer than three good scanners.
+    """
+    a11 = a12 = a22 = 0.0
+    good = 0
+    for s in sources:
+        floor = math.hypot(s.x - x, s.y - y)
+        if _predicted_rssi(ref_power, s.offset, n, floor, s.z - height) < COVERAGE_GOOD_RSSI:
+            continue
+        good += 1
+        if floor < 1e-6:
+            continue
+        # Right under a scanner it still counts as half a metre away
+        r = max(math.hypot(floor, s.z - height), 0.5)
+        ux, uy = (s.x - x) / floor, (s.y - y) / floor
+        w = 1 / (r * r)
+        a11 += w * ux * ux
+        a12 += w * ux * uy
+        a22 += w * uy * uy
+    det = a11 * a22 - a12 * a12
+    if good < 3 or det < 1e-9:
+        return math.inf
+    return math.sqrt((a11 + a22) / det)
+
+
+def precision(plan: Floorplan, elevation: float) -> dict[tuple[int, int], tuple[int, float]]:
+    """Return per tracked cell of the level its level and its expected error, for a tracker of the default values."""
+    ref_power = plan.settings.ref_power_default
+    height = elevation + COVERAGE_TRACKER_HEIGHT
+    n = plan.settings.attenuation
+    sources = _sources(plan, None, elevation)
+    on_level = plan.on_level(elevation)
+    result = {}
+    for ix, iy in grid(on_level):
+        x, y = _center(on_level.extent, ix, iy)
+        lvl = _model_cell(x, y, sources, ref_power, height, n)[0]
+        result[(ix, iy)] = (lvl, _error(x, y, sources, ref_power, height, n))
+    return result
+
+
 def _round(value: float | None, digits: int = 2) -> float | None:
     return round(value, digits) if value is not None else None
 

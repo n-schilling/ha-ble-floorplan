@@ -31,11 +31,14 @@ from custom_components.ble_floorplan.coverage import (
     POOR,
     CoverageStore,
     Probe,
+    _error,
+    _Source,
     cell_of,
     grid,
     hdop,
     level,
     model,
+    precision,
     sample,
 )
 from custom_components.ble_floorplan.model import Floorplan, with_settings
@@ -106,6 +109,32 @@ def test_grid() -> None:
     assert (1, 17) not in cells
     assert (19, 21) in cells  # the balcony
     assert cell_of(0.49, 0.5) == (0, 1)
+
+
+def test_error() -> None:
+    """Near scanners pin a position better than far ones; fewer than three good ones or a line pin nothing."""
+    around = [_Source(0, 0, 1, 0), _Source(4, 0, 1, 0), _Source(2, 3, 1, 0)]
+    near = _error(2, 1, around, -55, 1, 3)
+    assert math.isfinite(near)
+    far = [_Source(s.x * 2 - 2, s.y * 2 - 1, 1, 0) for s in around]
+    assert _error(2, 1, far, -55, 1, 3) > near
+    assert _error(2, 1, around[:2], -55, 1, 3) == math.inf
+    line = [_Source(0, 1, 1, 0), _Source(1, 1, 1, 0), _Source(4, 1, 1, 0)]
+    assert _error(2, 1, line, -55, 1, 3) == math.inf
+    # Too quiet to count
+    assert _error(2, 1, around, -95, 1, 3) == math.inf
+    # Right on a scanner: it counts, but gives no direction
+    assert math.isfinite(_error(2, 1, [*around, _Source(2, 1, 1, 0)], -55, 1, 3))
+
+
+def test_precision() -> None:
+    """Every tracked cell of the level, with its level and its expected error."""
+    plan = make_plan()
+    cells = precision(plan, 0.0)
+    assert set(cells) == set(grid(plan))
+    lvl, error = cells[(4, 2)]
+    assert lvl in (FAIR, GOOD)
+    assert error > 0
 
 
 def _untracked_balcony() -> Floorplan:
