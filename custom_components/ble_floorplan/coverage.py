@@ -182,14 +182,14 @@ def _center(extent: tuple[float, float], ix: int, iy: int) -> Point:
 
 
 def grid(plan: Floorplan) -> list[tuple[int, int]]:
-    """Return the cells whose centre lies in a room, zone or outdoor area."""
+    """Return the cells whose centre lies in a room, zone or outdoor area that is tracked."""
     extent = plan.extent
     width, height = extent
     cells = []
     for iy in range(math.ceil(height / COVERAGE_CELL)):
         for ix in range(math.ceil(width / COVERAGE_CELL)):
             cx, cy = _center(extent, ix, iy)
-            if plan.room_of(cx, cy) is not None:
+            if (room := plan.room_of(cx, cy)) is not None and room.tracked:
                 cells.append((ix, iy))
     return cells
 
@@ -293,11 +293,15 @@ def model(
 def sample(plan: Floorplan, position: TrackerPosition) -> tuple[str, Stats] | None:
     """Return the cell and the stats of one position as the coordinator computed it.
 
-    None while the tracker is not seen. Good scanners are those that went into
+    None while the tracker is not seen or stands in a room that is not tracked. Good scanners are those that went into
     the position with an RSSI of at least COVERAGE_GOOD_RSSI; the miss is the
     RMS of how far each used scanner's circle passes the raw position.
     """
     if position.x is None or position.y is None:
+        return None
+    on_level = plan.on_level(plan.levels[0] if position.level is None else position.level)
+    if (room := on_level.room_of(position.x, position.y)) is not None and not room.tracked:
+        # A room left out of the tracking is left out of the measurement too
         return None
     assert position.raw_x is not None and position.raw_y is not None
     good: list[Point] = []

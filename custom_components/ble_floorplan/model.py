@@ -141,6 +141,9 @@ ROOM_SCHEMA = probatio.All(
             probatio.Optional("fs"): NUMBER,
             probatio.Optional("rot"): NUMBER,
             probatio.Optional("label", default=True): cv.boolean,
+            # false: trackers are still placed in it, but it is left out of the
+            # coverage, the scanners' contribution and the guide for runs
+            probatio.Optional("tracked", default=True): cv.boolean,
             # The area of Home Assistant the room stands for
             probatio.Optional("area"): cv.string,
             # The floor it lies on; the default floor without
@@ -340,6 +343,8 @@ class Room:
     fs: float | None = None
     rot: float | None = None
     label: bool = True
+    # False: placed in, but left out of the coverage and the guide
+    tracked: bool = True
     # Area id of Home Assistant
     area: str | None = None
     # Key of the floor it lies on; "" is the default floor of a plan without floors
@@ -363,6 +368,7 @@ class Room:
             fs=data.get("fs"),
             rot=data.get("rot"),
             label=data["label"],
+            tracked=data["tracked"],
             area=data.get("area"),
             floor=data.get("floor", ""),
         )
@@ -384,6 +390,8 @@ class Room:
                 "fs": self.fs,
                 "rot": self.rot,
                 "label": self.label,
+                # Only when it is left out, so plans without stay as they were
+                "tracked": None if self.tracked else False,
                 "area": self.area,
                 "floor": self.floor or None,
             }

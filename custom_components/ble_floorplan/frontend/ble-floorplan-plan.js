@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.28.2";
+export const VERSION = "0.29.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -67,7 +67,7 @@ const TEXTS = {
     edHintRect: "Drag a rectangle on the plan.", edHintPoly: "Tap the corners one after the other; tap the first again, press Enter or Done to close it.",
     edHintDoor: "Tap a wall where the door is.", edHintStairs: "Drag the stairs as a rectangle; they lead from this floor to the next one of the building.",
     edFinish: "Done", edUndo: "Undo", edDiscard: "Discard the changes to the drawing?", edDiscardYes: "Discard",
-    edRoomTitle: "Room", edArea: "Area", edZone: "Zone in a room", edOutdoor: "Outdoor", edLabel: "Show name",
+    edRoomTitle: "Room", edArea: "Area", edZone: "Zone in a room", edOutdoor: "Outdoor", edLabel: "Show name", edTracked: "Relevant for tracking",
     edDoorTitle: "Door", edWidth: "Width", edStairsTitle: "Stairs", edFrom: "From floor", edTo: "To floor",
     edFloors: "Floors and buildings", edOneFloor: "The plan has one floor. Add a floor for a storey above or below, a building for a garage or garden house.",
     edAddFloor: "Add floor", edAddBuilding: "Add building", edMain: "Main building", edBuildingName: "Building",
@@ -88,7 +88,7 @@ const TEXTS = {
     noPlan: "No floor plan yet: an administrator sets it up in BLE Floorplan in the sidebar.",
     notLoaded: "BLE Floorplan is not set up.", unknown: "–",
     plan: "Floor plan", add: "Add", name: "Name",
-    layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant. See the README.",
+    layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant, tracked: false leaves it out of the coverage and the guide for runs. See the README.",
     confirmRemove: "Take {name} off the plan?", startHere: "No rooms yet: write the floor plan on the right, then add scanners and trackers.",
     timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
     speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", fit: "Whole plan", historyDays: "Days kept (0 = off)",
@@ -184,7 +184,7 @@ const TEXTS = {
     edHintRect: "Ein Rechteck im Grundriss aufziehen.", edHintPoly: "Die Ecken nacheinander antippen; zum Schließen die erste erneut antippen, Enter oder „Fertig“.",
     edHintDoor: "Die Wand antippen, wo die Tür ist.", edHintStairs: "Die Treppe als Rechteck aufziehen; sie führt von dieser Etage zur nächsten des Gebäudes.",
     edFinish: "Fertig", edUndo: "Rückgängig", edDiscard: "Änderungen an der Zeichnung verwerfen?", edDiscardYes: "Verwerfen",
-    edRoomTitle: "Raum", edArea: "Bereich", edZone: "Zone in einem Raum", edOutdoor: "Außen", edLabel: "Namen zeigen",
+    edRoomTitle: "Raum", edArea: "Bereich", edZone: "Zone in einem Raum", edOutdoor: "Außen", edLabel: "Namen zeigen", edTracked: "Fürs Tracking relevant",
     edDoorTitle: "Tür", edWidth: "Breite", edStairsTitle: "Treppe", edFrom: "Von Etage", edTo: "Zu Etage",
     edFloors: "Etagen und Gebäude", edOneFloor: "Der Grundriss hat eine Etage. Eine Etage hinzufügen für ein Stockwerk darüber oder darunter, ein Gebäude für Garage, Gartenhaus oder Gästehaus.",
     edAddFloor: "Etage hinzufügen", edAddBuilding: "Gebäude hinzufügen", edMain: "Hauptgebäude", edBuildingName: "Gebäude",
@@ -205,7 +205,7 @@ const TEXTS = {
     noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn in BLE Floorplan in der Seitenleiste ein.",
     notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
     plan: "Grundriss", add: "Hinzufügen", name: "Name",
-    layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant. Siehe README.",
+    layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant, tracked: false nimmt ihn aus Abdeckung und „Wo messen“. Siehe README.",
     confirmRemove: "{name} vom Plan nehmen?", startHere: "Noch keine Räume: rechts den Grundriss eintragen, dann Scanner und Tracker hinzufügen.",
     timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",
     speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", fit: "Ganzer Grundriss", historyDays: "Tage aufbewahren (0 = aus)",
@@ -481,7 +481,7 @@ export const planSvg = (whole, o) => {
   }[rot];
   const rooms = plan.rooms
     .map((r) => {
-      const cls = r.zone ? "zone" : r.outdoor ? "room outdoor" : "room";
+      const cls = (r.zone ? "zone" : r.outdoor ? "room outdoor" : "room") + (r.tracked === false ? " untracked" : "");
       const [lx, ly] = roomLabelPos(r);
       const fs = r.fs ? ` style="font-size:${r.fs}px"` : "";
       // A room's own `rot` is relative to the plan; on screen the label stays
@@ -932,6 +932,7 @@ export const PLAN_CSS = `
   .map.aim svg:not(.mdi) { cursor: crosshair; }
   .room { fill: var(--card-background-color); stroke: var(--primary-text-color); stroke-width: 0.08; stroke-linejoin: miter; }
   .room.outdoor { fill: none; stroke-width: 0.04; stroke-dasharray: 0.25 0.15; opacity: 0.6; }
+  .untracked { opacity: 0.4; }
   .zone { fill: none; stroke: var(--secondary-text-color); stroke-width: 0.03; stroke-dasharray: 0.15 0.12; }
   .gap { stroke: var(--card-background-color); stroke-width: 0.12; }
   .stairs { fill: var(--secondary-text-color); fill-opacity: 0.14; stroke-dasharray: 0.12 0.08; stroke: var(--secondary-text-color); stroke-width: 0.03; }

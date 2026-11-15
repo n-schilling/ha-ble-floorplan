@@ -71,6 +71,7 @@ async def async_get_config_entry_diagnostics(
             "rooms": sum(1 for r in plan.rooms if not r.zone),
             "zones": sum(1 for r in plan.rooms if r.zone),
             "outdoor": sum(1 for r in plan.rooms if r.outdoor),
+            "untracked": sum(1 for r in plan.rooms if not r.tracked),
             "linked_to_areas": sum(1 for r in plan.rooms if r.area),
             "openings": len(plan.openings),
             "extent": list(plan.extent),

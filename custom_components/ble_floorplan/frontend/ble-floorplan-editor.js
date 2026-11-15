@@ -11,7 +11,7 @@ import {
   roomPoints,
   snap,
   toPlan,
-} from "./ble-floorplan-plan.js?v=0.28.2";
+} from "./ble-floorplan-plan.js?v=0.29.0";
 
 // A door is this wide when placed, in metres
 const DOOR_WIDTH = 0.9;
@@ -595,10 +595,11 @@ export class PlanEditor {
           { name: "zone", label: t.edZone, selector: { boolean: {} } },
           { name: "outdoor", label: t.edOutdoor, selector: { boolean: {} } },
           { name: "label", label: t.edLabel, selector: { boolean: {} } },
+          { name: "tracked", label: t.edTracked, selector: { boolean: {} } },
         ] },
         ...(r.points ? [] : [{ type: "grid", name: "", schema: ["x", "y", "w", "h"].map((k) => h._num(k, k, "m")) }]),
       ];
-      const data = { name: r.name, area: r.area ?? null, floor: r.floor || null, zone: !!r.zone, outdoor: !!r.outdoor, label: r.label !== false, x: r.x, y: r.y, w: r.w, h: r.h };
+      const data = { name: r.name, area: r.area ?? null, floor: r.floor || null, zone: !!r.zone, outdoor: !!r.outdoor, label: r.label !== false, tracked: r.tracked !== false, x: r.x, y: r.y, w: r.w, h: r.h };
       body = h._formSlot("ed-room", schema, data, (v) => {
         touch();
         r.name = v.name ?? "";
@@ -611,6 +612,8 @@ export class PlanEditor {
         }
         if (v.label === false) r.label = false;
         else delete r.label;
+        if (v.tracked === false) r.tracked = false;
+        else delete r.tracked;
         if (!r.points) {
           for (const k of ["x", "y"]) if (Number.isFinite(v[k])) r[k] = v[k];
           for (const k of ["w", "h"]) if (Number.isFinite(v[k]) && v[k] > 0) r[k] = v[k];

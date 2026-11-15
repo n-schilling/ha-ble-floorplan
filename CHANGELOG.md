@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.29.0] - 2026-11-15
+
+### Added
+
+- Rooms can be left out of the tracking: *Relevant for tracking* in the drawing, `tracked: false` in YAML. Trackers are still placed in such a room and the *Room* sensor still names it, but its cells are left out of the coverage (model and measurement) and so of the scanners' contribution, and *Where to measure* does not ask for runs there. It is drawn faintly. Meant for a terrace or a garden nobody needs to be found in.
+
 ## [0.28.2] - 2026-11-15
 
 ### Fixed

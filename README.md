@@ -215,7 +215,7 @@ All settings are on the *Settings* tab of the page; the (i) beside each opens a 
 
 ### The floor plan
 
-The floor plan is drawn on the *Floor plan* tab of the page. At the top, **Draw** or **YAML** chooses one of the two ways to edit it; the page keeps the choice and locks it while changes are unsaved. The drawing has tools for rectangular and polygon rooms, doors (tap a wall), stairs and a selection tool that moves rooms and stairs, drags their corners and adds corners in the middle of an edge. A room's name, area, floor and kind (zone, outdoor) are set beside the plan; **Undo** goes back step by step, **Save** writes the drawing, **Discard** asks before it drops the changes. Corners snap to a 5 cm grid and to the corners of the rooms nearby, also of the floor below, which is drawn faintly underneath.
+The floor plan is drawn on the *Floor plan* tab of the page. At the top, **Draw** or **YAML** chooses one of the two ways to edit it; the page keeps the choice and locks it while changes are unsaved. The drawing has tools for rectangular and polygon rooms, doors (tap a wall), stairs and a selection tool that moves rooms and stairs, drags their corners and adds corners in the middle of an edge. A room's name, area, floor, kind (zone, outdoor) and whether it is relevant for tracking are set beside the plan; **Undo** goes back step by step, **Save** writes the drawing, **Discard** asks before it drops the changes. Corners snap to a 5 cm grid and to the corners of the rooms nearby, also of the floor below, which is drawn faintly underneath.
 
 With **YAML**, the same plan is edited as text. Everything is in metres; the origin is the top left corner and y grows downwards. Numbers must be finite.
 
@@ -241,11 +241,14 @@ rooms:
     w: 10
     h: 2
     outdoor: true
+    tracked: false             # optional: left out of the coverage, the scanners' contribution and the guide for runs
 openings:                      # doors and open passages, as a line on a wall
   - [6, 1, 6, 2.5]
 ```
 
 Room labels also take `lx`, `ly` (position), `fs` (font size), `rot` (rotation) and `label: false`. Of overlapping rooms the one drawn last wins; zones win over the rooms they lie in. Walls are the outlines of the rooms; a tracker passes them only where an opening lies on them, so add every door and open passage.
+
+A room with `tracked: false` (*Relevant for tracking* off in the drawing) is a place nobody needs to be found in, such as a terrace: trackers are still placed in it and its name still shows on the *Room* sensor, but its cells are left out of the coverage (model and measurement), and so of the scanners' contribution, and the guide does not ask for runs there. It is drawn faintly.
 
 A room with `area` gives its *Room* sensor the attribute `area_id`; an area Home Assistant does not know is refused when the plan is saved.
 

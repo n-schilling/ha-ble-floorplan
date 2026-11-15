@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -118,7 +119,15 @@ def test_layout_round_trip() -> None:
     assert "label: true" not in text
     assert "zone: true" in text
     assert "label: false" in text
+    assert "tracked" not in text
     assert with_layout(plan, text) == plan
+    # A room left out of the tracking says so, and keeps it
+    left_out = replace(plan, rooms=(replace(plan.rooms[0], tracked=False), *plan.rooms[1:]))
+    text = layout_yaml(left_out)
+    assert text.count("tracked: false") == 1
+    assert with_layout(plan, text) == left_out
+    assert left_out.rooms[0].as_dict()["tracked"] is False
+    assert "tracked" not in plan.rooms[0].as_dict()
     small = with_layout(plan, "rooms:\n  - {name: Studio, x: 0, y: 0, w: 4, h: 3}\n")
     assert [r.name for r in small.rooms] == ["Studio"]
     assert small.openings == ()

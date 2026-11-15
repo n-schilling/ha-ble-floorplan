@@ -144,6 +144,13 @@ def test_guide() -> None:
     # A room in two parts is listed once
     split = replace(plan, rooms=(*plan.rooms, replace(plan.rooms[0], x=20.0)))
     assert [r["room"] for r in guide(split, [])["tag"]].count("Living room") == 1
+    # A room left out of the tracking is not offered, and runs there count for nothing
+    left_out = replace(
+        plan, rooms=tuple(replace(r, tracked=r.name != "Bedroom") for r in plan.rooms)
+    )
+    got = guide(left_out, runs)
+    assert "Bedroom" not in [r["room"] for r in got["tag"]]
+    assert "Bedroom" not in [r["room"] for r in got["phone"]]
 
 
 async def test_coordinator_ends_a_run_by_itself(

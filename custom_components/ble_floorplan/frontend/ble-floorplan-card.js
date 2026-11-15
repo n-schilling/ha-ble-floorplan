@@ -23,7 +23,7 @@ import {
   planSvg,
   shownLevel,
   texts,
-} from "./ble-floorplan-plan.js?v=0.28.2";
+} from "./ble-floorplan-plan.js?v=0.29.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";

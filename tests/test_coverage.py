@@ -38,7 +38,7 @@ from custom_components.ble_floorplan.coverage import (
     model,
     sample,
 )
-from custom_components.ble_floorplan.model import with_settings
+from custom_components.ble_floorplan.model import Floorplan, with_settings
 
 from . import SCANNERS, TAG, FakeScanner, make_plan, rssi_exact, scanner_device
 from .conftest import ScannerDevices
@@ -106,6 +106,25 @@ def test_grid() -> None:
     assert (1, 17) not in cells
     assert (19, 21) in cells  # the balcony
     assert cell_of(0.49, 0.5) == (0, 1)
+
+
+def _untracked_balcony() -> Floorplan:
+    """The example plan with the balcony left out of the tracking."""
+    plan = make_plan()
+    return replace(plan, rooms=tuple(replace(r, tracked=r.name != "Balcony") for r in plan.rooms))
+
+
+def test_untracked_room() -> None:
+    """A room left out of the tracking has no cells in the model and takes no samples; its tracker still has a place."""
+    plan = _untracked_balcony()
+    cells = grid(plan)
+    assert len(cells) == len(grid(make_plan())) - 20 * 4
+    assert (19, 21) not in cells
+    assert "Balcony" not in {r["name"] for r in model(plan)["rooms"]}
+    readings = _readings(living=-60, kitchen=-80)
+    assert sample(plan, _position(5.0, 10.0, readings)) is None
+    assert sample(make_plan(), _position(5.0, 10.0, readings)) is not None
+    assert sample(plan, _position(2.0, 1.0, readings)) is not None
 
 
 def test_model_without_tracker() -> None:

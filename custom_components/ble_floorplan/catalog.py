@@ -224,7 +224,8 @@ def remove_tracker(plan: Floorplan, key: str) -> Floorplan:
 LAYOUT_TEMPLATE = """\
 # Metres; the origin is the top left corner of the plan, y grows downwards.
 # A room is a rectangle (x, y, w, h) or a polygon (points: [[x, y], ...]).
-# zone: true marks an area inside a room, outdoor: true a balcony or garden.
+# zone: true marks an area inside a room, outdoor: true a balcony or garden,
+# tracked: false a room left out of the coverage and the guide for runs.
 rooms:
   - {name: Living room, x: 0, y: 0, w: 5, h: 4}
   - {name: Kitchen, x: 5, y: 0, w: 3, h: 4}
@@ -280,7 +281,7 @@ def layout_yaml(plan: Floorplan) -> str:
         return LAYOUT_TEMPLATE
     data = plan.as_dict()
     # Defaults are left out, so the text stays short
-    defaults = {"zone": False, "outdoor": False, "label": True}
+    defaults = {"zone": False, "outdoor": False, "label": True, "tracked": True}
     rooms = [{k: v for k, v in r.items() if defaults.get(k, object()) != v} for r in data["rooms"]]
     layout = {"floors": data.get("floors"), "rooms": rooms, "openings": data["openings"]}
     layout["stairs"] = data.get("stairs")

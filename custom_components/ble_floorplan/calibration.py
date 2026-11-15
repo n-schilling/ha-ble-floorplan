@@ -192,12 +192,12 @@ def setup_matches(run: CalibrationRun, plan: Floorplan) -> bool | None:
 
 
 def guide(plan: Floorplan, runs: list[CalibrationRun]) -> dict[str, list[dict[str, Any]]]:
-    """Return per tracker every room with walls, with its floor, and how many of its finished runs lie there.
+    """Return per tracker every tracked room with walls, with its floor, and how many of its finished runs lie there.
 
     A run made with the scanners standing elsewhere does not count; one that
     does not tell how they stood does.
     """
-    places = list(dict.fromkeys((r.floor, r.name) for r in plan.rooms if not r.zone))
+    places = list(dict.fromkeys((r.floor, r.name) for r in plan.rooms if not r.zone and r.tracked))
     result: dict[str, list[dict[str, Any]]] = {}
     for tracker in plan.trackers:
         counts = dict.fromkeys(places, 0)
@@ -205,7 +205,8 @@ def guide(plan: Floorplan, runs: list[CalibrationRun]) -> dict[str, list[dict[st
             if run.tracker != tracker.key or run.running or setup_matches(run, plan) is False:
                 continue
             level = plan.on_level(plan.floor(run.floor or plan.floor_list[0].key).elevation)
-            if (room := level.space_of(run.x, run.y)) is not None:
+            room = level.space_of(run.x, run.y)
+            if room is not None and (room.floor, room.name) in counts:
                 counts[(room.floor, room.name)] += 1
         result[tracker.key] = [
             {"room": name, "floor": floor, "runs": n} for (floor, name), n in counts.items()
