@@ -110,6 +110,9 @@ STAIRS_TOLERANCE: Final = 1.0
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 # A tracker counts as away once no scanner saw it this long (s)
 DEFAULT_AWAY_SECONDS: Final = 120.0
+# A measured position at most this far behind a wall is noise: the shown one
+# stays in its room, sliding along the wall, and takes no way round by a door (m)
+DEFAULT_WALL_TOLERANCE: Final = 0.5
 # Height uncertainty: without its own range, a tracker is taken to be this far
 # above or below its height (m)
 DEFAULT_HEIGHT_SPREAD: Final = 0.4

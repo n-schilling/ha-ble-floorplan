@@ -79,6 +79,7 @@ def test_round_trip() -> None:
         "robust_residual": 1.0,
         "walls": True,
         "exterior_doors": True,
+        "wall_tolerance": 0.5,
         "stairs_only": True,
         "floor_margin": 0.5,
         "floor_hold_seconds": 10.0,
@@ -305,6 +306,26 @@ def test_move_through_walls_only_at_openings() -> None:
     assert plan.move((12, 12), (5, 5), (5, 5)) == (5, 5)
     # Zones are no walls: the dining zone is crossed freely
     assert plan.move((2, 1), (4, 1), (4, 1)) == (4, 1)
+
+
+def test_wall_tolerance() -> None:
+    """A target at most wall_tolerance behind a wall is noise: the step slides along it, just inside."""
+    plan = make_plan()
+    assert plan.settings.wall_tolerance == 0.5
+    # 0.3 m behind the wall below the door: back onto it, 0.1 m inside
+    assert plan.move((5.5, 4.0), (6.3, 4.0), (6.3, 4.0)) == pytest.approx((5.9, 4.0))
+    # Along the wall
+    assert plan.move((5.8, 3.5), (6.2, 4.2), (6.2, 4.2)) == pytest.approx((5.9, 4.2))
+    # Farther behind: towards the door, as without
+    x, y = plan.move((5.5, 4.0), (6.3, 4.0), (6.8, 4.0))
+    assert math.dist((x, y), (6.0, 1.75)) < math.dist((5.5, 4.0), (6.0, 1.75))
+    # Off: towards the door already 0.3 m behind
+    strict = make_plan(settings={"height_uncertainty": False, "wall_tolerance": 0})
+    x, y = strict.move((5.5, 4.0), (6.3, 4.0), (6.3, 4.0))
+    assert math.dist((x, y), (5.5, 4.0)) == pytest.approx(0.8)
+    assert x < 6
+    # Out through the bedroom's notch and back in: where it ends, inside
+    assert plan.move((1.0, 7.9), (2.5, 8.5), (1.5, 8.3)) == (2.5, 8.5)
 
 
 def test_height_range() -> None:

@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.31.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.31.0";
+} from "./ble-floorplan-plan.js?v=0.32.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.32.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -89,6 +89,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     ["motion", "jump_distance", "jumpDistance", "num"],
     ["motion", "jump_confirm_seconds", "jumpConfirm", "num"],
     ["motion", "walls", "walls", "bool"],
+    ["motion", "wall_tolerance", "wallTolerance", "num"],
     ["motion", "exterior_doors", "exteriorDoors", "bool"],
     ["floorsSec", "stairs_only", "stairsOnly", "bool"],
     ["floorsSec", "floor_loss", "floorLoss", "num"],

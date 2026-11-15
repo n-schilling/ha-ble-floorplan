@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_ROOM_HOLD_SECONDS,
     DEFAULT_ROOM_MARGIN,
     DEFAULT_SMOOTHING_SECONDS,
+    DEFAULT_WALL_TOLERANCE,
     DOOR_STEP,
     DOOR_TOLERANCE,
     HISTORY_MAX_DAYS,
@@ -266,6 +267,9 @@ SETTINGS_SCHEMA = probatio.Schema(
         ),
         probatio.Optional("walls", default=True): cv.boolean,
         probatio.Optional("exterior_doors", default=True): cv.boolean,
+        probatio.Optional("wall_tolerance", default=DEFAULT_WALL_TOLERANCE): probatio.All(
+            NUMBER, probatio.Range(min=0.0, max=3.0)
+        ),
         probatio.Optional("stairs_only", default=True): cv.boolean,
         probatio.Optional("floor_margin", default=DEFAULT_FLOOR_MARGIN): probatio.All(
             NUMBER, probatio.Range(min=0.0)
@@ -549,6 +553,8 @@ class Settings:
     # and where it leaves the building
     walls: bool = True
     exterior_doors: bool = True
+    # A measured position at most this far behind a wall is noise: no way round by a door
+    wall_tolerance: float = DEFAULT_WALL_TOLERANCE
     # Another floor only over stairs joining the two, where the plan has any
     stairs_only: bool = True
     # Another floor once it fitted better by floor_margin for floor_hold_seconds
@@ -590,6 +596,7 @@ class Settings:
             "robust_residual": self.robust_residual,
             "walls": self.walls,
             "exterior_doors": self.exterior_doors,
+            "wall_tolerance": self.wall_tolerance,
             "stairs_only": self.stairs_only,
             "floor_margin": self.floor_margin,
             "floor_hold_seconds": self.floor_hold_seconds,
@@ -875,9 +882,13 @@ class Floorplan:
         """Return where a step from start towards end may go, given the walls.
 
         A step that stays in its room, or leaves it through an opening, is
-        taken. A step through a wall goes towards the opening of the room that
-        lies best on the way to the target instead, and through it once it is
-        reached; without an opening the position stops before the wall.
+        taken. A step through a wall, towards a target at most wall_tolerance
+        behind it, is noise: the position slides along the wall, just inside.
+        A step towards a target farther behind goes towards the opening of
+        the room that lies best on the way to it instead, and through it once
+        it is reached; without an opening the position stops before the wall.
+        Step by step, as the smoothing goes: a short swing behind the wall
+        moves it towards the door only a little.
 
         walls holds the walls inside a building, exterior_doors those of a
         step that leaves its building (to the outside, an outdoor room or
@@ -904,6 +915,10 @@ class Floorplan:
         t, point = min(hits)
         if self._on_opening(point, room.floor):
             return end
+        if not room.contains(*target) and (
+            closest_on_outline(corners, *target)[1] <= settings.wall_tolerance
+        ):
+            return _along_wall(room, end)
         doors = [
             ((o[0] + o[2]) / 2, (o[1] + o[3]) / 2)
             for o in self.openings
@@ -938,6 +953,21 @@ class Floorplan:
                 best_d = d
                 best = q
         return best
+
+
+def _along_wall(room: Room, end: Point) -> Point:
+    """Return the end of a step moved onto the room's wall nearest to it, a little inside: it slides along.
+
+    A step that left the room and came back in through a notch ends inside
+    already, and stays there.
+    """
+    if room.contains(*end):
+        return end
+    on_wall, distance = closest_on_outline(room.corners, *end)
+    # From outside, the way to the wall points inwards; right on it, it stays there
+    dx, dy = on_wall[0] - end[0], on_wall[1] - end[1]
+    distance = max(distance, 1e-9)
+    return (on_wall[0] + WALL_STOP * dx / distance, on_wall[1] + WALL_STOP * dy / distance)
 
 
 def replace_scanner(plan: Floorplan, scanner: Scanner) -> Floorplan:

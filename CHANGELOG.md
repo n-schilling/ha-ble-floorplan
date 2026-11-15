@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.32.0] - 2026-11-15
+
+### Added
+
+- *Wall tolerance* (`wall_tolerance`, 0.5 m): with *Through walls only at doors* on, a measured position at most this far behind a wall is taken as noise. The shown position stays in its room and slides along the wall, 0.1 m inside, instead of heading for a door and through it into the next room. Farther behind, it goes by the door as before, step by step with the smoothing, so a short swing moves it towards the door only a little. 0 keeps the old behaviour.
+
 ## [0.31.0] - 2026-11-15
 
 ### Added
