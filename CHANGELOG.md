@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.28.2] - 2026-11-15
+
+### Fixed
+
+- Scanner quality: each scanner counts from its own start instead of one start for all. A scanner that came in later no longer looks deaf against those that counted longer: its reception is held against the others only over the time since its start, in its first hour against what they took after it. *Gathered since* names the scanner's own start, and the hours are the time gone by, no longer the hours begun.
+- Moving a scanner, changing its height, offset or pair corrections starts its quality afresh; figures of the old setup are dropped. A scanner taken out of the plan is forgotten.
+- The finding of a low reception blames the device only on a Shelly; on other scanners it points at the place (far from the trackers, or shielded).
+
 ## [0.28.1] - 2026-11-14
 
 ### Changed

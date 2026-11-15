@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.28.1";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.28.1";
+} from "./ble-floorplan-plan.js?v=0.28.2";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.28.2";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -976,7 +976,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         }).join("");
         const since = d.since ? new Date(d.since * 1000).toLocaleString(this._hass.locale?.language || this._hass.language, { dateStyle: "short", timeStyle: "short" }) : "–";
         body = `<div class="qtiles">${tiles}</div>${findings}` +
-          `<div class="muted small">${esc(t.qSince.replace("{time}", since).replace("{h}", d.hours).replace("{max}", this._plan.settings.quality_hours ?? 24))}</div>`;
+          `<div class="muted small">${esc(t.qSince.replace("{time}", since).replace("{h}", d.hours == null ? "–" : fmt(d.hours, 1)).replace("{max}", this._plan.settings.quality_hours ?? 24))}</div>`;
       }
       const tryShift = d?.fidelity?.shift ? this._btn("quality-try", t.qTry) : "";
       return `<div class="qback" data-act="quality-close"></div><div class="qdialog" role="dialog">` +

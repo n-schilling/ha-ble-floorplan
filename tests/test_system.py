@@ -17,7 +17,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, CONNECTION_NETWORK_MAC
 
 from custom_components.ble_floorplan.const import WS_SCANNER_SYSTEM
-from custom_components.ble_floorplan.system import async_scanner_system
+from custom_components.ble_floorplan.system import async_scanner_system, scanner_domain
 
 from . import SCANNER_KITCHEN, SCANNER_LIVING, FakeScanner
 
@@ -182,6 +182,7 @@ async def test_builtin_adapter(hass: HomeAssistant) -> None:
         result = await async_scanner_system(hass, SCANNER_LIVING)
     assert result["model"] == "bcm43438-bt"
     assert result["integration"] is None
+    assert scanner_domain(hass, SCANNER_LIVING) is None
     assert result["device_id"] == adapter.id
     assert result["firmware"] == "6.18"
     assert result["firmware_latest"] is None
@@ -201,6 +202,7 @@ async def test_unknown_scanner(hass: HomeAssistant) -> None:
     ):
         result = await async_scanner_system(hass, SCANNER_KITCHEN)
     assert all(value in (None, False) for value in result.values())
+    assert scanner_domain(hass, SCANNER_KITCHEN) is None
 
 
 @pytest.mark.usefixtures("entry")
@@ -415,6 +417,8 @@ async def test_integration_without_entry(hass: HomeAssistant) -> None:
         patch.object(hass.config_entries, "async_get_entry", return_value=None),
     ):
         assert (await async_scanner_system(hass, SCANNER_LIVING))["integration"] is None
+        assert scanner_domain(hass, SCANNER_LIVING) is None
+    assert scanner_domain(hass, SCANNER_LIVING) == "bluetooth"
 
 
 async def test_ws_scanner_system(

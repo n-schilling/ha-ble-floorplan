@@ -55,6 +55,15 @@ def _devices(
     return adapter, host if isinstance(host, dr.DeviceEntry) else adapter
 
 
+def scanner_domain(hass: HomeAssistant, source: str) -> str | None:
+    """Return the integration of the device the scanner runs on; None for a built-in adapter or an unknown one."""
+    adapter, host = _devices(hass, source)
+    if adapter is None or host is None or host.id == adapter.id:
+        return None
+    entry = hass.config_entries.async_get_entry(host.config_entry_id)
+    return None if entry is None else entry.domain
+
+
 def _integration_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None:
     """Return the name of the integration the device belongs to."""
     if (entry := hass.config_entries.async_get_entry(device.config_entry_id)) is None:

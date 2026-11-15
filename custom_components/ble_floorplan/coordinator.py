@@ -160,6 +160,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         """Compute the positions and add them to the timeline and the coverage."""
         monotonic = MONOTONIC_TIME()
         self.quality.begin(dt_util.utcnow().timestamp(), self.plan.settings.quality_hours)
+        self.quality.setup(self.plan)
         positions = self.compute(monotonic)
         if self.calibration.tick(monotonic):
             await self.async_stop_calibration(auto=True)

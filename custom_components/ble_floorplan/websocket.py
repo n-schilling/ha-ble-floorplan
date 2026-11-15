@@ -83,7 +83,7 @@ from .model import (
 )
 from .quality import contribution
 from .solver import CalibrationError, solve
-from .system import async_scanner_system
+from .system import async_scanner_system, scanner_domain
 
 if TYPE_CHECKING:
     from . import RuntimeData
@@ -745,7 +745,8 @@ async def ws_scanner_quality(
         return
     # The contribution walks the coverage model twice: off the event loop
     part = await hass.async_add_executor_job(contribution, plan, scanner.key)
-    connection.send_result(msg["id"], quality.report(scanner.key, part))
+    shelly = scanner_domain(hass, scanner.source) == "shelly"
+    connection.send_result(msg["id"], quality.report(scanner.key, part, shelly))
 
 
 @require_admin

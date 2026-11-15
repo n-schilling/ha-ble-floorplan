@@ -23,6 +23,12 @@ the wrong place or one too many.
 
 Everything is kept per hour, for as many hours as the setting quality_hours
 says, and written to storage every few minutes, so a restart keeps it.
+
+Each scanner has its own start: when it came into the plan, and again when
+its place, height, offset or pair corrections change, since the figures
+before tell of another setup; what it gathered until then is dropped. Its
+reception is held against the other scanners only over the time since
+its start: in the hour it started, only what the others took after it.
 """
 
 from __future__ import annotations
@@ -57,7 +63,7 @@ from .const import (
 )
 from .coverage import model
 from .engine import Measurement, solve_point
-from .model import NUMBER, Floorplan
+from .model import NUMBER, Floorplan, Scanner
 
 if TYPE_CHECKING:
     from .geometry import Point
@@ -70,10 +76,19 @@ UNKNOWN = "unknown"
 # Sums of the misses of one scanner: n, Σm, Σm², outliers, Σc, Σs, Σcc, Σss, Σcs, Σmc, Σms
 _N, _M, _MM, _OUT, _C, _S, _CC, _SS, _CS, _MC, _MS = range(11)
 
-# In storage: hour (unix time // 3600) -> counts {"tracker|scanner": n} and misses {scanner: sums}
+# In storage: per scanner its start and the setup it counts for; per hour
+# (unix time // 3600) counts {"tracker|scanner": n} and misses {scanner: sums}
 DATA_SCHEMA = probatio.Schema(
     {
-        probatio.Optional("since", default=None): probatio.Any(None, NUMBER),
+        # One start for all scanners, before each had its own: not used
+        probatio.Remove("since"): object,
+        probatio.Optional("scanners", default=dict): {
+            cv.string: {
+                probatio.Required("since"): NUMBER,
+                probatio.Required("basis"): list,
+                probatio.Optional("base", default=dict): {cv.string: probatio.Coerce(int)},
+            }
+        },
         probatio.Optional("hours", default=dict): {
             probatio.Coerce(int): {
                 probatio.Optional("counts", default=dict): {cv.string: probatio.Coerce(int)},
@@ -94,6 +109,32 @@ class _Hour:
     misses: dict[str, list[float]] = field(default_factory=dict)
 
 
+def basis(plan: Floorplan, scanner: Scanner) -> list[Any]:
+    """Return the setup of the scanner its figures count for, as stored.
+
+    Where it stands and how high, its offset and its pair corrections; paused
+    or not, so one that comes back starts afresh.
+    """
+    pairs = plan.pair_offsets.get(scanner.key, {})
+    return [
+        scanner.x,
+        scanner.y,
+        plan.scanner_height(scanner),
+        scanner.rssi_offset,
+        [[t, pairs[t]] for t in sorted(pairs)],
+        scanner.paused,
+    ]
+
+
+@dataclass(slots=True)
+class _Start:
+    # Unix time it started gathering, the setup it gathers for
+    since: float
+    basis: list[Any]
+    # What every scanner had taken in the hour of the start, before it: not held against it
+    base: dict[tuple[str, str], int] = field(default_factory=dict)
+
+
 @dataclass(frozen=True, slots=True)
 class Heard:
     """A scanner that went into a position: its key, where it stands, its distance."""
@@ -111,7 +152,9 @@ class QualityTracker:
         """Initialize the tracker; with hass it is kept in storage."""
         self._hours: dict[int, _Hour] = {}
         self._now = 0.0
-        self.since: float | None = None
+        self._starts: dict[str, _Start] = {}
+        # The plan the starts were last compared for; a saved plan is a new object
+        self._plan: Floorplan | None = None
         self.keep = DEFAULT_QUALITY_HOURS
         self._store: Store[dict[str, Any]] | None = (
             Store(hass, QUALITY_STORAGE_VERSION, QUALITY_STORAGE_KEY) if hass else None
@@ -126,19 +169,26 @@ class QualityTracker:
         if (data := await self._store.async_load()) is None:
             return
         valid = DATA_SCHEMA(data)
-        self.since = valid["since"]
+        self._starts = {
+            k: _Start(v["since"], v["basis"], {_pair(c): n for c, n in v["base"].items()})
+            for k, v in valid["scanners"].items()
+        }
         for hour, item in valid["hours"].items():
-            counts = {
-                (key.partition("|")[0], key.partition("|")[2]): n
-                for key, n in item["counts"].items()
-            }
+            counts = {_pair(key): n for key, n in item["counts"].items()}
             self._hours[hour] = _Hour(counts, {k: list(v) for k, v in item["misses"].items()})
         self._prune()
 
     def _data(self) -> dict[str, Any]:
         self._save_pending = False
         return {
-            "since": self.since,
+            "scanners": {
+                k: {
+                    "since": v.since,
+                    "basis": v.basis,
+                    "base": {f"{t}|{s}": n for (t, s), n in v.base.items()},
+                }
+                for k, v in self._starts.items()
+            },
             "hours": {
                 str(hour): {
                     "counts": {f"{t}|{s}": n for (t, s), n in item.counts.items()},
@@ -159,12 +209,14 @@ class QualityTracker:
             await self._store.async_remove()
 
     def _prune(self) -> None:
-        """Drop the hours that no longer count; the start moves up with them."""
+        """Drop the hours that no longer count; the starts move up with them."""
         first = int(self._now // 3600) - self.keep + 1
         for old in [h for h in self._hours if h < first]:
             del self._hours[old]
-        if self.since is not None and self._hours:
-            self.since = max(self.since, min(self._hours) * 3600.0)
+        for start in self._starts.values():
+            if start.since < first * 3600.0:
+                # The hour of the start is gone, and what was before it in that hour with it
+                start.since, start.base = first * 3600.0, {}
 
     def begin(self, now: float, keep: int | None = None) -> None:
         """Start a refresh at the unix time now, keeping the last keep hours: what follows goes into its hour."""
@@ -172,8 +224,6 @@ class QualityTracker:
         if keep is not None and keep != self.keep:
             self.keep = keep
             self._prune()
-        if self.since is None:
-            self.since = now
         hour = int(now // 3600)
         if hour not in self._hours:
             self._hours[hour] = _Hour()
@@ -182,6 +232,41 @@ class QualityTracker:
         if self._store is not None and not self._save_pending:
             self._save_pending = True
             self._store.async_delay_save(self._data, QUALITY_SAVE_DELAY_SECONDS)
+
+    def setup(self, plan: Floorplan) -> None:
+        """Hold each scanner's setup against the plan: a new or changed one starts afresh, a gone one is dropped.
+
+        Call after begin(), so a start is the time of the refresh.
+        """
+        if plan is self._plan:
+            return
+        self._plan = plan
+        for key in [k for k in self._starts if plan.scanner(k) is None]:
+            self._drop(key)
+            del self._starts[key]
+        new = {}
+        for scanner in plan.scanners:
+            now_basis = basis(plan, scanner)
+            start = self._starts.get(scanner.key)
+            if start is None or start.basis != now_basis:
+                self._drop(scanner.key)
+                new[scanner.key] = now_basis
+        # Taken once all that starts afresh is dropped
+        base = dict(self._hour().counts)
+        for key, now_basis in new.items():
+            self._starts[key] = _Start(self._now, now_basis, base)
+
+    def _drop(self, scanner: str) -> None:
+        """Forget what the scanner gathered."""
+        for hour in self._hours.values():
+            hour.misses.pop(scanner, None)
+            for key in [k for k in hour.counts if k[1] == scanner]:
+                del hour.counts[key]
+
+    def since(self, scanner: str) -> float | None:
+        """Return when the scanner started gathering; None for one not in the plan."""
+        start = self._starts.get(scanner)
+        return None if start is None else start.since
 
     def _hour(self) -> _Hour:
         return self._hours.setdefault(int(self._now // 3600), _Hour())
@@ -225,10 +310,20 @@ class QualityTracker:
     # ---- Figures ----
 
     def rate(self, scanner: str) -> dict[str, Any]:
-        """Return the reception of the scanner against the best one, over the trackers it heard."""
+        """Return the reception of the scanner against the best one, over the trackers it heard.
+
+        Only the time since its start counts, for it and the others alike.
+        """
+        if (start := self._starts.get(scanner)) is None:
+            return {"value": None, "trackers": 0, "state": UNKNOWN}
+        first = int(start.since // 3600)
         counts: dict[tuple[str, str], int] = {}
-        for hour in self._hours.values():
+        for h, hour in self._hours.items():
+            if h < first:
+                continue
             for key, n in hour.counts.items():
+                if h == first:
+                    n = max(n - start.base.get(key, 0), 0)
                 counts[key] = counts.get(key, 0) + n
         best: dict[str, int] = {}
         for (tracker, _), n in counts.items():
@@ -291,10 +386,11 @@ class QualityTracker:
             "state": _worst(rate["state"], fidelity["state"]),
         }
 
-    def report(self, scanner: str, part: dict[str, Any]) -> dict[str, Any]:
+    def report(self, scanner: str, part: dict[str, Any], shelly: bool = False) -> dict[str, Any]:
         """Return all three figures, the time they cover, and the findings, the most telling first.
 
-        part is the scanner's contribution, as contribution() gives it.
+        part is the scanner's contribution, as contribution() gives it; shelly
+        whether it runs on a Shelly, which explains a low reception.
         """
         rate = self.rate(scanner)
         fidelity = self.fidelity(scanner)
@@ -306,18 +402,25 @@ class QualityTracker:
         if fidelity["state"] == POOR:
             findings.append("site")
         if rate["state"] == POOR:
-            findings.append("device")
+            findings.append("device" if shelly else "reception")
         if part["state"] == POOR:
             findings.append("redundant")
-        hours = len(self._hours)
+        since = self.since(scanner)
         return {
-            "since": self.since,
-            "hours": hours,
+            "since": since,
+            # Hours gone by since its start, as far as they still count
+            "hours": None if since is None else round(max(self._now - since, 0.0) / 3600, 1),
             "rate": rate,
             "fidelity": fidelity,
             "contribution": part,
             "findings": findings or ["good"],
         }
+
+
+def _pair(key: str) -> tuple[str, str]:
+    """Return the tracker and the scanner of a stored "tracker|scanner"."""
+    tracker, _, scanner = key.partition("|")
+    return tracker, scanner
 
 
 def _shift(sums: list[float]) -> dict[str, float] | None:
