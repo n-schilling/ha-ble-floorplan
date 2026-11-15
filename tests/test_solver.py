@@ -7,7 +7,13 @@ import math
 import pytest
 
 from custom_components.ble_floorplan.calibration import CalibrationRun
-from custom_components.ble_floorplan.solver import CalibrationError, observations, solve
+from custom_components.ble_floorplan.model import Floorplan
+from custom_components.ble_floorplan.solver import (
+    CalibrationError,
+    fit_tracker,
+    observations,
+    solve,
+)
 
 from . import make_plan, synthetic_run
 
@@ -170,3 +176,52 @@ def test_observation_median_and_height() -> None:
     assert obs["living"].rssi == pytest.approx(
         -58.0 + 2.0 - 30 * math.log10(obs["living"].distance), abs=0.5
     )
+
+
+def _wall_runs(wall_loss: float, plan: Floorplan = PLAN) -> list[CalibrationRun]:
+    """Runs in every room, so the scanners are heard through different walls."""
+    places = [(2.0, 2.0), (8.0, 2.0), (1.0, 6.5), (8.0, 7.0), (4.0, 7.0)]
+    return [
+        synthetic_run(plan, f"r{i}", tracker, x, y, ref, OFFSETS, wall_loss=wall_loss)
+        for i, (x, y) in enumerate(places)
+        for tracker, ref in (("tag", -58.0), ("phone", -66.0))
+    ]
+
+
+def test_recovers_wall_loss() -> None:
+    """Runs in several rooms give the loss per wall back; as set, the fit takes it as it is."""
+    proposal = solve(PLAN, _wall_runs(6.0), fit_attenuation=False, fit_walls=True)
+    assert proposal["wall_loss"] == {"old": 0.0, "new": 6.0}
+    assert proposal["trackers"]["tag"]["new"] == -58.0
+    assert proposal["rms"]["new"] == 0.0
+    both = solve(PLAN, _wall_runs(6.0), fit_attenuation=True, fit_walls=True)
+    assert both["attenuation"]["new"] == 3.0
+    assert both["wall_loss"]["new"] == 6.0
+    walled = make_plan(settings={"height_uncertainty": False, "wall_loss": 6.0})
+    fixed = solve(walled, _wall_runs(6.0, walled), fit_attenuation=False)
+    assert fixed["wall_loss"] is None
+    assert fixed["rms"]["new"] == 0.0
+    # A gain through walls is no wall: kept at 0
+    assert solve(PLAN, _wall_runs(-4.0), False, fit_walls=True)["wall_loss"]["new"] == 0.0
+
+
+def test_wall_loss_needs_different_walls() -> None:
+    """One run: every scanner through its own walls once, the loss is free."""
+    runs = [synthetic_run(PLAN, "r1", "tag", 2.0, 2.0, -58.0, OFFSETS)]
+    with pytest.raises(CalibrationError, match="different walls"):
+        solve(PLAN, runs, fit_attenuation=False, fit_walls=True)
+    with pytest.raises(CalibrationError, match="distances and with different walls"):
+        solve(PLAN, runs, fit_attenuation=True, fit_walls=True)
+
+
+def test_fit_tracker_through_walls() -> None:
+    """A tracker's own values take the loss per wall as set."""
+    walled = make_plan(settings={"height_uncertainty": False, "wall_loss": 6.0})
+    scanners = {"living": 0.0, "kitchen": 0.0, "bedroom": 0.0}
+    runs = [
+        synthetic_run(walled, f"r{i}", "tag", x, y, -58.0, scanners, wall_loss=6.0)
+        for i, (x, y) in enumerate([(2.0, 2.0), (8.0, 7.0)])
+    ]
+    fit = fit_tracker(walled, runs, "tag")
+    assert fit["ref_power"]["new"] == -58.0
+    assert all(p["new"] == 0.0 for p in fit["pairs"].values())

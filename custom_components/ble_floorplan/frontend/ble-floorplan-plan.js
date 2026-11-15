@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.32.0";
+export const VERSION = "0.33.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -33,7 +33,7 @@ const TEXTS = {
     offline: "not reachable", offlineHint: "This scanner has received nothing for over a minute. Is it powered and connected to Home Assistant?",
     hintMeasure: "Tap the plan where the tracker lies, then start.",
     hintMove: "Tap the plan where the scanner is, or drag it; then save.", runs: "Runs", duration: "Length",
-    delete: "Delete", fitExponent: "Fit the exponent too", compute: "Compute", apply: "Apply",
+    delete: "Delete", fitExponent: "Fit the exponent too", fitWalls: "Fit the wall loss too", wallLoss: "Loss per wall (dB)", perWall: "per wall", compute: "Compute", apply: "Apply",
     preview: "Proposal", now: "now", proposed: "proposed", obs: "observations", exponent: "Exponent",
     rms: "RMS error (dB)", applied: "Applied.", saved: "Saved.", display: "Display", engine: "Engine",
     motion: "Motion", roomRules: "Rooms", robust: "Robust weights", attenuation: "Path loss exponent",
@@ -52,6 +52,7 @@ const TEXTS = {
     q_good: "good", q_fair: "fair", q_poor: "poor", q_unknown: "too little data",
     qBtn: "Details", qSince: "Gathered since {time} ({h} h so far, the last {max} h count); kept over restarts. Starts afresh when the scanner moves or its calibration changes.",
     qualitySec: "Scanner quality", qualityHours: "Hours looked back over (1–720)", info: "Explanation",
+    h_wall_loss: "How much a wall between scanner and tracker weakens the signal. Drywall about 3 to 5 dB, brick or concrete 10 and more. It is counted from where the tracker was last measured, so scanners behind walls are not taken for far away. 0 is off. The calibration can fit it from runs in several rooms.",
     h_wall_tolerance: "A measured position at most this far behind a wall is taken as noise: the shown position stays in its room and slides along the wall, without a way round by a door. Farther behind, it goes through the nearest door on the way. 0 takes every step behind a wall to a door.",
     h_height_uncertainty: "Trackers are not carried at one height: in a pocket, on a table, in bed. On, a tracker counts anywhere in a range of heights, its own or its height ± the range below; a scanner high above it, close by, then counts less, as its distance on the floor depends most on the height. Off, the fixed height is taken as it is.",
     h_height_spread: "How far above or below its height a tracker without a range of its own is taken to be. 0.4 m covers a table to a hand for a phone in the pocket at 1 m.",
@@ -153,7 +154,7 @@ const TEXTS = {
     offline: "nicht erreichbar", offlineHint: "Dieser Scanner hat seit über einer Minute nichts empfangen. Hat er Strom und ist er mit Home Assistant verbunden?",
     hintMeasure: "Auf den Grundriss tippen, wo der Tracker liegt, dann starten.",
     hintMove: "Auf den Grundriss tippen, wo der Scanner hängt, oder ihn ziehen; dann speichern.", runs: "Messläufe", duration: "Dauer",
-    delete: "Löschen", fitExponent: "Exponent mitschätzen", compute: "Berechnen", apply: "Übernehmen",
+    delete: "Löschen", fitExponent: "Exponent mitschätzen", fitWalls: "Wanddämpfung mitschätzen", wallLoss: "Dämpfung je Wand (dB)", perWall: "je Wand", compute: "Berechnen", apply: "Übernehmen",
     preview: "Vorschlag", now: "jetzt", proposed: "neu", obs: "Beobachtungen", exponent: "Exponent",
     rms: "RMS-Fehler (dB)", applied: "Übernommen.", saved: "Gespeichert.", display: "Anzeige", engine: "Engine",
     motion: "Bewegung", roomRules: "Räume", robust: "Robuste Gewichte", attenuation: "Pfadverlust-Exponent",
@@ -172,6 +173,7 @@ const TEXTS = {
     q_good: "gut", q_fair: "mittel", q_poor: "schlecht", q_unknown: "zu wenig Daten",
     qBtn: "Details", qSince: "Gesammelt seit {time} (bisher {h} h, es zählen die letzten {max} h); bleibt über Neustarts erhalten. Beginnt neu, wenn der Scanner verschoben oder seine Kalibrierung geändert wird.",
     qualitySec: "Scanner-Qualität", qualityHours: "Zeitraum in Stunden (1–720)", info: "Erklärung",
+    h_wall_loss: "Wie stark eine Wand zwischen Scanner und Tracker das Signal schwächt. Trockenbau etwa 3 bis 5 dB, Mauerwerk oder Beton 10 und mehr. Gezählt wird ab der zuletzt gemessenen Position, so wirken Scanner hinter Wänden nicht zu weit weg. 0 ist aus. Die Kalibrierung kann sie aus Messläufen in mehreren Räumen bestimmen.",
     h_wall_tolerance: "Eine gemessene Position höchstens so weit hinter einer Wand gilt als Rauschen: Die gezeigte Position bleibt im Raum und gleitet an der Wand entlang, ohne Umweg über eine Tür. Liegt sie weiter dahinter, geht sie durch die nächste Tür auf dem Weg. 0 schickt jeden Schritt hinter eine Wand zur Tür.",
     h_height_uncertainty: "Tracker liegen nicht auf einer festen Höhe: in der Tasche, auf dem Tisch, im Bett. An, zählt ein Tracker irgendwo in einem Höhenbereich, seinem eigenen oder seine Höhe ± den Bereich darunter; ein Scanner hoch darüber und in der Nähe zählt dann weniger, weil sein Abstand auf dem Boden am stärksten von der Höhe abhängt. Aus, gilt die feste Höhe wie eingetragen.",
     h_height_spread: "So weit über oder unter seiner Höhe wird ein Tracker ohne eigenen Bereich angenommen. 0,4 m deckt beim Handy in der Hosentasche (1 m) Tisch bis Hand ab.",

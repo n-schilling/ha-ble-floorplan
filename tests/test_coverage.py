@@ -531,3 +531,17 @@ async def test_changes_mark_the_days_before(
     assert again.measured(moved)["change"] is None
     await again.async_reset()
     assert again.measured(moved)["change"] is None
+
+
+def test_model_through_walls() -> None:
+    """A loss per wall weakens the scanners behind walls in the model and in the precision."""
+    plan = make_plan()
+    walled = make_plan(settings={"height_uncertainty": False, "wall_loss": 20.0})
+    good = sum(c[3] for c in model(plan)["cells"])
+    assert sum(c[3] for c in model(walled)["cells"]) < good
+    # A probe counts its walls too
+    probe = [Probe(1.0, 1.0, 1.0)]
+    assert model(walled, None, probe)["cells"][0][5] in (POOR, FAIR, GOOD)
+    errors = [e for _, e in precision(plan, 0.0).values()]
+    walled_errors = [e for _, e in precision(walled, 0.0).values()]
+    assert sum(math.isinf(e) for e in walled_errors) > sum(math.isinf(e) for e in errors)

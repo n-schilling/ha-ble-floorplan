@@ -394,3 +394,34 @@ async def test_height_uncertainty(
     assert kitchen.distance is not None
     assert kitchen.spread / kitchen.distance < living.spread / living.distance
     assert tag.x is not None and tag.room == "Living room"
+
+
+async def test_wall_loss(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """With a loss per wall, the walls from where the tracker was last measured are given back; the first time none."""
+    coordinator = entry.runtime_data.coordinator
+    await entry.runtime_data.store.async_save(
+        make_plan(settings={"height_uncertainty": False, "wall_loss": 6.0})
+    )
+    scanner_devices[TAG] = _tag_adverts(scanners, 1000.0, (2.0, 6.5, 5.0))
+    clock(1001.0)
+    await coordinator.async_refresh()
+    first = coordinator.data["tag"]
+    # Nothing measured before: as without walls
+    assert first.readings["bedroom"].distance == pytest.approx(5.0)
+    assert first.raw_x is not None and first.raw_y is not None
+    plan = entry.runtime_data.store.plan
+    assert plan.walls_between((1, 8), (first.raw_x, first.raw_y)) == 1
+    clock(1002.0)
+    await coordinator.async_refresh()
+    second = coordinator.data["tag"]
+    # Behind a wall now: the bedroom scanner is nearer than its bare signal says
+    assert second.readings["bedroom"].distance is not None
+    assert second.readings["bedroom"].distance < 5.0
+    # The living room scanner sees the tag in its own room: unchanged
+    assert second.readings["living"].distance == pytest.approx(2.0)

@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.32.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.32.0";
+} from "./ble-floorplan-plan.js?v=0.33.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.33.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -77,6 +77,7 @@ if (!customElements.get("ble-floorplan-panel")) {
   // Section, setting, text, kind ("num" or "bool")
   const SETTING_FIELDS = [
     ["engine", "attenuation", "attenuation", "num"],
+    ["engine", "wall_loss", "wallLoss", "num"],
     ["engine", "ref_power_default", "refDefault", "num"],
     ["engine", "max_distance", "maxDistance", "num"],
     ["engine", "smoothing_seconds", "smoothing", "num"],
@@ -182,7 +183,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       this._layout = null;
       // The next calibration run: tracker, height, true position
       this._measure = { tracker: null, height: null, x: null, y: null, auto: true };
-      this._cal = { fitN: false, proposal: null, confirmClear: false };
+      this._cal = { fitN: false, fitWalls: false, proposal: null, confirmClear: false };
       // The coverage: the map shown, for which tracker, the probe scanners, the
       // result and what it was fetched for; `stamp` asks for a fresh measurement
       this._cov = { mode: "model", tracker: ANY, probes: [], data: null, key: null, loading: false, stamp: 0, confirm: false };
@@ -1238,6 +1239,7 @@ if (!customElements.get("ble-floorplan-panel")) {
         const section = (label) => `<tr class="sec"><td colspan="4">${esc(label)}</td></tr>`;
         const out = [];
         if (pr.attenuation) out.push(section(t.exponent), row("n", pr.attenuation));
+        if (pr.wall_loss) out.push(section(t.wallLoss), row(esc(t.perWall), pr.wall_loss));
         out.push(section(`${t.refPower} (dBm)`));
         for (const [k, v] of Object.entries(pr.trackers)) out.push(row(esc(name(k)), v, `${v.runs} / ${v.samples}`));
         out.push(section(`${t.offset} (dB)`));
@@ -1252,8 +1254,12 @@ if (!customElements.get("ble-floorplan-panel")) {
       }
       const advanced = this._card(t.advanced,
         `<div class="muted">${esc(t.advancedHint)}</div>` +
-        this._formSlot("fit", [{ name: "fitN", label: t.fitExponent, selector: { boolean: {} } }], { fitN: this._cal.fitN }, (v) => {
+        this._formSlot("fit", [
+          { name: "fitN", label: t.fitExponent, selector: { boolean: {} } },
+          { name: "fitWalls", label: t.fitWalls, selector: { boolean: {} } },
+        ], { fitN: this._cal.fitN, fitWalls: this._cal.fitWalls }, (v) => {
           this._cal.fitN = !!v.fitN;
+          this._cal.fitWalls = !!v.fitWalls;
         }) + preview,
         `<span></span><span>${this._btn("cal-solve", t.compute, { disabled: !finished })}` +
         `${pr ? this._btn("cal-apply", t.apply, { kind: "filled", disabled: !!active }) : ""}</span>`);
@@ -1972,7 +1978,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           });
           return;
         case "cal-solve":
-          this._call({ type: "ble_floorplan/calibration/solve", attenuation: this._cal.fitN }, (result) => {
+          this._call({ type: "ble_floorplan/calibration/solve", attenuation: this._cal.fitN, walls: this._cal.fitWalls }, (result) => {
             this._cal.proposal = result;
           });
           return;
@@ -1980,6 +1986,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           const pr = this._cal.proposal;
           const msg = { type: "ble_floorplan/calibration/apply", trackers: {}, scanners: {}, pairs: {} };
           if (pr.attenuation) msg.attenuation = pr.attenuation.new;
+          if (pr.wall_loss) msg.wall_loss = pr.wall_loss.new;
           for (const [k, v] of Object.entries(pr.trackers)) msg.trackers[k] = v.new;
           for (const [k, v] of Object.entries(pr.scanners)) msg.scanners[k] = v.new;
           for (const [sk, trs] of Object.entries(pr.pairs)) {

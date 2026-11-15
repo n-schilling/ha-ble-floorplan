@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.33.0] - 2026-11-15
+
+### Added
+
+- *Loss per wall* (`wall_loss`, 0 dB = off): what a wall between scanner and tracker takes from the signal. The walls are counted on the plan, from each scanner to where the tracker was last measured (a wall is a piece of a room's outline without an opening; the wall two rooms share counts once, the one a scanner is mounted on not at all), and their loss is added back before the distance, so a scanner behind a wall is not taken for far away. The coverage model takes the loss off, so the coverage and the scanners' contribution see the walls too.
+- The calibration fits the loss per wall on demand (*Fit the wall loss too*; `calibration/solve` with `walls: true`, `calibration/apply` with `wall_loss`), from runs with different walls between them and a scanner. A tracker's own values after a run take the loss as set.
+
 ## [0.32.0] - 2026-11-15
 
 ### Added

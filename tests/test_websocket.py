@@ -536,6 +536,10 @@ async def test_calibration_solve(
     assert msg["result"]["rms"]["new"] == 0.0
     # Nothing was written
     assert entry.runtime_data.store.plan == plan
+    await client.send_json_auto_id({"type": WS_CALIBRATION_SOLVE, "walls": True})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert msg["result"]["wall_loss"] == {"old": 0.0, "new": 0.0}
 
 
 async def test_calibration_apply(
@@ -561,6 +565,7 @@ async def test_calibration_apply(
         {
             "type": WS_CALIBRATION_APPLY,
             "attenuation": 2.8,
+            "wall_loss": 4.5,
             "trackers": {"tag": -58},
             "scanners": {"living": 1, "kitchen": -1},
             "pairs": {"kitchen": {"tag": 2.5}},
@@ -576,6 +581,7 @@ async def test_calibration_apply(
     plan = entry.runtime_data.store.plan
     assert plan.pair_offset("kitchen", "tag") == 2.5
     assert plan.settings.attenuation == 2.8
+    assert plan.settings.wall_loss == 4.5
     assert hass.states.get("sensor.tag_room") is not None
     # The runs survived the reload
     assert len(entry.runtime_data.calibration.runs) == 1

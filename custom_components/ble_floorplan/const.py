@@ -110,6 +110,13 @@ STAIRS_TOLERANCE: Final = 1.0
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 # A tracker counts as away once no scanner saw it this long (s)
 DEFAULT_AWAY_SECONDS: Final = 120.0
+# What a wall between scanner and tracker takes from the signal (dB); 0 is off
+DEFAULT_WALL_LOSS: Final = 0.0
+# A wall crossed this close to the scanner or the tracker does not count: it
+# is the wall the scanner is mounted on, or the tracker leans against (m)
+WALL_NEAR: Final = 0.03
+# Crossings this close together are one wall: rooms side by side share it (m)
+WALL_MERGE: Final = 0.25
 # A measured position at most this far behind a wall is noise: the shown one
 # stays in its room, sliding along the wall, and takes no way round by a door (m)
 DEFAULT_WALL_TOLERANCE: Final = 0.5

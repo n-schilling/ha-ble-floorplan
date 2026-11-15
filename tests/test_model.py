@@ -84,6 +84,7 @@ def test_round_trip() -> None:
         "floor_margin": 0.5,
         "floor_hold_seconds": 10.0,
         "floor_loss": 10.0,
+        "wall_loss": 0.0,
         "away_seconds": 120.0,
         "height_uncertainty": False,
         "height_spread": 0.4,
@@ -354,3 +355,21 @@ def test_height_range() -> None:
     data = {**FLOORPLAN, "trackers": [{**own.as_dict(), "height_min": 1.5}]}
     with pytest.raises(probatio.Invalid, match="height_min"):
         Floorplan.from_dict(data)
+
+
+def test_walls_between() -> None:
+    """Walls on the way: not at an opening, a shared wall once, none at either end, zones none."""
+    plan = make_plan()
+    # In one room, and through the living room/kitchen door
+    assert plan.walls_between((1, 1), (5, 4)) == 0
+    assert plan.walls_between((5, 1.75), (7, 1.75)) == 0
+    # Below the door: the wall the two rooms share counts once
+    assert plan.walls_between((5, 4), (7, 4)) == 1
+    # Kitchen to the bedroom: two walls; through the door, one
+    assert plan.walls_between((8, 4), (1, 6)) == 2
+    assert plan.walls_between((8, 1), (1, 6)) == 1
+    # A scanner on the wall itself: its own wall does not count
+    assert plan.walls_between((6.0, 4.0), (7, 4)) == 0
+    assert plan.walls_between((5, 4), (5.99, 4.0)) == 0
+    # The dining zone is no wall
+    assert plan.walls_between((1, 1), (5, 1)) == 0

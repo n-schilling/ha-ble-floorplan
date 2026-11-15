@@ -151,6 +151,7 @@ def synthetic_run(
     height: float | None = None,
     count: int = 5,
     scanners: Sequence[str] | None = None,
+    wall_loss: float = 0.0,
 ) -> CalibrationRun:
     """Return a finished run whose samples follow the model with the parameters given.
 
@@ -168,8 +169,13 @@ def synthetic_run(
         line = math.sqrt((x - scanner.x) ** 2 + (y - scanner.y) ** 2 + (scanner.z - h) ** 2)
         line = max(line, 0.05)
         pair = pairs.get(scanner.key, 0.0) if pairs else 0.0
+        walls = plan.walls_between((scanner.x, scanner.y), (x, y))
         rssi = (
-            ref_power + offsets.get(scanner.key, 0.0) + pair - 10 * attenuation * math.log10(line)
+            ref_power
+            + offsets.get(scanner.key, 0.0)
+            + pair
+            - 10 * attenuation * math.log10(line)
+            - wall_loss * walls
         )
         jitter = [0.0, 1.0, -1.0, 1.0, -1.0]
         samples[scanner.key] = [(float(i), rssi + jitter[i % len(jitter)]) for i in range(count)]

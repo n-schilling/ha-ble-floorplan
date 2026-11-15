@@ -1,8 +1,9 @@
 """The adjustment over the calibration runs.
 
-The path loss model `rssi = ref_t + off_s - 10 n log10(d)` is linear in the
-reference power of every tracker, the offset of every scanner and the exponent
-n, once the true distance d of a run is known. One observation per run and
+The path loss model `rssi = ref_t + off_s - 10 n log10(d) - L w` is linear in
+the reference power of every tracker, the offset of every scanner, the
+exponent n and the loss L of each of the w walls on the way, once the true
+place of a run is known. One observation per run and
 scanner (the median RSSI of the run) goes into a least-squares fit; the
 scanners' offsets are made to average zero, because only the sum of a
 tracker's reference power and a scanner's offset is observable. What the fit
@@ -41,6 +42,8 @@ class Observation:
     # Line-of-sight distance between the tracker and the scanner in metres
     distance: float
     samples: int
+    # Walls between the run's place and the scanner
+    walls: int = 0
 
     @property
     def path(self) -> float:
@@ -52,7 +55,8 @@ def observations(plan: Floorplan, runs: Sequence[CalibrationRun]) -> list[Observ
     """Return one observation per finished run and scanner with enough samples.
 
     The distance runs in three dimensions, from the run's floor to the
-    scanner's; the loss of the ceilings between is added to the signal.
+    scanner's; the loss of the ceilings between is added to the signal. The
+    walls between are counted on the run's level; their loss is the fit's.
     """
     result: list[Observation] = []
     for run in runs:
@@ -75,8 +79,9 @@ def observations(plan: Floorplan, runs: Sequence[CalibrationRun]) -> list[Observ
             # What the ceilings between took, given back as the positions do
             loss = plan.settings.floor_loss * plan.ceilings(scanner, elevation)
             rssi = float(statistics.median(s[1] for s in samples)) + loss
+            walls = plan.on_level(elevation).walls_between((scanner.x, scanner.y), (run.x, run.y))
             result.append(
-                Observation(tracker.key, scanner.key, run.id, rssi, distance, len(samples))
+                Observation(tracker.key, scanner.key, run.id, rssi, distance, len(samples), walls)
             )
     return result
 
@@ -105,16 +110,20 @@ def _fit(
     trackers: Sequence[str],
     scanners: Sequence[str],
     attenuation: float | None,
-) -> tuple[dict[str, float], dict[str, float], float]:
-    """Least squares over the observations; attenuation None fits the exponent as well.
+    wall_loss: float,
+    fit_walls: bool = False,
+) -> tuple[dict[str, float], dict[str, float], float, float]:
+    """Least squares over the observations; attenuation None fits the exponent as well, fit_walls the wall loss.
 
     Returns the reference power per tracker, the offset per scanner (summing to
-    zero) and the exponent.
+    zero), the exponent and the wall loss.
     """
     t_index = {key: i for i, key in enumerate(trackers)}
     s_index = {key: len(trackers) + i for i, key in enumerate(scanners)}
     fit_n = attenuation is None
-    size = len(trackers) + len(scanners) + (1 if fit_n else 0)
+    n_index = len(trackers) + len(scanners)
+    w_index = n_index + (1 if fit_n else 0)
+    size = w_index + (1 if fit_walls else 0)
     # Normal equations A^T A x = A^T b, plus the constraint sum(off) = 0 as a
     # Lagrange multiplier in the last row and column
     normal = [[0.0] * (size + 1) for _ in range(size + 1)]
@@ -123,11 +132,15 @@ def _fit(
         row = [0.0] * size
         row[t_index[o.tracker]] = 1.0
         row[s_index[o.scanner]] = 1.0
+        value = o.rssi
         if attenuation is None:
-            row[size - 1] = -o.path
-            value = o.rssi
+            row[n_index] = -o.path
         else:
-            value = o.rssi + attenuation * o.path
+            value += attenuation * o.path
+        if fit_walls:
+            row[w_index] = -o.walls
+        else:
+            value += wall_loss * o.walls
         for i in range(size):
             if row[i] == 0.0:
                 continue
@@ -140,9 +153,9 @@ def _fit(
     x = _solve_linear(normal, rhs)
     ref = {key: x[t_index[key]] for key in trackers}
     off = {key: x[s_index[key]] for key in scanners}
-    n = x[size - 1] if fit_n else attenuation
+    n = x[n_index] if fit_n else attenuation
     assert n is not None
-    return ref, off, n
+    return ref, off, n, x[w_index] if fit_walls else wall_loss
 
 
 def _residual(
@@ -151,17 +164,26 @@ def _residual(
     off: float,
     pair: float,
     attenuation: float,
+    wall_loss: float,
 ) -> float:
     """Return measured minus modelled RSSI."""
-    return o.rssi - (ref + off + pair - attenuation * o.path)
+    return o.rssi - (ref + off + pair - attenuation * o.path - wall_loss * o.walls)
 
 
 def _rms(values: Sequence[float]) -> float:
     return math.sqrt(sum(v * v for v in values) / len(values))
 
 
-def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool) -> dict[str, Any]:
+def solve(
+    plan: Floorplan,
+    runs: Sequence[CalibrationRun],
+    fit_attenuation: bool,
+    fit_walls: bool = False,
+) -> dict[str, Any]:
     """Return the proposal: old and new value of every parameter the runs determine.
+
+    fit_walls fits the loss per wall as well, kept within 0 to 30 dB; it
+    needs runs with different walls between them and a scanner.
 
     Raises CalibrationError without usable runs or when the runs leave the
     parameters undetermined.
@@ -174,20 +196,33 @@ def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool
     trackers = [t.key for t in plan.trackers if any(o.tracker == t.key for o in obs)]
     scanners = [s.key for s in plan.scanners if any(o.scanner == s.key for o in obs)]
     current_n = plan.settings.attenuation
+    current_l = plan.settings.wall_loss
     try:
-        ref, off, n = _fit(obs, trackers, scanners, None if fit_attenuation else current_n)
+        ref, off, n, wall = _fit(
+            obs, trackers, scanners, None if fit_attenuation else current_n, current_l, fit_walls
+        )
     except CalibrationError:
-        if fit_attenuation:
+        if fit_attenuation or fit_walls:
             try:
-                _fit(obs, trackers, scanners, current_n)
+                _fit(obs, trackers, scanners, current_n, current_l)
             except CalibrationError:
                 pass
             else:
-                raise CalibrationError(
+                needs = (
                     "the exponent needs runs at different distances from a scanner"
-                ) from None
+                    if fit_attenuation
+                    else "the wall loss needs runs with different walls between them and a scanner"
+                )
+                if fit_attenuation and fit_walls:
+                    needs = (
+                        "the exponent and the wall loss need runs at different distances"
+                        " and with different walls between them and a scanner"
+                    )
+                raise CalibrationError(needs) from None
         raise CalibrationError("the runs do not connect every tracker with every scanner") from None
     n = round(n, 2)
+    # A wall gives no signal: the loss stays within what the setting takes
+    wall = round(min(max(wall, 0.0), 30.0), 1)
     ref = {key: round(v, 1) for key, v in ref.items()}
     off = {key: round(v, 1) for key, v in off.items()}
 
@@ -195,7 +230,7 @@ def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool
     pair_residuals: dict[tuple[str, str], list[float]] = {}
     pair_samples: dict[tuple[str, str], int] = {}
     for o in obs:
-        r = _residual(o, ref[o.tracker], off[o.scanner], 0.0, n)
+        r = _residual(o, ref[o.tracker], off[o.scanner], 0.0, n, wall)
         pair_residuals.setdefault((o.scanner, o.tracker), []).append(r)
         pair_samples[(o.scanner, o.tracker)] = (
             pair_samples.get((o.scanner, o.tracker), 0) + o.samples
@@ -224,10 +259,11 @@ def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool
                 s.rssi_offset,
                 plan.pair_offset(o.scanner, o.tracker),
                 current_n,
+                current_l,
             )
         )
         new_residuals.append(
-            _residual(o, ref[o.tracker], off[o.scanner], new_pair[(o.scanner, o.tracker)], n)
+            _residual(o, ref[o.tracker], off[o.scanner], new_pair[(o.scanner, o.tracker)], n, wall)
         )
 
     def _counts(select: str) -> dict[str, dict[str, int]]:
@@ -246,6 +282,7 @@ def solve(plan: Floorplan, runs: Sequence[CalibrationRun], fit_attenuation: bool
     scanner_counts = _counts("scanner")
     return {
         "attenuation": {"old": current_n, "new": n} if fit_attenuation else None,
+        "wall_loss": {"old": current_l, "new": wall} if fit_walls else None,
         "trackers": {
             t.key: {"old": plan.ref_power(t), "new": ref[t.key], **tracker_counts[t.key]}
             for t in plan.trackers
@@ -283,11 +320,14 @@ def fit_tracker(
             f"no finished run of {tracker_key} with at least {CALIBRATION_MIN_SAMPLES} samples of a scanner"
         )
     n = plan.settings.attenuation
+    wall = plan.settings.wall_loss
     per_scanner: dict[str, list[float]] = {}
     for o in obs:
         scanner = plan.scanner(o.scanner)
         assert scanner is not None
-        per_scanner.setdefault(o.scanner, []).append(o.rssi - scanner.rssi_offset + n * o.path)
+        per_scanner.setdefault(o.scanner, []).append(
+            o.rssi - scanner.rssi_offset + n * o.path + wall * o.walls
+        )
     level = {key: sum(values) / len(values) for key, values in per_scanner.items()}
     ref = round(sum(level.values()) / len(level), 1)
     pairs = {key: round(value - ref, 1) for key, value in level.items()}
@@ -297,7 +337,7 @@ def fit_tracker(
         for o in obs:
             scanner = plan.scanner(o.scanner)
             assert scanner is not None
-            residuals.append(_residual(o, ref_power, scanner.rssi_offset, pair(o.scanner), n))
+            residuals.append(_residual(o, ref_power, scanner.rssi_offset, pair(o.scanner), n, wall))
         return round(_rms(residuals), 2)
 
     return {

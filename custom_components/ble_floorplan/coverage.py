@@ -232,6 +232,17 @@ def probe_offset(plan: Floorplan) -> float:
     return median([s.rssi_offset for s in plan.scanners]) if plan.scanners else 0.0
 
 
+def _through_walls(plan: Floorplan, sources: list[_Source], x: float, y: float) -> list[_Source]:
+    """Return the sources as heard at the point: each wall on the way takes wall_loss off its offset."""
+    loss = plan.settings.wall_loss
+    if loss <= 0:
+        return sources
+    return [
+        _Source(s.x, s.y, s.z, s.offset - loss * plan.walls_between((s.x, s.y), (x, y)))
+        for s in sources
+    ]
+
+
 def _model_cell(
     x: float, y: float, sources: Iterable[_Source], ref_power: float, height: float, n: float
 ) -> tuple[int, int, float | None]:
@@ -288,8 +299,9 @@ def precision(plan: Floorplan, elevation: float) -> dict[tuple[int, int], tuple[
     result = {}
     for ix, iy in grid(on_level):
         x, y = _center(on_level.extent, ix, iy)
-        lvl = _model_cell(x, y, sources, ref_power, height, n)[0]
-        result[(ix, iy)] = (lvl, _error(x, y, sources, ref_power, height, n))
+        here = _through_walls(on_level, sources, x, y)
+        lvl = _model_cell(x, y, here, ref_power, height, n)[0]
+        result[(ix, iy)] = (lvl, _error(x, y, here, ref_power, height, n))
     return result
 
 
@@ -321,10 +333,11 @@ def model(
     plan = plan.on_level(at)
     for ix, iy in grid(plan):
         x, y = _center(plan.extent, ix, iy)
-        lvl, good, dop = _model_cell(x, y, [*sources, *extra], ref_power, height, n)
+        here = _through_walls(plan, [*sources, *extra], x, y)
+        lvl, good, dop = _model_cell(x, y, here, ref_power, height, n)
         cell: list[Any] = [ix, iy, lvl, good, _round(dop)]
         if probes:
-            cell.append(_model_cell(x, y, sources, ref_power, height, n)[0])
+            cell.append(_model_cell(x, y, here[: len(sources)], ref_power, height, n)[0])
         cells.append(cell)
         if name := plan.room_at(x, y):
             rooms.setdefault(name, [0, 0, 0])[lvl] += 1

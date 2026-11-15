@@ -604,6 +604,7 @@ async def ws_calibration_clear(
     {
         probatio.Required("type"): WS_CALIBRATION_SOLVE,
         probatio.Optional("attenuation", default=False): cv.boolean,
+        probatio.Optional("walls", default=False): cv.boolean,
     }
 )
 @callback
@@ -615,7 +616,9 @@ def ws_calibration_solve(
         connection.send_error(msg["id"], ERR_NOT_LOADED, "BLE Floorplan is not set up")
         return
     try:
-        proposal = solve(runtime.store.plan, runtime.calibration.runs, msg["attenuation"])
+        proposal = solve(
+            runtime.store.plan, runtime.calibration.runs, msg["attenuation"], msg["walls"]
+        )
     except CalibrationError as err:
         connection.send_error(msg["id"], ERR_CALIBRATION, str(err))
         return
@@ -627,6 +630,7 @@ def ws_calibration_solve(
     {
         probatio.Required("type"): WS_CALIBRATION_APPLY,
         probatio.Optional("attenuation"): NUMBER,
+        probatio.Optional("wall_loss"): probatio.All(NUMBER, probatio.Range(min=0.0, max=30.0)),
         probatio.Optional("trackers", default=dict): {cv.string: NUMBER},
         probatio.Optional("scanners", default=dict): {cv.string: NUMBER},
         probatio.Optional("pairs", default=dict): {cv.string: {cv.string: NUMBER}},
@@ -654,6 +658,8 @@ async def ws_calibration_apply(
     except LookupError as err:
         connection.send_error(msg["id"], ERR_NOT_FOUND, str(err))
         return
+    if "wall_loss" in msg:
+        plan = with_settings(plan, {"wall_loss": msg["wall_loss"]})
     await _async_replace(hass, runtime, plan)
     connection.send_result(msg["id"], plan.as_dict())
 

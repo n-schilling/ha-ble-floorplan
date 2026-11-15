@@ -42,12 +42,15 @@ from .const import (
     DEFAULT_ROOM_HOLD_SECONDS,
     DEFAULT_ROOM_MARGIN,
     DEFAULT_SMOOTHING_SECONDS,
+    DEFAULT_WALL_LOSS,
     DEFAULT_WALL_TOLERANCE,
     DOOR_STEP,
     DOOR_TOLERANCE,
     HISTORY_MAX_DAYS,
     QUALITY_MAX_HOURS,
     STAIRS_TOLERANCE,
+    WALL_MERGE,
+    WALL_NEAR,
     WALL_STOP,
 )
 from .geometry import (
@@ -279,6 +282,9 @@ SETTINGS_SCHEMA = probatio.Schema(
         ),
         probatio.Optional("floor_loss", default=DEFAULT_FLOOR_LOSS): probatio.All(
             NUMBER, probatio.Range(min=0.0, max=40.0)
+        ),
+        probatio.Optional("wall_loss", default=DEFAULT_WALL_LOSS): probatio.All(
+            NUMBER, probatio.Range(min=0.0, max=30.0)
         ),
         probatio.Optional("away_seconds", default=DEFAULT_AWAY_SECONDS): probatio.All(
             NUMBER, probatio.Range(min=0.0)
@@ -562,6 +568,8 @@ class Settings:
     floor_hold_seconds: float = DEFAULT_FLOOR_HOLD_SECONDS
     # Loss of a ceiling between scanner and tracker in dB
     floor_loss: float = DEFAULT_FLOOR_LOSS
+    # Loss of a wall between scanner and tracker in dB; 0 is off
+    wall_loss: float = DEFAULT_WALL_LOSS
     # A tracker no scanner saw for this long is away
     away_seconds: float = DEFAULT_AWAY_SECONDS
     # A tracker's height is taken as a range, not a fixed value: a distance it
@@ -601,6 +609,7 @@ class Settings:
             "floor_margin": self.floor_margin,
             "floor_hold_seconds": self.floor_hold_seconds,
             "floor_loss": self.floor_loss,
+            "wall_loss": self.wall_loss,
             "away_seconds": self.away_seconds,
             "height_uncertainty": self.height_uncertainty,
             "height_spread": self.height_spread,
@@ -877,6 +886,34 @@ class Floorplan:
             for o in self.openings
             if o[4] == floor
         )
+
+    def walls_between(self, a: Point, b: Point) -> int:
+        """Return how many walls the line from a to b crosses, on this plan's rooms.
+
+        A wall is a piece of a room's outline (zones have none) not covered by
+        an opening; the wall two rooms share counts once, and the wall right at
+        either end, where a scanner is mounted, not at all. Use the plan of
+        one level (on_level).
+        """
+        crossings: list[Point] = []
+        for room in self.rooms:
+            if room.zone:
+                continue
+            corners = room.corners
+            for i, corner in enumerate(corners):
+                hit = segment_intersection(a, b, corner, corners[(i + 1) % len(corners)])
+                if hit is None:
+                    continue
+                point = hit[1]
+                if (
+                    math.dist(point, a) < WALL_NEAR
+                    or math.dist(point, b) < WALL_NEAR
+                    or any(math.dist(point, p) < WALL_MERGE for p in crossings)
+                    or self._on_opening(point, room.floor)
+                ):
+                    continue
+                crossings.append(point)
+        return len(crossings)
 
     def move(self, start: Point, end: Point, target: Point) -> Point:
         """Return where a step from start towards end may go, given the walls.
