@@ -63,7 +63,8 @@ FLOORPLAN: dict[str, Any] = {
     "openings": OPENINGS,
     "scanners": SCANNERS,
     "trackers": TRACKERS,
-    "settings": {},
+    # The engine as the card computed it: heights fixed
+    "settings": {"height_uncertainty": False},
 }
 
 

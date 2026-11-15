@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_FLOOR_HOLD_SECONDS,
     DEFAULT_FLOOR_LOSS,
     DEFAULT_FLOOR_MARGIN,
+    DEFAULT_HEIGHT_SPREAD,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_JUMP_CONFIRM_SECONDS,
     DEFAULT_JUMP_DISTANCE,
@@ -110,6 +111,14 @@ def _one_address(tracker: dict[str, Any]) -> dict[str, Any]:
     """A tracker has a fixed address or refers to a Private BLE Device, not both."""
     if ("address" in tracker) == ("device_id" in tracker):
         raise probatio.Invalid("a tracker needs either address or device_id")
+    return tracker
+
+
+def _height_range(tracker: dict[str, Any]) -> dict[str, Any]:
+    """A tracker's own height range runs from low to high."""
+    low, high = tracker.get("height_min"), tracker.get("height_max")
+    if low is not None and high is not None and low > high:
+        raise probatio.Invalid("height_min must not be above height_max")
     return tracker
 
 
@@ -208,10 +217,14 @@ TRACKER_SCHEMA = probatio.All(
             probatio.Optional("device_id"): cv.string,
             probatio.Optional("height", default=0.0): NUMBER,
             probatio.Optional("ref_power", default=None): probatio.Any(None, NUMBER),
+            # Where it may be carried: its own range of heights, else height ± height_spread
+            probatio.Optional("height_min", default=None): probatio.Any(None, NUMBER),
+            probatio.Optional("height_max", default=None): probatio.Any(None, NUMBER),
             probatio.Optional("paused", default=False): cv.boolean,
         }
     ),
     _one_address,
+    _height_range,
 )
 
 SETTINGS_SCHEMA = probatio.Schema(
@@ -265,6 +278,10 @@ SETTINGS_SCHEMA = probatio.Schema(
         ),
         probatio.Optional("away_seconds", default=DEFAULT_AWAY_SECONDS): probatio.All(
             NUMBER, probatio.Range(min=0.0)
+        ),
+        probatio.Optional("height_uncertainty", default=True): cv.boolean,
+        probatio.Optional("height_spread", default=DEFAULT_HEIGHT_SPREAD): probatio.All(
+            NUMBER, probatio.Range(min=0.0, max=3.0)
         ),
         probatio.Optional("history_days", default=DEFAULT_HISTORY_DAYS): probatio.All(
             probatio.Coerce(int), probatio.Range(min=0, max=HISTORY_MAX_DAYS)
@@ -476,6 +493,9 @@ class Tracker:
     height: float = 0.0
     # RSSI at one metre in dBm; None takes the default of the settings
     ref_power: float | None = None
+    # Its own range of heights it is carried at; None takes height ∓ height_spread
+    height_min: float | None = None
+    height_max: float | None = None
     # Paused by the user: no position, its entities unavailable, until resumed
     paused: bool = False
 
@@ -494,6 +514,8 @@ class Tracker:
                 "device_id": self.device_id,
                 "height": self.height,
                 "ref_power": self.ref_power,
+                "height_min": self.height_min,
+                "height_max": self.height_max,
                 # Only when paused, as the other optional values only when set
                 "paused": True if self.paused else None,
             }
@@ -536,6 +558,10 @@ class Settings:
     floor_loss: float = DEFAULT_FLOOR_LOSS
     # A tracker no scanner saw for this long is away
     away_seconds: float = DEFAULT_AWAY_SECONDS
+    # A tracker's height is taken as a range, not a fixed value: a distance it
+    # leaves open counts less; without a range of its own, height ± height_spread
+    height_uncertainty: bool = True
+    height_spread: float = DEFAULT_HEIGHT_SPREAD
     # Days the timeline keeps; 0 records nothing
     history_days: int = DEFAULT_HISTORY_DAYS
     # Hours the scanner quality looks back over
@@ -569,6 +595,8 @@ class Settings:
             "floor_hold_seconds": self.floor_hold_seconds,
             "floor_loss": self.floor_loss,
             "away_seconds": self.away_seconds,
+            "height_uncertainty": self.height_uncertainty,
+            "height_spread": self.height_spread,
             "history_days": self.history_days,
             "quality_hours": self.quality_hours,
         }
@@ -792,6 +820,20 @@ class Floorplan:
         if tracker.ref_power is not None:
             return tracker.ref_power
         return self.settings.ref_power_default
+
+    def height_range(self, tracker: Tracker) -> tuple[float, float] | None:
+        """Return the heights the tracker is taken to be carried at; None with the uncertainty off.
+
+        Its own height_min and height_max, else its height ∓ height_spread,
+        not below the floor.
+        """
+        if not self.settings.height_uncertainty:
+            return None
+        spread = self.settings.height_spread
+        low = tracker.height_min if tracker.height_min is not None else tracker.height - spread
+        high = tracker.height_max if tracker.height_max is not None else tracker.height + spread
+        low = max(low, 0.0)
+        return (min(low, high), max(low, high))
 
     def pair_offset(self, scanner_key: str, tracker_key: str) -> float:
         """Return the correction of the pair in dB, 0 without one."""

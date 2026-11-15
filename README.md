@@ -89,7 +89,7 @@ flowchart LR
 ```
 
 1. **Signals.** Every second, for each tracker, the newest advertisement of every scanner that sees it is read: its signal strength (RSSI) and the time the scanner saw it. Per scanner, the RSSI is the median of the last 10 s; an advertisement older than 30 s counts as not seen.
-2. **Distances.** The RSSI becomes a distance with the log-distance path loss model, `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`, and is projected onto the floor with the heights of scanner and tracker.
+2. **Distances.** The RSSI becomes a distance with the log-distance path loss model, `d = 10^((ref_power + rssi_offset + pair_offset - rssi) / (10 * attenuation))`, and is projected onto the floor with the heights of scanner and tracker. A tracker is not carried at one height, so by default its height is a range (its own, or its height ± *Height range*): the distance on the floor is the middle of what the range allows, and how much the range leaves it open lowers the scanner's weight. That matters for a scanner mounted high and close by; a few metres off, hardly at all.
 3. **Position.** The distances of the scanners within reach go into a weighted Gauss-Newton least-squares fit. Near scanners count more, and a position nearer to a scanner than its measured distance costs less than one farther away, because walls make measured distances rather too long. With four or more scanners, one that the others contradict loses weight.
 4. **Movement.** The shown position follows the measured one with smoothing, ignores small moves, confirms jumps, keeps to the top speed and passes walls only through doors: a step through a wall heads for the door of its room that lies best on the way instead.
 5. **Room and presence.** The room is the room or zone the shown position lies in, and it changes only after the hold time and well inside the new room. Presence is `home` while any scanner saw the tracker within `away_seconds`.
@@ -108,7 +108,7 @@ A scanner or a tracker is taken off the plan with **Remove** in its details, aft
 
 - **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from tab to tab.
 - **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its name and its values.
-- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height, reference power and pair corrections. **Edit** changes them and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to the calibration with this tracker chosen.
+- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height (and, with the height as a range, the heights it is carried from and up to), reference power and pair corrections. **Edit** changes them and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to the calibration with this tracker chosen.
 - **Coverage:** where the scanners can place a tracker well and where not, as coloured cells of half a metre over the plan, and a table of the rooms, worst first. See [Coverage](#coverage).
 - **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
 - The buttons above the plan rotate it and switch the labels of rooms, scanners and trackers, per browser. Hovering a scanner or a tracker shows its readings.
@@ -205,6 +205,8 @@ All settings are on the *Settings* tab of the page; the (i) beside each opens a 
 | Floor change: better by (`floor_margin`) | 0.5 m | Another floor is taken once it fits the scanners better by this much (RMS of the misses). |
 | Floor change: hold time (`floor_hold_seconds`) | 10 s | ... and only after it did for this long. |
 | Away after (`away_seconds`) | 120 s | Presence turns `not_home` after this long without a sighting. |
+| Height as a range (`height_uncertainty`) | on | A tracker counts anywhere in a range of heights; a scanner whose distance on the floor the range leaves open counts less. Off, the fixed height is taken as it is. |
+| Height range ± (`height_spread`) | 0.4 m | The range of a tracker without its own: its height ∓ this, not below the floor. |
 | Hold time (`room_hold_seconds`) | 5 s | The room changes only after this long in the new room. |
 | Wall margin (`room_margin`) | 0.3 m | ... and at least this far from the new room's walls; 0 is off. |
 | Residual (`robust_residual`) | 1 m | With four or more scanners, a scanner the others contradict by more loses weight; 0 is off. |
@@ -370,7 +372,7 @@ The page and the card use these commands; they are open for scripts and tools as
 | `ble_floorplan/remove_scanner` | admins | `key`: takes a scanner off the plan, with its pair corrections. |
 | `ble_floorplan/remove_tracker` | admins | `key`: takes a tracker off the plan, with its pair corrections. |
 | `ble_floorplan/set_scanner` | admins | `key` and any of `name` (1 to 80 characters), `x`, `y`, `z`, `floor`, `rssi_offset`, `paused`, `pair_offsets` (`{tracker: dB}`, null removes a pair). The key stays with a new name. |
-| `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `ref_power` (null for the default), `paused`, `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
+| `ble_floorplan/set_tracker` | admins | `key` and any of `name` (1 to 80 characters), `height`, `height_min` and `height_max` (its own range of heights, null for height ∓ `height_spread`), `ref_power` (null for the default), `paused`, `pair_offsets` (`{scanner: dB}`). The key and the entity ids stay with a new name; the device takes it without a reload. |
 | `ble_floorplan/set_settings` | admins | `settings`: the values to change; the others stay. |
 | `ble_floorplan/calibration/start` | admins | `tracker`, `x`, `y`, optionally `height`, `floor` (the first without) and `auto_stop` (default off): starts a run (one at a time); with `auto_stop` it ends by itself once the scanners have enough. |
 | `ble_floorplan/calibration/stop` | admins | Stops the run and saves the tracker's values; returns the run and `fit` (null when no scanner has three samples). |

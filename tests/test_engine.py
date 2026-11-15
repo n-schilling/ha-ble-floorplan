@@ -11,9 +11,11 @@ from custom_components.ble_floorplan.engine import (
     RoomTracker,
     Smoother,
     floor_distance,
+    floor_range,
     median,
     rssi_to_distance,
     trilaterate,
+    weight,
 )
 
 from . import make_plan
@@ -278,3 +280,32 @@ def test_smoother_goes_round_through_the_door() -> None:
     assert order[-1] == "Hall"
     assert "Kitchen" in order or "Bedroom" in order
     assert point == pytest.approx((8.0, 7.0), abs=0.3)
+
+
+def test_floor_range() -> None:
+    """The floor distance for a tracker somewhere in a range of heights: the middle and half the range."""
+    # A scanner at 2.2 m, a tracker from 0.5 to 1.3 m, 2.5 m in a line
+    longest = math.sqrt(2.5**2 - 0.9**2)
+    shortest = math.sqrt(2.5**2 - 1.7**2)
+    assert floor_range(2.5, 2.2, 0.5, 1.3) == pytest.approx(
+        ((longest + shortest) / 2, (longest - shortest) / 2)
+    )
+    # One height is the fixed projection
+    assert floor_range(2.5, 2.2, 1.0, 1.0) == pytest.approx((floor_distance(2.5, 2.2, 1.0), 0.0))
+    # A range around the scanner's own height: no height difference at the near end
+    shortest = math.sqrt(2.0**2 - 0.5**2)
+    assert floor_range(2.0, 1.0, 0.5, 1.5) == pytest.approx(
+        ((2.0 + shortest) / 2, (2.0 - shortest) / 2)
+    )
+    # Shorter than the largest difference: no longer 0 at once
+    near = math.sqrt(1.2**2 - 0.9**2)
+    assert floor_range(1.2, 2.2, 0.5, 1.3) == pytest.approx((near / 2, near / 2))
+    # A scanner below the tracker
+    assert floor_range(2.0, 0.0, 1.0, 1.0) == pytest.approx((math.sqrt(3.0), 0.0))
+
+
+def test_weight() -> None:
+    """1 / d², at most that of half a metre, less where the height leaves the distance open."""
+    assert weight(Measurement(0, 0, 2.0)) == pytest.approx(0.25)
+    assert weight(Measurement(0, 0, 2.0, 1.0)) == pytest.approx(0.2)
+    assert weight(Measurement(0, 0, 0.1)) == pytest.approx(4.0)

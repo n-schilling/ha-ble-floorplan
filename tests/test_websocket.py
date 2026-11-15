@@ -310,6 +310,22 @@ async def test_set_tracker(
     msg = await client.receive_json()
     assert msg["error"] == {"code": "not_found", "message": "no scanner nope"}
 
+    # Its own range of heights, back to the default with null; never upside down
+    await client.send_json_auto_id(
+        {"type": WS_SET_TRACKER, "key": "tag", "height_min": 0.5, "height_max": 1.3}
+    )
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert (msg["result"]["height_min"], msg["result"]["height_max"]) == (0.5, 1.3)
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "height_min": 2})
+    msg = await client.receive_json()
+    assert msg["error"]["code"] == "invalid_format"
+    await client.send_json_auto_id({"type": WS_SET_TRACKER, "key": "tag", "height_max": None})
+    msg = await client.receive_json()
+    assert "height_max" not in msg["result"]
+    tag = entry.runtime_data.store.plan.tracker("tag")
+    assert tag is not None and (tag.height_min, tag.height_max) == (0.5, None)
+
 
 async def test_set_settings(
     hass: HomeAssistant, entry: MockConfigEntry, hass_ws_client: WebSocketGenerator

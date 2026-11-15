@@ -11,6 +11,7 @@ import pytest
 from custom_components.ble_floorplan.model import (
     Floorplan,
     Scanner,
+    Tracker,
     mac_address,
     replace_scanner,
     with_calibration,
@@ -83,6 +84,8 @@ def test_round_trip() -> None:
         "floor_hold_seconds": 10.0,
         "floor_loss": 10.0,
         "away_seconds": 120.0,
+        "height_uncertainty": False,
+        "height_spread": 0.4,
         "history_days": 0,
         "quality_hours": 24,
     }
@@ -302,3 +305,31 @@ def test_move_through_walls_only_at_openings() -> None:
     assert plan.move((12, 12), (5, 5), (5, 5)) == (5, 5)
     # Zones are no walls: the dining zone is crossed freely
     assert plan.move((2, 1), (4, 1), (4, 1)) == (4, 1)
+
+
+def test_height_range() -> None:
+    """A tracker's heights: its own range, else its height ∓ height_spread, not below the floor; none when off."""
+    plan = make_plan(settings={})
+    tag = Tracker("tag", "Tag", address=TAG, height=0.3)
+    assert plan.settings.height_uncertainty
+    assert plan.height_range(tag) == pytest.approx((0.0, 0.7))
+    phone = Tracker("phone", "Phone", address=TAG, height=1.0)
+    assert plan.height_range(phone) == pytest.approx((0.6, 1.4))
+    wide = make_plan(settings={"height_spread": 0.0})
+    assert wide.height_range(phone) == (1.0, 1.0)
+    own = Tracker("phone", "Phone", address=TAG, height=1.0, height_min=0.5, height_max=1.3)
+    assert plan.height_range(own) == (0.5, 1.3)
+    assert plan.height_range(Tracker("t", "T", address=TAG, height=1.0, height_max=2.0)) == (
+        pytest.approx(0.6),
+        2.0,
+    )
+    # An own top below the spread's bottom: the range is turned round
+    low = Tracker("t", "T", address=TAG, height=1.0, height_max=0.2)
+    assert plan.height_range(low) == (0.2, pytest.approx(0.6))
+    assert make_plan().height_range(own) is None
+    # Stored only when set
+    assert own.as_dict()["height_min"] == 0.5
+    assert "height_min" not in phone.as_dict()
+    data = {**FLOORPLAN, "trackers": [{**own.as_dict(), "height_min": 1.5}]}
+    with pytest.raises(probatio.Invalid, match="height_min"):
+        Floorplan.from_dict(data)

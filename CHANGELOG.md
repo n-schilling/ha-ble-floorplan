@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.31.0] - 2026-11-15
+
+### Added
+
+- The height of a tracker as a range: trackers are carried in a pocket, lie on a table or in bed. With *Height as a range* (`height_uncertainty`, on by default) a tracker counts anywhere from its own *Carried from* to *Carried up to* (`height_min`, `height_max`), or its height ± *Height range* (`height_spread`, 0.4 m) without them. The distance on the floor is the middle of what the range allows, and how much it leaves the distance open lowers the scanner's weight, against a scatter of the signal of 4 dB. A scanner mounted high and close by counts less; a line of sight shorter than the height difference no longer drops the distance to 0 at once. Off, the fixed height is taken as before.
+- The scanner quality's fidelity solves with the same weights.
+
 ## [0.30.0] - 2026-11-15
 
 ### Changed

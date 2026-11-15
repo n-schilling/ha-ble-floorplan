@@ -367,6 +367,9 @@ async def ws_set_scanner(
         probatio.Optional("name"): NAME,
         probatio.Optional("height"): NUMBER,
         probatio.Optional("ref_power"): probatio.Any(None, NUMBER),
+        # null takes height ∓ height_spread again
+        probatio.Optional("height_min"): probatio.Any(None, NUMBER),
+        probatio.Optional("height_max"): probatio.Any(None, NUMBER),
         probatio.Optional("paused"): cv.boolean,
         probatio.Optional("pair_offsets"): PAIRS,
     }
@@ -375,7 +378,7 @@ async def ws_set_scanner(
 async def ws_set_tracker(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Change a tracker: name, height, reference power (null for the default), paused, its pairs per scanner.
+    """Change a tracker: name, height, its range of heights, reference power (null for the default), paused, its pairs per scanner.
 
     The key stays with a new name, and with it the entity ids, the pairs and the
     calibration runs; the tracker's device takes the name without a reload.
@@ -398,6 +401,16 @@ async def ws_set_tracker(
         changed = replace(changed, height=msg["height"])
     if "ref_power" in msg:
         changed = replace(changed, ref_power=msg["ref_power"])
+    for bound in ("height_min", "height_max"):
+        if bound in msg:
+            changed = replace(changed, **{bound: msg[bound]})
+    if (
+        changed.height_min is not None
+        and changed.height_max is not None
+        and changed.height_min > changed.height_max
+    ):
+        connection.send_error(msg["id"], ERR_INVALID, "height_min must not be above height_max")
+        return
     if "paused" in msg:
         changed = replace(changed, paused=msg["paused"])
     plan = replace(

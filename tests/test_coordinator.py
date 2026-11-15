@@ -369,3 +369,28 @@ async def test_pair_offset_shortens_a_scanner_distance(
     # -30 dB at exponent 3 is a tenth of the line-of-sight distance, then projected
     assert tag.readings["living"].distance == pytest.approx(0.0)
     assert tag.readings["kitchen"].distance == pytest.approx(6.5)
+
+
+async def test_height_uncertainty(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """With the height a range, a distance is the middle of what it allows and weighs less the more it leaves open."""
+    coordinator = entry.runtime_data.coordinator
+    await entry.runtime_data.store.async_save(make_plan(settings={}))
+    scanner_devices[TAG] = _tag_adverts(scanners, 1000.0, (2.0, 6.5, 5.0))
+    clock(1001.0)
+    await coordinator.async_refresh()
+    tag = coordinator.data["tag"]
+    # The tag at 0.3 m is taken anywhere from the floor to 0.7 m
+    living, kitchen = tag.readings["living"], tag.readings["kitchen"]
+    assert living.distance is not None and living.distance != pytest.approx(2.0)
+    assert living.spread > 0
+    # Far off, the height hardly matters, for the distance or its weight
+    assert kitchen.distance == pytest.approx(6.5, abs=0.05)
+    assert kitchen.distance is not None
+    assert kitchen.spread / kitchen.distance < living.spread / living.distance
+    assert tag.x is not None and tag.room == "Living room"

@@ -110,6 +110,12 @@ STAIRS_TOLERANCE: Final = 1.0
 DEFAULT_ROBUST_RESIDUAL: Final = 1.0
 # A tracker counts as away once no scanner saw it this long (s)
 DEFAULT_AWAY_SECONDS: Final = 120.0
+# Height uncertainty: without its own range, a tracker is taken to be this far
+# above or below its height (m)
+DEFAULT_HEIGHT_SPREAD: Final = 0.4
+# How much the RSSI of a scanner scatters (dB): weighs the distance a height
+# range leaves open against the distance the signal leaves open
+RSSI_SCATTER_DB: Final = 4.0
 # Days of the timeline (0 = off)
 DEFAULT_HISTORY_DAYS: Final = 0
 # A scanner counts as active when it received anything this recently (s)

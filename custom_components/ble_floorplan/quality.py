@@ -147,6 +147,8 @@ class Heard:
     x: float
     y: float
     distance: float
+    # How much the tracker's height leaves the distance open, as weighed (m)
+    spread: float = 0.0
 
 
 class QualityTracker:
@@ -286,7 +288,9 @@ class QualityTracker:
             return
         hour = self._hour()
         for i, own in enumerate(heard):
-            others = [Measurement(h.x, h.y, h.distance) for j, h in enumerate(heard) if j != i]
+            others = [
+                Measurement(h.x, h.y, h.distance, h.spread) for j, h in enumerate(heard) if j != i
+            ]
             point = solve_point(others, start)
             way = math.hypot(point[0] - own.x, point[1] - own.y)
             if way < 0.5:

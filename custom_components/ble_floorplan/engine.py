@@ -23,11 +23,22 @@ ROBUST_MIN_SCANNERS = 4
 
 @dataclass(frozen=True, slots=True)
 class Measurement:
-    """A scanner's position on the plan and its distance to the tracker, in metres."""
+    """A scanner's position on the plan and its distance to the tracker, in metres.
+
+    spread is how much the tracker's height leaves the distance open, in
+    metres of distance it weighs as: a near scanner high above has a distance
+    on the floor that depends much on how high the tracker is carried.
+    """
 
     x: float
     y: float
     distance: float
+    spread: float = 0.0
+
+
+def weight(m: Measurement) -> float:
+    """Return the weight of a measurement: 1 / d², less when the height leaves its distance open."""
+    return 1.0 / (max(m.distance, 0.5) ** 2 + m.spread**2)
 
 
 def rssi_to_distance(
@@ -40,6 +51,21 @@ def rssi_to_distance(
 def floor_distance(distance: float, scanner_z: float, tracker_height: float) -> float:
     """Project a line-of-sight distance onto the floor, from the height difference."""
     return math.sqrt(max(distance * distance - (scanner_z - tracker_height) ** 2, 0.0))
+
+
+def floor_range(distance: float, scanner_z: float, low: float, high: float) -> tuple[float, float]:
+    """Return the distance on the floor and half its range, for a tracker somewhere from low to high.
+
+    The line of sight is projected with the smallest and the largest height
+    difference the range allows; the distance is the middle of the two. A
+    line shorter than the height difference no longer drops to 0 at once.
+    """
+    below, above = scanner_z - high, scanner_z - low
+    near = 0.0 if below <= 0.0 <= above else min(abs(below), abs(above))
+    far = max(abs(below), abs(above))
+    longest = math.sqrt(max(distance * distance - near * near, 0.0))
+    shortest = math.sqrt(max(distance * distance - far * far, 0.0))
+    return (longest + shortest) / 2, (longest - shortest) / 2
 
 
 def median(values: Sequence[float]) -> float:
@@ -102,7 +128,7 @@ def solve_point(measurements: Sequence[Measurement], start: Point) -> Point:
     As they are: no robust weights, no rooms. Starting near the answer keeps
     a few scanners from settling on the mirror image.
     """
-    weights = [1.0 / max(m.distance, 0.5) ** 2 for m in measurements]
+    weights = [weight(m) for m in measurements]
     return _gauss_newton(measurements, weights, start[0], start[1])
 
 
@@ -144,7 +170,8 @@ def _robust_weights(
 def trilaterate(measurements: Sequence[Measurement], plan: Floorplan) -> Point | None:
     """Return the weighted least-squares position, or None without measurements.
 
-    Weights are 1 / d^2: near scanners count more. With robust_residual set and
+    Weights are 1 / d^2: near scanners count more, less where the height
+    leaves the distance open (weight()). With robust_residual set and
     four or more scanners, a scanner whose circle the others contradict loses
     weight, so one scanner that swings cannot drag the position. The result is
     kept in the plan's extent and, when clamping is on, moved into the closest
@@ -152,7 +179,7 @@ def trilaterate(measurements: Sequence[Measurement], plan: Floorplan) -> Point |
     """
     if not measurements:
         return None
-    weights = [1.0 / max(m.distance, 0.5) ** 2 for m in measurements]
+    weights = [weight(m) for m in measurements]
     k = plan.settings.robust_residual
     if k > 0 and len(measurements) >= ROBUST_MIN_SCANNERS:
         weights = _robust_weights(measurements, weights, k)

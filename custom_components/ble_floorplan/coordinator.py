@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 import logging
+import math
 from typing import Any
 
 from homeassistant.components.bluetooth import MONOTONIC_TIME, async_scanner_devices_by_address
@@ -16,7 +17,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .calibration import CalibrationRun, CalibrationStore
-from .const import DOMAIN, RSSI_WINDOW_SECONDS, STALE_SECONDS, UPDATE_INTERVAL_SECONDS
+from .const import (
+    DOMAIN,
+    RSSI_SCATTER_DB,
+    RSSI_WINDOW_SECONDS,
+    STALE_SECONDS,
+    UPDATE_INTERVAL_SECONDS,
+)
 from .coverage import CoverageStore
 from .engine import (
     Heard,
@@ -25,6 +32,7 @@ from .engine import (
     RoomTracker,
     Smoother,
     floor_distance,
+    floor_range,
     median,
     misfit,
     rssi_to_distance,
@@ -52,6 +60,8 @@ class Reading:
     distance: float | None
     # Whether it went into the trilateration (seen and within max_distance)
     used: bool
+    # How much the tracker's height leaves the distance open, as weighed (m)
+    spread: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         """Return the reading for the card."""
@@ -375,7 +385,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             )
         self.quality.misses(
             [
-                QualityHeard(key, s.x, s.y, r.distance)
+                QualityHeard(key, s.x, s.y, r.distance, r.spread)
                 for key, r in readings.items()
                 if r.used and r.distance is not None and (s := plan.scanner(key)) is not None
             ],
@@ -447,14 +457,26 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         readings: dict[str, Reading] = {}
         nearest: str | None = None
         nearest_distance = float("inf")
+        heights = plan.height_range(tracker)
+        # Metres of distance the RSSI leaves open per metre: what the height's share is weighed against
+        scatter = RSSI_SCATTER_DB * math.log(10) / (10 * settings.attenuation)
         for key, line in self._lines(plan, tracker, heard, level).items():
             scanner = plan.scanner(key)
             assert scanner is not None
-            distance = floor_distance(line, plan.scanner_height(scanner), level + tracker.height)
+            spread = 0.0
+            if heights is None:
+                distance = floor_distance(
+                    line, plan.scanner_height(scanner), level + tracker.height
+                )
+            else:
+                distance, half = floor_range(
+                    line, plan.scanner_height(scanner), level + heights[0], level + heights[1]
+                )
+                spread = half / scatter
             used = (distance if strict else line) <= settings.max_distance
-            readings[key] = Reading(heard[key], distance, used)
+            readings[key] = Reading(heard[key], distance, used, spread)
             if used:
-                measurements.append(Measurement(scanner.x, scanner.y, distance))
+                measurements.append(Measurement(scanner.x, scanner.y, distance, spread))
                 if distance < nearest_distance:
                     nearest_distance = distance
                     nearest = key
