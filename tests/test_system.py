@@ -127,6 +127,16 @@ async def test_remote_scanner(hass: HomeAssistant) -> None:
         hass,
         entry,
         host,
+        "sensor",
+        "proxy-sensor-cpu_temperature",
+        "47.7777786254883",
+        {"unit_of_measurement": "°C"},
+        original_device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    _entity(
+        hass,
+        entry,
+        host,
         "update",
         "proxy-firmware",
         "on",
@@ -158,6 +168,8 @@ async def test_remote_scanner(hass: HomeAssistant) -> None:
         "started": "2026-11-13T18:18:40+00:00",
         "started_live": True,
         "signal": -72.0,
+        "temperature": 47.7777786254883,
+        "temperature_unit": "°C",
         "firmware": "2026.10.2",
         "firmware_latest": "2026.11.0",
         "last_seen": 2.0,
@@ -188,6 +200,8 @@ async def test_builtin_adapter(hass: HomeAssistant) -> None:
     assert result["firmware_latest"] is None
     assert result["started"] is None
     assert result["signal"] is None
+    assert result["temperature"] is None
+    assert result["temperature_unit"] is None
     assert result["mode"] is None
     assert result["connectable"] is False
     assert result["slots"] is None
@@ -443,3 +457,39 @@ async def test_ws_scanner_system(
     await client.send_json_auto_id({"type": WS_SCANNER_SYSTEM, "key": "living"})
     msg = await client.receive_json()
     assert msg["error"]["code"] == "not_loaded"
+
+
+@pytest.mark.usefixtures("entry")
+async def test_temperature_sensor_choice(hass: HomeAssistant) -> None:
+    """The device's own temperature: diagnostic first, then one named for it, then the only one; else none."""
+    entry, host = _host(hass, "shelly", model="Plug")
+    _adapter(hass, SCANNER_LIVING, via=host.id)
+    temp = SensorDeviceClass.TEMPERATURE
+    _entity(hass, entry, host, "sensor", "plug-room", "21.0", original_device_class=temp)
+    _entity(hass, entry, host, "sensor", "plug-cpu", "50.0", original_device_class=temp)
+    _entity(
+        hass,
+        entry,
+        host,
+        "sensor",
+        "plug-heat",
+        "40.5",
+        {"unit_of_measurement": "°F"},
+        original_device_class=temp,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    )
+    with patch(f"{MODULE}.async_current_scanners", return_value=[]):
+        result = await async_scanner_system(hass, SCANNER_LIVING)
+    assert (result["temperature"], result["temperature_unit"]) == (40.5, "°F")
+
+    # Without a diagnostic one the one named for it; its state gone: no value, no unit
+    entry2, host2 = _host_two(hass)
+    _adapter(hass, SCANNER_KITCHEN, via=host2.id)
+    _entity(hass, entry2, host2, "sensor", "x-room", "21.0", original_device_class=temp)
+    _entity(
+        hass, entry2, host2, "sensor", "x-internal_temperature", None, original_device_class=temp
+    )
+    with patch(f"{MODULE}.async_current_scanners", return_value=[]):
+        result = await async_scanner_system(hass, SCANNER_KITCHEN)
+    assert result["temperature"] is None
+    assert result["temperature_unit"] is None

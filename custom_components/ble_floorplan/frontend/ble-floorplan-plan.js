@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.33.0";
+export const VERSION = "0.34.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -22,7 +22,7 @@ const TEXTS = {
     height: "Height", heightMin: "Carried from", heightMax: "Carried up to", refPower: "Reference power", default: "default", offset: "Offset",
     pairs: "Pair corrections", none: "none", hears: "Hears", heardBy: "Heard by",
     system: "System details", sysUptime: "Running for", sysLastStart: "Last start", sysUnavailable: "unavailable",
-    sysSignal: "Wi-Fi signal", sysFirmware: "Firmware", sysUpdate: "update to {v} available",
+    sysSignal: "Wi-Fi signal", sysTemperature: "Device temperature", sysFirmware: "Firmware", sysUpdate: "update to {v} available",
     sysLastSeen: "Last received", sysAgo: "{t} ago", sysInRange: "Devices in range", sysInRangeHint: "last minute",
     sysMode: "Scan mode", sysActive: "active", sysPassive: "passive", sysSlots: "Connection slots",
     sysSlotsUsed: "{used} of {n} in use", sysReceiveOnly: "none, receive only", sysDevice: "Device",
@@ -143,7 +143,7 @@ const TEXTS = {
     height: "Höhe", heightMin: "Getragen ab", heightMax: "Getragen bis", refPower: "Referenzleistung", default: "Standard", offset: "Offset",
     pairs: "Korrektur je Paar", none: "keine", hears: "Hört", heardBy: "Gehört von",
     system: "Systemdetails", sysUptime: "Läuft seit", sysLastStart: "Letzter Start", sysUnavailable: "nicht verfügbar",
-    sysSignal: "WLAN-Signal", sysFirmware: "Firmware", sysUpdate: "Update auf {v} verfügbar",
+    sysSignal: "WLAN-Signal", sysTemperature: "Gerätetemperatur", sysFirmware: "Firmware", sysUpdate: "Update auf {v} verfügbar",
     sysLastSeen: "Zuletzt empfangen", sysAgo: "vor {t}", sysInRange: "Geräte in Reichweite", sysInRangeHint: "letzte Minute",
     sysMode: "Scanmodus", sysActive: "aktiv", sysPassive: "passiv", sysSlots: "Verbindungsplätze",
     sysSlotsUsed: "{used} von {n} belegt", sysReceiveOnly: "keine, nur Empfang", sysDevice: "Gerät",

@@ -74,7 +74,7 @@ BLE Floorplan reads the advertisements Home Assistant's Bluetooth stack already 
 
 - **Every scanner Home Assistant has:** the Bluetooth adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices acting as proxies.
 - **Phones and watches:** devices set up with [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) change their address every few minutes; BLE Floorplan follows whatever address they currently use, also after their device tracker was renamed. Tags and beacons with a fixed address work as they are.
-- **A scanner's page** says what it is (for example *ESP32 · ESPHome*) and keeps its **system details** folded at the bottom: running time, Wi-Fi signal, firmware, last reception, devices in range, scan mode, connection slots and a link to the device. They come from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out.
+- **A scanner's page** says what it is (for example *ESP32 · ESPHome*) and keeps its **system details** folded at the bottom: running time, Wi-Fi signal, device temperature, firmware, last reception, devices in range, scan mode, connection slots and a link to the device. They come from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out.
 - Two scanners that see a tracker give a position; three or more spread over the home give useful ones, four or more let the integration spot a scanner that disagrees with the others.
 
 ### How a position comes about

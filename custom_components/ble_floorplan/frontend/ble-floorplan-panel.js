@@ -44,8 +44,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.33.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.33.0";
+} from "./ble-floorplan-plan.js?v=0.34.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.34.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -1046,6 +1046,9 @@ if (!customElements.get("ble-floorplan-panel")) {
             : [t.sysLastStart, `${esc(when)} <span class="muted">(${esc(t.sysUnavailable)})</span>`]);
         }
         if (d.signal != null) rows.push([t.sysSignal, `${this._fmt(d.signal, 0)} dBm`]);
+        if (d.temperature != null) {
+          rows.push([t.sysTemperature, `${this._fmt(d.temperature, 1)} ${esc(d.temperature_unit || "°C")}`]);
+        }
         if (d.firmware) {
           rows.push([t.sysFirmware, esc(d.firmware) +
             (d.firmware_latest ? `<div class="sysnote">${esc(t.sysUpdate.replace("{v}", d.firmware_latest))}</div>` : "")]);

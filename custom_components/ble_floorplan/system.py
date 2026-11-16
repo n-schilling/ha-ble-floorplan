@@ -1,7 +1,7 @@
 """The system details of a scanner: what it is and how it is doing.
 
 Secondary to the plan: the type of the device behind the scanner, when it
-last started, its Wi-Fi signal and firmware, read from the entities of that
+last started, its Wi-Fi signal, its own temperature and firmware, read from the entities of that
 device, and what Home Assistant's Bluetooth knows of the scanner itself:
 when it last received anything, how many devices it hears, how it scans and
 its connection slots.
@@ -29,6 +29,9 @@ from .const import SCANNER_ACTIVE_SECONDS
 
 # Words in the unique id or translation key of the sensor that says when the device started
 _START_WORDS = ("uptime", "restart", "boot", "start")
+
+# Words in the unique id or translation key of the sensor that measures the device itself
+_DEVICE_TEMPERATURE_WORDS = ("cpu", "internal", "chip", "device_temperature", "system")
 
 _NO_VALUE = (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
@@ -101,6 +104,29 @@ def _start_entity(entries: list[er.RegistryEntry]) -> er.RegistryEntry | None:
     return diagnostic[0] if len(diagnostic) == 1 else None
 
 
+def _temperature_entity(entries: list[er.RegistryEntry]) -> er.RegistryEntry | None:
+    """Return the sensor that measures the device's own temperature (its chip, as an ESP32 has it).
+
+    A diagnostic temperature sensor (a Shelly's device temperature); else one
+    named for it (cpu, internal, …, as an ESPHome internal temperature sensor);
+    else the device's only temperature sensor.
+    """
+    temperatures = [
+        e
+        for e in entries
+        if e.domain == "sensor"
+        and (e.device_class or e.original_device_class) == SensorDeviceClass.TEMPERATURE
+    ]
+    for entry in temperatures:
+        if entry.entity_category == EntityCategory.DIAGNOSTIC:
+            return entry
+    for entry in temperatures:
+        words = f"{entry.unique_id} {entry.translation_key or ''}".lower()
+        if any(w in words for w in _DEVICE_TEMPERATURE_WORDS):
+            return entry
+    return temperatures[0] if len(temperatures) == 1 else None
+
+
 async def _last_known(hass: HomeAssistant, entity_id: str) -> str | None:
     """Return the last value the entity had, from the recorder; None without one."""
     if "recorder" not in hass.config.components:
@@ -141,6 +167,10 @@ def _device_part(
         ),
         None,
     )
+    temperature = _temperature_entity(entries)
+    unit: str | None = None
+    if temperature is not None and (state := hass.states.get(temperature.entity_id)) is not None:
+        unit = state.attributes.get("unit_of_measurement")
     firmware: str | None = host.sw_version
     latest: str | None = None
     # The stable firmware before a beta one, as Shelly offers both
@@ -159,6 +189,8 @@ def _device_part(
         "integration": None if builtin else _integration_name(hass, host),
         "device_id": host.id,
         "signal": _number(hass, signal) if signal else None,
+        "temperature": _number(hass, temperature.entity_id) if temperature else None,
+        "temperature_unit": unit,
         "firmware": firmware,
         "firmware_latest": latest,
     }
@@ -212,6 +244,8 @@ async def async_scanner_system(hass: HomeAssistant, source: str) -> dict[str, An
         "started": None,
         "started_live": False,
         "signal": None,
+        "temperature": None,
+        "temperature_unit": None,
         "firmware": None,
         "firmware_latest": None,
     }
