@@ -20,15 +20,15 @@ Everything made up for these pictures. A tracker on the page: its distance circl
 
 Drawing the plan: an upper floor over the faint ground floor, stairs selected, the floors and buildings beside it:
 
-<img src="docs/screenshots/editor.png" alt="The Floor plan tab in Draw mode: a room on an upper floor, stairs with their handles, the tools and the stairs' floors" width="700">
+<img src="docs/screenshots/editor.png" alt="Setup, Floor plan, in Draw mode: a room on an upper floor, stairs with their handles, the tools and the stairs' floors" width="700">
 
 A guided calibration run, with the progress of every scanner, and where runs are still missing:
 
-<img src="docs/screenshots/calibration-run.png" alt="The Calibration tab during a run: a crosshair on the plan, a bar per scanner and the table of rooms and trackers" width="700">
+<img src="docs/screenshots/calibration-run.png" alt="Calibration, Measure, during a run: a crosshair on the plan, a bar per scanner and the table of rooms and trackers" width="700">
 
-The coverage model, with a probe scanner placed:
+The coverage model, with a test scanner placed:
 
-<img src="docs/screenshots/coverage.png" alt="The Coverage tab: the plan covered with coloured cells, the legend and a probe scanner P1" width="700">
+<img src="docs/screenshots/coverage.png" alt="Analysis, Coverage: the plan covered with coloured cells, the legend and a test scanner P1" width="700">
 
 The quality of a scanner: reception, fidelity, contribution and the finding:
 
@@ -38,7 +38,7 @@ The card on a dashboard, a tracker tapped, and the page on a phone in dark mode:
 
 <img src="docs/screenshots/card.png" alt="The card: the plan with the trackers and below it the readings of the key tag" width="700">
 
-<img src="docs/screenshots/phone-dark.png" alt="The Trackers tab on a phone in dark mode" width="300">
+<img src="docs/screenshots/phone-dark.png" alt="Devices, Trackers on a phone in dark mode" width="300">
 
 ## Design
 
@@ -74,7 +74,7 @@ BLE Floorplan reads the advertisements Home Assistant's Bluetooth stack already 
 
 - **Every scanner Home Assistant has:** the Bluetooth adapter of the machine, [ESPHome Bluetooth proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly devices acting as proxies.
 - **Phones and watches:** devices set up with [Private BLE Device](https://www.home-assistant.io/integrations/private_ble_device/) change their address every few minutes; BLE Floorplan follows whatever address they currently use, also after their device tracker was renamed. Tags and beacons with a fixed address work as they are.
-- **A scanner's page** says what it is (for example *ESP32 · ESPHome*) and keeps its **system details** folded at the bottom: running time, Wi-Fi signal, device temperature, firmware, last reception, devices in range, scan mode, connection slots and a link to the device. They come from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out.
+- **A scanner's page** says what it is (for example *ESP32 · ESPHome*) and has its **system details** on a page of their own beside its overview and its quality: running time, Wi-Fi signal, device temperature, firmware, last reception, devices in range, scan mode, connection slots and a link to the device. They come from the entities of the device the scanner runs on and from Home Assistant's Bluetooth; what a device does not tell is left out.
 - Two scanners that see a tracker give a position; three or more spread over the home give useful ones, four or more let the integration spot a scanner that disagrees with the others.
 
 ### How a position comes about
@@ -96,21 +96,33 @@ flowchart LR
 
 ### The page
 
-**BLE Floorplan** in the sidebar, for administrators only, is built from Home Assistant's own elements. Its tabs are *Floor plan*, *Scanners*, *Trackers*, *Calibration*, *Coverage*, *Timeline* and *Settings*; all but the settings show the plan with the trackers live, and the details next to it. The header is one row: the integration's icon, its name and right after it the tabs. Its right end has on every tab and subpage, as on Home Assistant's own pages, the time the page last got its data (*As of …*, left out on a phone), **Refresh**, which fetches everything the page shows again without reloading it, and the cog, which opens the integration on *Settings → Devices & services*. A scanner or a tracker opens as a subpage with a back arrow. On a phone the plan sits on top and the tabs at the bottom. The version of the integration is at the bottom of the page.
+**BLE Floorplan** in the sidebar, for administrators only, is built from Home Assistant's own elements: its frame for pages with tabs, tabs, settings rows, tooltips, cards, buttons, alerts and forms. It has five areas, each with its pages as tabs below the header:
 
-1. **Draw the floor plan** on the *Floor plan* tab. The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
-2. **Add the scanners** on the *Scanners* tab. *Add scanner* offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. The page goes straight on to placing it: tap the plan where it is, or drag it, and **Save**.
-3. **Add the trackers** on the *Trackers* tab. *Add tracker* offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its device and entities appear right away, without a reload; **Remove** takes them away again. A suggestion you do not want goes away with **Ignore**, so new ones stand out; *Ignored suggestions* on the *Settings* tab offers it again. While there is nothing new, the card is not shown.
+| Area | Pages |
+|---|---|
+| **Live** | *Now*: notices (a scanner not reachable or of poor quality, runs from another scanner setup, new devices) and where the trackers are · *Timeline* |
+| **Devices** | *Scanners* · *Trackers*: new suggestions, the list, the ignored suggestions folded below it; a scanner opens with the pages *Overview*, *Quality* and *System* |
+| **Calibration** | *Measure*: the next run and where runs are missing · *Runs* · *Fine-tuning*: offsets and exponent from all runs, the pair corrections by hand |
+| **Analysis** | *Coverage* · *Scanner quality* |
+| **Setup** | *Overview*: the five steps of the setup with their state, and the version · *Floor plan* · *Positioning* and *Recording*: the settings |
+
+Most pages show the plan with the trackers live and the details next to it. The header has the areas, and at its end on every page and subpage, as on Home Assistant's own pages, the time the page last got its data (*As of …*, left out on a phone), **Refresh**, which fetches everything the page shows again without reloading it, and the cog, which opens the integration on *Settings → Devices & services*. A scanner or a tracker opens as a subpage with a back arrow. On a phone the plan sits on top and the areas at the bottom. Explanations sit behind an (i), shown by hovering or tapping it; on the page stay the state in one line and the one line that asks for a tap on the plan. Opened without an address, the page starts on *Live*, or on *Setup* while there is no floor plan; the addresses of before (`/ble-floorplan/scanners`, `/settings` …) lead to the page that took their place.
+
+1. **Draw the floor plan** under *Setup → Floor plan*. The text field starts with a template of two rooms and a door. Replace it with your rooms in metres, then **Save**. A mistake comes back as a message and nothing is saved. [The floor plan](#the-floor-plan) lists every option.
+2. **Add the scanners** under *Devices → Scanners*. *Add scanner* offers every Bluetooth scanner Home Assistant knows. Choose one, set the height it is mounted at and **Add**. The page goes straight on to placing it: tap the plan where it is, or drag it, and **Save**.
+3. **Add the trackers** under *Devices → Trackers*. *Add tracker* offers the Private BLE Devices and the devices with a fixed Bluetooth address. Choose one, give it a name and the height it is usually carried at, then **Add**. Its device and entities appear right away, without a reload; **Remove** takes them away again. A suggestion you do not want goes away with **Ignore**, so new ones stand out; *Ignored suggestions* below the list offers it again. While there is nothing new, the list says so and the card is not shown.
 4. **Calibrate.** Put each tracker at a few known places and record a [calibration run](#calibration) each time. Without calibration the positions are rough.
-5. **Tune if needed.** The defaults of the [settings](#settings) suit a flat.
+5. **Tune if needed.** The defaults of the [settings](#settings) suit a flat. *Setup → Overview* shows which of these steps are done.
 
 A scanner or a tracker is taken off the plan with **Remove** in its details, after a confirmation.
 
-- **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from tab to tab.
-- **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its name and its values.
-- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height (and, with the height as a range, the heights it is carried from and up to), reference power and pair corrections. **Edit** changes them and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to the calibration with this tracker chosen.
+- **Zoom:** pinch with two fingers, turn the mouse wheel or use the buttons in the corner of the plan; zoomed in, drag to move the plan. The zoom stays from page to page.
+- **Scanners:** what a scanner hears from every tracker, its offset and pair corrections. **Move** places it by tapping or dragging on the plan, **Edit** changes its name and its values; the pair corrections are changed under *Calibration → Fine-tuning*.
+- **Trackers:** a tracker's distance circles on the plan, the distance and signal strength at every scanner, its height (and, with the height as a range, the heights it is carried from and up to), reference power and pair corrections. **Edit** changes them (but the pair corrections) and its name; the entity ids stay, and the tracker's device takes the new name. **Calibration run** takes it to *Calibration → Measure* with this tracker chosen.
 - **Coverage:** where the scanners can place a tracker well and where not, as coloured cells of half a metre over the plan, and a table of the rooms, worst first. See [Coverage](#coverage).
 - **Timeline** (once *Days kept* is above 0): a bar next to the plan with newer moments at the top and a bar per tracker where it was seen. Drag it up to go back, tap it to jump to a moment, scroll with the mouse wheel, zoom with − and + from minutes to days. ▶ plays from the moment shown at the speed chosen, *Back to live* returns. The trackers on the plan show where they were then, with their way over the two minutes before.
+- **Keyboard:** where a point is to be placed (the place of a run, a scanner being moved, a test scanner), Tab reaches the plan and the arrow keys move the point, by 10 cm or with Shift by 1 m; on the coverage Enter places the test scanner.
+- **Numbers** follow the number format of your profile in Home Assistant, in the fields too; a field takes a point or a comma.
 - The buttons above the plan rotate it and switch the labels of rooms, scanners and trackers, per browser. Hovering a scanner or a tracker shows its readings.
 
 ### The card
@@ -150,7 +162,7 @@ sequenceDiagram
     Page->>BF: calibration/solve, calibration/apply
 ```
 
-1. On the *Calibration* tab, choose the tracker under *New run* (or tap it on the plan) and set its height for this run, or take one of the typical heights. Tap the plan where it lies and **Start run**. The run shows per scanner how far it is; with *End by itself* on, it stops once every scanner that hears the tracker often enough has enough samples (at least 45 s, at most 5 minutes), otherwise **Stop run** ends it. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the page shows what was saved and the error before and after. A run that a reload of the integration ends (for example by changing the option or replacing the whole plan) is saved the same way.
+1. Under *Calibration → Measure*, choose the tracker under *New run* (or tap it on the plan) and set its height for this run, or take one of the typical heights. Tap the plan where it lies and **Start run**. The run shows per scanner how far it is; with *End by itself* on, it stops once every scanner that hears the tracker often enough has enough samples (at least 45 s, at most 5 minutes), otherwise **Stop run** ends it. The stop saves the tracker's reference power and its correction per scanner from all of its runs, and the page shows what was saved and the error before and after. A run that a reload of the integration ends (for example by changing the option or replacing the whole plan) is saved the same way.
 2. Repeat at other places and with the other trackers. *Where to measure* lists per room and tracker the runs that fit the scanners as they stand and marks the rooms still without one. A scanner needs at least three samples in a run to count. Deleting a run saves the tracker's values from the runs that are left; without a run left, they stay. The list shows when each run was made and marks a run whose scanners were moved, added or removed since: its true distances no longer hold, so delete it and measure again. **Delete all** clears the list after a confirmation and leaves the saved values as they are.
 3. To adjust the scanners too, **Compute** under *Scanner offsets and exponent*. Fitting the exponent needs runs at different distances from a scanner, fitting the wall loss (*Fit the wall loss too*) runs with different numbers of walls between them and a scanner: runs in several rooms. The proposal lists the current and the proposed value of every parameter and the error before and after.
 4. **Apply** writes the proposal into the plan. The offsets of the scanners, the exponent and the wall loss hold for every tracker, so they change only here.
@@ -161,19 +173,19 @@ How the fit over all runs works: for each run and scanner, the median signal str
 
 ### Scanner quality
 
-How good a scanner is, and where its trouble lies, is gathered while Home Assistant runs, for the hours the setting *Scanner quality* keeps (24 by default, up to 720), and written to storage every five minutes, so restarts keep it. Each scanner counts from its own start: when it came into the plan, and afresh when it is moved, raised or lowered, or its offset or pair corrections change; what it gathered before is dropped. The list of scanners shows a light per scanner; a scanner's page shows it with **Details**, which opens three figures and the findings:
+How good a scanner is, and where its trouble lies, is gathered while Home Assistant runs, for the hours the setting *Scanner quality* keeps (24 by default, up to 720), and written to storage every five minutes, so restarts keep it. Each scanner counts from its own start: when it came into the plan, and afresh when it is moved, raised or lowered, or its offset or pair corrections change; what it gathered before is dropped. The list of scanners shows a light per scanner, *Analysis → Scanner quality* a table of all of them with their reception and fidelity, and a scanner's page *Quality* the three figures and the findings. While one of reception and fidelity still lacks data, a scanner that is good in the other counts as *good so far*:
 
 - **Reception:** per tracker, how many advertisements the scanner took against the scanner that took the most in the same time since its start, averaged over the trackers it heard. On a Shelly mostly the device: it reports a fraction of what an ESPHome proxy does; elsewhere mostly the place: far from the trackers or shielded. Good from 60 %, fair from 35 %.
 - **Fidelity:** every second, for every tracker that three other scanners place, the position is solved without the scanner and its circle held against it. The spread of these misses is good up to 1.5 m, fair up to 3 m; the mean (offset) is what the calibration corrects. When the trackers lie around the scanner in enough directions and its misses grow towards one side, the scanner stands elsewhere than the plan says: the page names how far and offers to look at the suggested place, to save or to cancel. In a corner, where all trackers lie on one side, such a shift cannot be told from an offset.
 - **Contribution:** the share of the tracked cells of the coverage model on its level that would be worse without the scanner: a lower level, or positions expected to be off by at least a quarter more. The expected error weighs each good scanner by its distance (a distance read from the signal scatters in proportion to it), so a near scanner counts much and a far one little; with seven scanners in a flat every cell stays covered without any one of them, but not equally precise. Good from 10 %, fair from 5 %.
 
-The findings: too little data yet; check its place in the plan; the site disturbs it (its misses scatter while the others agree); it receives seldom; hardly a contribution; or well placed.
+The findings: too little data yet; check its place in the plan; the site disturbs it (its misses scatter while the others agree); it receives seldom; hardly a contribution; or well placed. Each shows as one line; why and what to do are behind its (i).
 
 ### Coverage
 
-The *Coverage* tab shows two maps, each for one tracker or for all of them:
+*Analysis → Coverage* shows two maps, each for one tracker or for all of them:
 
-- **Model:** predicted from the scanners' places and heights, their offsets and pair corrections, the tracker's reference power and height (or the default reference power and 1 m) and the path loss exponent, as the engine computes distances, only backwards. Walls have no term of their own: the exponent and the offsets from the calibration already hold what a wall typically takes. **Probe scanners:** tap the plan to place up to five scanners that are only thought of, 1 m high, with the median offset of the scanners on the plan; the cells they make better are outlined. Nothing is saved.
+- **Model:** predicted from the scanners' places and heights, their offsets and pair corrections, the tracker's reference power and height (or the default reference power and 1 m) and the path loss exponent, as the engine computes distances, only backwards. Walls have no term of their own: the exponent and the offsets from the calibration already hold what a wall typically takes. **Test scanners:** tap the plan to place up to five scanners that are only thought of, 1 m high, with the median offset of the scanners on the plan; the cells they make better are outlined. Nothing is saved.
 - **Measured:** what the scanners received where the trackers really were. Every second, a seen tracker adds a sample to its grid cell: how many scanners received it well, how they lay around it, and how far their distance circles missed the raw position. A cell shows once it has 30 seconds of samples; rooms are weighted by time. The measurement is recorded only while the timeline is on and kept as many days; **Start anew** forgets it. Where a sample lands and how far the circles miss follow from the scanner setup and the calibration values, so when either changes while days are measured, the card names the days from before the change and offers **Start anew** right there. The page fetches it again every minute.
 
 A scanner receives a tracker *well* from −85 dBm on. A place is **good** with three such scanners or more that lie around it rather than in a line (HDOP at most 2), **fair** with two, **poor** with one or none. Where a position is poor, it is also less accurate, so the measured map shows the poor places a little blurred.
@@ -184,7 +196,7 @@ When days are kept, a point goes into a tracker's track when it is seen again or
 
 ### Settings
 
-All settings are on the *Settings* tab of the page; the (i) beside each opens a short explanation. Setting a value to 0 switches a rule off where noted.
+The settings are on two pages of *Setup*: *Positioning* (signal, motion, room changes, floors, robust weights) and *Recording* (timeline, scanner quality). Each is a row with an (i) beside its name for a short explanation; **Save** shows once a value is changed and saves all of them. Setting a value to 0 switches a rule off where noted.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -219,7 +231,7 @@ All settings are on the *Settings* tab of the page; the (i) beside each opens a 
 
 ### The floor plan
 
-The floor plan is drawn on the *Floor plan* tab of the page. At the top, **Draw** or **YAML** chooses one of the two ways to edit it; the page keeps the choice and locks it while changes are unsaved. The drawing has tools for rectangular and polygon rooms, doors (tap a wall), stairs and a selection tool that moves rooms and stairs, drags their corners and adds corners in the middle of an edge. A room's name, area, floor, kind (zone, outdoor) and whether it is relevant for tracking are set beside the plan; **Undo** goes back step by step, **Save** writes the drawing, **Discard** asks before it drops the changes. Corners snap to a 5 cm grid and to the corners of the rooms nearby, also of the floor below, which is drawn faintly underneath.
+The floor plan is drawn under *Setup → Floor plan*. At the top, **Draw** or **YAML** chooses one of the two ways to edit it; the page keeps the choice and locks it while changes are unsaved. The drawing has tools for rectangular and polygon rooms, doors (tap a wall), stairs and a selection tool that moves rooms and stairs, drags their corners and adds corners in the middle of an edge. A room's name, area, floor, kind (zone, outdoor) and whether it is relevant for tracking are set beside the plan; **Undo** goes back step by step, **Save** writes the drawing, **Discard** asks before it drops the changes. Corners snap to a 5 cm grid and to the corners of the rooms nearby, also of the floor below, which is drawn faintly underneath.
 
 With **YAML**, the same plan is edited as text. Everything is in metres; the origin is the top left corner and y grows downwards. Numbers must be finite.
 
@@ -426,7 +438,7 @@ scripts/check.sh
 
 `scripts/check.sh` runs what CI runs: ruff, the changelog and translation checks, mypy, the tests with full coverage, the page checks and hassfest in Docker. The page check is not part of CI: run `scripts/check.sh` before a release that changes the page.
 
-The page checks start a throwaway Home Assistant with a made-up flat, reachable from this machine only. Made-up scanners (`scripts/panel/demo_ble`) hear made-up trackers, so the plan shows them where they are; no Bluetooth radio is touched. The checks drive the page and the card in a headless browser (plan and version, the header row with the icon, the name and the tabs in it, its stamp, Refresh and the cog on every tab and subpage, trackers, subpages, ha-form edits, the confirmation before removing, settings, calibration, timeline, the card, phone width, dark mode, no page and no addresses for non-administrators) and stop Home Assistant again. They need their own environment:
+The page checks start a throwaway Home Assistant with a made-up flat, reachable from this machine only. Made-up scanners (`scripts/panel/demo_ble`) hear made-up trackers, so the plan shows them where they are; no Bluetooth radio is touched. The checks drive the page and the card in a headless browser (plan and version, Home Assistant's frame with the five areas and the tab of each page, the stamp, Refresh and the cog on every page and subpage, the old addresses, trackers, subpages, ha-form edits, the confirmation before removing, the settings rows with their (i) and one save button, calibration, timeline, coverage, the scanner quality, the setup overview and the notices, the card, phone width, dark mode, no page and no addresses for non-administrators) and stop Home Assistant again. They need their own environment:
 
 ```bash
 uv venv --python 3.14 .venv-panel && uv pip install --python .venv-panel/bin/python -r requirements_panel.txt

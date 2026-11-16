@@ -54,6 +54,31 @@ CARD = "ble-floorplan-card"
 DASHBOARD = "dashboard-plan"
 # The header's cog: Home Assistant's own page of the integration
 INTEGRATION_PAGE = "/config/integrations/integration/ble_floorplan"
+# The five areas of the page and their pages, as the addresses have them
+PAGES = [
+    "live/now",
+    "live/history",
+    "devices/scanners",
+    "devices/trackers",
+    "calibration/measure",
+    "calibration/runs",
+    "calibration/tuning",
+    "analysis/coverage",
+    "analysis/quality",
+    "setup/overview",
+    "setup/plan",
+    "setup/location",
+    "setup/recording",
+]
+# Pages without the floor plan beside them
+MAP_LESS = {
+    "setup/overview",
+    "setup/location",
+    "setup/recording",
+    "analysis/quality",
+    "calibration/tuning",
+    "calibration/runs",
+}
 STAMP = re.compile(r"^As of \d{2}:\d{2}:\d{2}$")
 
 # The made-up flat, the same as in the tests: addresses of the example range only
@@ -545,93 +570,68 @@ async def _open(
     return page
 
 
-async def _goto(page: Page, instance: Instance, tab: str) -> None:
-    """A tab of the page, with the plan drawn and Home Assistant's loading screen gone."""
-    await page.goto(f"{instance.base}/ble-floorplan/{tab}")
+async def _goto(page: Page, instance: Instance, path: str) -> None:
+    """A page of the panel, with the plan drawn and Home Assistant's loading screen gone."""
+    await page.goto(f"{instance.base}/ble-floorplan/{path}")
     # The first load of the frontend takes a while on a slow CI machine
-    await page.locator(f"{PANEL} .about").first.wait_for(timeout=90000)
+    await page.locator(f"{PANEL} hass-tabs-subpage").first.wait_for(timeout=90000)
     await page.locator("#ha-launch-screen").wait_for(state="detached")
-    if tab != "settings":
+    if path.split("?")[0] not in MAP_LESS:
         await page.locator(f"{PANEL} #svg .room").first.wait_for()
 
 
-async def _title(page: Page) -> str:
-    return (await page.locator(f"{PANEL} [slot=title] .name").inner_text()).strip()
+async def _subname(page: Page) -> str:
+    """The name in the header of a scanner's or a tracker's page."""
+    return (await page.locator(f"{PANEL} .subname").inner_text()).strip()
 
 
-async def _header_row(page: Page, *, tabs: bool, brand: bool = True) -> None:
-    """One header row: the integration's icon, the name, the tabs right after it."""
-    row = await page.locator(PANEL).evaluate(
+async def _frame(page: Page, *, sub: bool, page_id: str | None = None) -> None:
+    """Home Assistant's frame: the five areas as tabs and the menu, or a back arrow and a name."""
+    info = await page.locator(PANEL).evaluate(
         """el => {
-          const root = el.shadowRoot;
-          const box = (x) => x && x.getBoundingClientRect();
-          const img = root.querySelector('[slot=title] img.brand');
-          const name = box(root.querySelector('[slot=title] .name'));
-          const nav = root.querySelector('[slot=title] nav.tabs');
+          const frame = el.shadowRoot.getElementById('frame');
+          const bar = frame.shadowRoot.getElementById('tabbar');
+          const tabs = bar ? [...bar.querySelectorAll('ha-tab')] : [];
+          const active = el.shadowRoot.querySelector('#subtabs ha-tab-group-tab[active]');
           return {
-            brand: img ? { width: img.naturalWidth, shown: box(img).width, top: box(img).top,
-              bottom: box(img).bottom, right: box(img).right } : null,
-            name: { top: name.top, bottom: name.bottom, left: name.left, right: name.right },
-            tabs: nav ? { top: box(nav).top, bottom: box(nav).bottom, left: box(nav).left,
-              count: nav.querySelectorAll('a.tab').length,
-              active: nav.querySelectorAll('a.tab.active').length } : null,
-            second: !!root.querySelector('.app > nav.tabs'),
+            tabs: tabs.length,
+            active: tabs.filter((t) => t.active).length,
+            bottom: !!bar && bar.classList.contains('bottom-bar'),
+            back: !!frame.shadowRoot.querySelector('ha-icon-button-arrow-prev'),
+            menu: !!frame.shadowRoot.querySelector('ha-menu-button'),
+            name: el.shadowRoot.querySelector('.subname')?.textContent.trim() || null,
+            page: active ? active.getAttribute('panel') : null,
           };
         }"""
     )
-    middle = (row["name"]["top"] + row["name"]["bottom"]) / 2
-    if brand:
-        icon = row["brand"]
-        expect(icon is not None, "no integration icon in the header")
-        expect(icon["width"] > 0, "the integration icon did not load")
-        expect(icon["shown"] == 24, f"icon {icon['shown']} px wide")
-        expect(icon["right"] <= row["name"]["left"], "the icon is not left of the name")
-        expect(
-            abs((icon["top"] + icon["bottom"]) / 2 - middle) <= 2, "icon and name not in one row"
-        )
+    if sub:
+        expect(info["tabs"] == 0 and info["back"] and not info["menu"], f"subpage frame {info}")
+        expect(bool(info["name"]), f"no name in the header {info}")
     else:
-        expect(row["brand"] is None, "an icon next to the back arrow")
-    expect(not row["second"], "a second header row for the tabs")
-    if tabs:
-        nav = row["tabs"]
-        expect(nav is not None, "no tabs in the header row")
         expect(
-            nav["count"] == 7 and nav["active"] == 1, f"{nav['count']} tabs, {nav['active']} active"
+            info["tabs"] == 5 and info["active"] == 1 and info["menu"] and not info["back"],
+            f"frame {info}",
         )
-        expect(nav["left"] >= row["name"]["right"], "the tabs are not right of the name")
-        expect(
-            abs((nav["top"] + nav["bottom"]) / 2 - middle) <= 2,
-            f"tabs {nav['top']}-{nav['bottom']} not in the name's row {row['name']}",
-        )
-    else:
-        expect(row["tabs"] is None, "tabs in the header")
+        if page_id is not None:
+            expect(info["page"] == page_id, f"tab of the page: {info['page']} for {page_id}")
 
 
 async def _header(page: Page) -> None:
-    """The header of every page and subpage: stamp, refresh, settings, in this order."""
-    bar = page.locator(f"{PANEL} ha-top-app-bar-fixed")
-    order = await bar.evaluate(
-        "bar => [...bar.querySelectorAll(':scope > [slot=actionItems]')].map(el => el.id)"
+    """The header's actions on every page and subpage: stamp, refresh, integration."""
+    order = await page.locator(PANEL).evaluate(
+        "el => [...el.shadowRoot.querySelector('[slot=toolbar-icon]').children].map(e => e.id)"
     )
     expect(order == ["stamp", "refresh", "integration"], f"header actions {order}")
     stamp = page.locator(f"{PANEL} #stamp")
     await _until(lambda: _stamp_ok(stamp), "the stamp 'As of HH:MM:SS' in the header", seconds=10)
     for button, path, label in (
         ("refresh", "M17.65,6.35", "Refresh"),
-        ("integration", "M12,8A4,4", "Settings"),
+        ("integration", "M12,8A4,4", "Integration in Home Assistant"),
     ):
         el = page.locator(f"{PANEL} ha-icon-button#{button}")
         expect(await el.is_visible(), f"{button} button not visible")
         expect((await el.get_attribute("path") or "").startswith(path), f"{button}: wrong icon")
         expect(await el.get_attribute("label") == label, f"{button}: label")
-
-
-async def _brand_loaded(page: Page) -> bool:
-    return bool(
-        await page.locator(PANEL).evaluate(
-            "el => (el.shadowRoot.querySelector('img.brand')?.naturalWidth || 0) > 0"
-        )
-    )
 
 
 async def _stamp_ok(stamp: Any) -> bool:
@@ -641,6 +641,10 @@ async def _stamp_ok(stamp: Any) -> bool:
 async def _plan(api: Api, instance: Instance) -> dict[str, Any]:
     reply = await api.ws(instance.token, {"type": "ble_floorplan/get_floorplan"})
     return dict(reply["result"]["floorplan"])
+
+
+async def _named(page: Page, name: str) -> bool:
+    return bool(await page.locator(f"{PANEL} .subname").count()) and await _subname(page) == name
 
 
 async def _has(field: Any, text: str) -> bool:
@@ -667,17 +671,17 @@ async def _settle(page: Page) -> None:
 
 
 async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path | None) -> Checks:
-    page = await _open(browser, instance, ADMIN, "/ble-floorplan/plan")
+    page = await _open(browser, instance, ADMIN, "/ble-floorplan/setup/plan")
     checks = Checks()
 
     async def plan_and_version() -> None:
-        await _goto(page, instance, "plan")
-        rooms = await page.locator(f"{PANEL} #svg .room").count()
-        expect(rooms >= 5, f"{rooms} rooms drawn")
-        expect(await _title(page) == "BLE Floorplan", await _title(page))
-        await page.locator(f"{PANEL} ha-menu-button[slot=navigationIcon]").wait_for()
+        await _goto(page, instance, "setup/overview")
         about = (await page.locator(f"{PANEL} .about").first.inner_text()).strip()
         expect(about == f"BLE Floorplan {VERSION} · commit {instance.commit}", about)
+        await _goto(page, instance, "setup/plan")
+        rooms = await page.locator(f"{PANEL} #svg .room").count()
+        expect(rooms >= 5, f"{rooms} rooms drawn")
+        await _frame(page, sub=False, page_id="plan")
         # Drawing is the start; YAML is the other way, one of the two at a time
         await page.locator(f"{PANEL} ha-button[data-act='ed-tool']").first.wait_for()
         expect(await page.locator(f"{PANEL} textarea").count() == 0, "the YAML beside the drawing")
@@ -705,33 +709,43 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await _settle(page)
             await page.screenshot(path=str(shots / "plan-yaml.png"))
 
-    await checks.run("floor plan with the YAML and the version at the bottom", plan_and_version)
-
-    async def header_on_every_tab() -> None:
-        for tab in (
-            "plan",
-            "scanners",
-            "trackers",
-            "calibration",
-            "coverage",
-            "timeline",
-            "settings",
-        ):
-            await _goto(page, instance, tab)
-            try:
-                await _header(page)
-                await _until(lambda: _brand_loaded(page), "the icon in the header", seconds=10)
-                await _header_row(page, tabs=True)
-            except AssertionError as err:
-                raise AssertionError(f"{tab}: {err}") from err
-
     await checks.run(
-        "every tab has one header row: icon, name, tabs, stamp, refresh, settings",
-        header_on_every_tab,
+        "floor plan with the YAML; the version on the setup overview", plan_and_version
     )
 
+    async def header_on_every_page() -> None:
+        for path in PAGES:
+            await _goto(page, instance, path)
+            try:
+                await _header(page)
+                await _frame(page, sub=False, page_id=path.split("/")[1])
+            except AssertionError as err:
+                raise AssertionError(f"{path}: {err}") from err
+
+    await checks.run(
+        "every page: the five areas as Home Assistant's tabs, its own tab, stamp, refresh, integration",
+        header_on_every_page,
+    )
+
+    async def old_addresses() -> None:
+        # Bookmarks and links of before: to the page that took the place
+        for old, new in (
+            ("settings", "/ble-floorplan/setup/location"),
+            ("timeline", "/ble-floorplan/live/history"),
+            ("plan", "/ble-floorplan/setup/plan"),
+            ("calibration", "/ble-floorplan/calibration/measure"),
+            ("", "/ble-floorplan/live/now"),
+        ):
+            await page.goto(f"{instance.base}/ble-floorplan/{old}")
+            await page.wait_for_url(f"**{new}")
+        await page.goto(f"{instance.base}/ble-floorplan/scanners?key=hall")
+        await page.wait_for_url("**/ble-floorplan/devices/scanners?key=hall")
+        await _until(lambda: _named(page, "Hall plug"), "the hall plug's page")
+
+    await checks.run("old addresses lead to the pages that took their place", old_addresses)
+
     async def refresh_fetches_again() -> None:
-        await _goto(page, instance, "plan")
+        await _goto(page, instance, "setup/plan")
         textarea = page.locator(f"{PANEL} textarea")
         await _until(lambda: _has(textarea, "Living room"), "the floor plan as YAML", seconds=10)
         # The YAML on the page is fetched once; a change made elsewhere shows after a refresh
@@ -783,7 +797,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     )
 
     async def cog_opens_integration_page() -> None:
-        await _goto(page, instance, "trackers")
+        await _goto(page, instance, "devices/trackers")
         await page.evaluate("window.__noReload = true")
         await page.locator(f"{PANEL} ha-icon-button#integration").click()
         await page.wait_for_url(f"**{INTEGRATION_PAGE}")
@@ -801,10 +815,10 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     )
 
     async def trackers_where_they_are() -> None:
-        await _goto(page, instance, "trackers")
+        await _goto(page, instance, "devices/trackers")
 
         async def placed() -> bool:
-            text = await page.locator(f"{PANEL} ha-card").first.inner_text()
+            text = await page.locator(f"{PANEL} ha-card.list").first.inner_text()
             return "Living room" in text and "Kitchen" in text and "not seen" in text
 
         await _until(placed, "the key tag in the living room, the phone in the kitchen")
@@ -812,30 +826,27 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("the trackers are where the scanners hear them", trackers_where_they_are)
 
     async def tracker_subpage() -> None:
-        await _goto(page, instance, "trackers")
+        await _goto(page, instance, "devices/trackers")
         await page.locator(f"{PANEL} .item[data-key='tag']").click()
-        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").wait_for()
-        expect(await _title(page) == "Key tag", await _title(page))
-        await page.locator(f"{PANEL} ha-menu-button[slot=navigationIcon]").wait_for(
-            state="detached"
-        )
+        await page.locator(f"{PANEL} ha-icon-button-arrow-prev").wait_for()
+        await _frame(page, sub=True)
+        expect(await _subname(page) == "Key tag", await _subname(page))
         await _header(page)
-        await _header_row(page, tabs=False, brand=False)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "tracker.png"))
-        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").click()
+        await page.locator(f"{PANEL} ha-icon-button-arrow-prev").click()
         await page.locator(f"{PANEL} .item[data-key='tag']").wait_for()
-        expect(await _title(page) == "BLE Floorplan", await _title(page))
+        await _frame(page, sub=False, page_id="trackers")
 
     await checks.run("a tracker opens as a subpage with a back arrow", tracker_subpage)
 
     async def edit_tracker() -> None:
-        await _goto(page, instance, "trackers")
+        await _goto(page, instance, "devices/trackers")
         await page.locator(f"{PANEL} .item[data-key='phone']").click()
         await page.locator(f"{PANEL} ha-button[data-act='edit-tracker']").click()
         await page.get_by_role("textbox", name="Name").fill("Work phone")
-        height = page.get_by_role("spinbutton", name="Height")
+        height = page.get_by_role("textbox", name="Height")
         await height.fill("1.4")
         await page.locator(f"{PANEL} ha-button[data-act='save-tracker']").click()
 
@@ -846,7 +857,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
         await _until(saved, "the new name and height in the integration")
         await page.locator(f"{PANEL} ha-alert[alert-type='success']").wait_for()
-        expect(await _title(page) == "Work phone", await _title(page))
+        await _until(lambda: _named(page, "Work phone"), "the new name in the header")
         # Back to the name the other checks and the screenshots show
         reply = await api.ws(
             instance.token, {"type": "ble_floorplan/set_tracker", "key": "phone", "name": "Phone"}
@@ -856,11 +867,11 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("editing a tracker in ha-form reaches the integration", edit_tracker)
 
     async def remove_asks_first() -> None:
-        await _goto(page, instance, "scanners")
+        await _goto(page, instance, "devices/scanners")
         await page.locator(f"{PANEL} .item[data-key='hall']").click()
-        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").wait_for()
+        await page.locator(f"{PANEL} ha-icon-button-arrow-prev").wait_for()
         await _header(page)
-        await _header_row(page, tabs=False, brand=False)
+        await _frame(page, sub=True)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "scanner.png"))
@@ -875,43 +886,31 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("removing a scanner asks first, Cancel keeps it", remove_asks_first)
 
     async def system_details() -> None:
-        # Secondary: folded away below the scanner's details, open on the next scanner once opened
-        await _goto(page, instance, "scanners")
+        # A page of the scanner of its own, as a tab beside its overview and its quality
+        await _goto(page, instance, "devices/scanners")
         await page.locator(f"{PANEL} .item[data-key='living']").click()
-        panel = page.locator(f"{PANEL} ha-expansion-panel.system")
-        await panel.wait_for()
-        expect(await panel.get_attribute("expanded") is None, "the system details start folded")
-        await panel.locator("#summary").click()
-        await page.locator(f"{PANEL} ha-expansion-panel.system[expanded]").wait_for()
+        await page.locator(f"{PANEL} #views ha-tab-group-tab[panel='system']").click()
+        await page.wait_for_url("**view=system")
+        sheet = page.locator(f"{PANEL} #sheet")
 
         async def told() -> bool:
-            return "Last received" in await panel.inner_text()
+            return "Last received" in await sheet.inner_text()
 
         await _until(told, "the system details of the scanner")
-        text = await panel.inner_text()
+        text = await sheet.inner_text()
         for label in ("Devices in range", "Connection slots"):
             expect(label in text, text)
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "scanner-system.png"))
-        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").click()
-        await page.locator(f"{PANEL} .item[data-key='hall']").click()
-        await page.locator(f"{PANEL} ha-expansion-panel.system[expanded]").wait_for()
-        await page.locator(f"{PANEL} ha-expansion-panel.system #summary").click()
-        await _until(
-            lambda: page.evaluate(
-                "() => localStorage.getItem('ble-floorplan-panel-system') === JSON.stringify({open: false})"
-            ),
-            "the folded system details remembered",
-        )
+        await page.locator(f"{PANEL} #views ha-tab-group-tab[panel='overview']").click()
+        await page.locator(f"{PANEL} ha-button[data-act='edit-scanner']").wait_for()
 
-    await checks.run(
-        "the system details of a scanner are folded and open on demand", system_details
-    )
+    await checks.run("the system details are a page of the scanner", system_details)
 
     async def pause_and_resume() -> None:
         # A paused scanner and tracker: grey with "paused", left out until resumed
-        await _goto(page, instance, "scanners")
+        await _goto(page, instance, "devices/scanners")
         await page.locator(f"{PANEL} .item[data-key='hall']").click()
         await page.locator(f"{PANEL} ha-button[data-act='pause-scanner']").click()
         await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="Paused").wait_for()
@@ -921,7 +920,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             next(s for s in plan["scanners"] if s["key"] == "hall").get("paused") is True,
             "scanner paused",
         )
-        await page.locator(f"{PANEL} ha-icon-button[data-act='back']").click()
+        await page.locator(f"{PANEL} ha-icon-button-arrow-prev").click()
         item = page.locator(f"{PANEL} .item[data-key='hall']")
         await item.locator(".icon-bg.paused").wait_for()
         expect("paused" in await item.inner_text(), await item.inner_text())
@@ -929,7 +928,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await page.locator(f"{PANEL} ha-button[data-act='resume-scanner']").click()
         await page.locator(f"{PANEL} svg g.scanner.paused").wait_for(state="detached")
 
-        await _goto(page, instance, "trackers")
+        await _goto(page, instance, "devices/trackers")
         await page.locator(f"{PANEL} .item[data-key='tag']").click()
         await page.locator(f"{PANEL} ha-button[data-act='pause-tracker']").click()
         await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="Paused").wait_for()
@@ -955,7 +954,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         )
         expect(reply["success"], str(reply))
         try:
-            await _goto(page, instance, "scanners")
+            await _goto(page, instance, "devices/scanners")
             item = page.locator(f"{PANEL} .item[data-key='attic']")
             await item.locator(".icon-bg.offline").wait_for()
             expect("not reachable" in await item.inner_text(), await item.inner_text())
@@ -965,9 +964,13 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             )
             await page.locator(f"{PANEL} svg g.scanner.offline[data-key='attic']").wait_for()
             await item.click()
-            await page.locator(
-                f"{PANEL} ha-alert[alert-type='warning']", has_text="nothing for over a minute"
-            ).wait_for()
+            # One line on the page, the why behind its (i)
+            alert = page.locator(
+                f"{PANEL} ha-alert[alert-type='warning']", has_text="Not reachable"
+            )
+            await alert.wait_for()
+            why = await alert.locator("ha-tooltip").evaluate("el => el.textContent")
+            expect("nothing for over a minute" in why, why)
         finally:
             reply = await api.ws(
                 instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": plan}
@@ -979,36 +982,42 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     )
 
     async def settings_saved() -> None:
-        await _goto(page, instance, "settings")
-        smoothing = page.get_by_role("spinbutton", name="Smoothing (s)")
+        await _goto(page, instance, "setup/location")
+        smoothing = page.get_by_role("textbox", name="Smoothing")
         await smoothing.wait_for()
+        rows = page.locator(f"{PANEL} ha-settings-row")
+        helps = page.locator(f"{PANEL} ha-settings-row ha-icon-button.help")
+        expect(await rows.count() == await helps.count() > 10, "a settings row without its (i)")
+        expect(
+            await page.locator(f"{PANEL} ha-button#save").is_hidden(),
+            "a save button with nothing changed",
+        )
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "settings.png"))
-        # The (i) beside a setting opens its explanation, a second tap closes it
-        info = page.locator(
-            f"{PANEL} ha-icon-button[data-act='set-info'][data-key='smoothing_seconds']"
-        )
-        await info.click()
-        help_text = page.locator(f"{PANEL} .shelp")
-        await help_text.wait_for()
-        expect("time constant" in await help_text.inner_text(), await help_text.inner_text())
-        await info.click()
-        await help_text.wait_for(state="detached")
-        smoothing = page.get_by_role("spinbutton", name="Smoothing (s)")
+        # The (i) beside a setting: a tap shows its explanation in Home Assistant's tooltip
+        row = page.locator(f"{PANEL} ha-settings-row", has_text="Smoothing")
+        await row.locator("ha-icon-button.help").click()
+        tip = row.locator("ha-tooltip")
+        await _until(lambda: tip.evaluate("el => el.open === true"), "the explanation of smoothing")
+        expect("time constant" in await tip.evaluate("el => el.textContent"), "wrong explanation")
         await smoothing.fill("15")
-        await page.locator(f"{PANEL} ha-button[data-act='save-settings']").first.click()
+        await page.locator(f"{PANEL} ha-button#save:not([hidden])").click()
 
         async def saved() -> bool:
             plan = await _plan(api, instance)
             return bool(plan["settings"]["smoothing_seconds"] == 15)
 
         await _until(saved, "the new smoothing in the integration")
+        await page.locator(f"{PANEL} ha-button#save").wait_for(state="hidden")
 
-    await checks.run("a setting changed in ha-form reaches the integration", settings_saved)
+    await checks.run(
+        "a setting: a row with its (i), one save button while changed, reaches the integration",
+        settings_saved,
+    )
 
     async def calibration_runs() -> None:
-        await _goto(page, instance, "calibration")
+        await _goto(page, instance, "calibration/runs")
         rows = page.locator(f"{PANEL} table.runs tr")
         await rows.nth(3).wait_for()
         expect(await rows.count() == 4, f"{await rows.count() - 1} runs listed")
@@ -1025,7 +1034,9 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         await page.locator(
             f"{PANEL} ha-alert[alert-type='warning']", has_text="another scanner setup"
         ).wait_for()
-        await page.locator(f"{PANEL} ha-alert[alert-type='info']", has_text="not known").wait_for()
+        await page.locator(
+            f"{PANEL} ha-alert[alert-type='info']", has_text="unknown setup"
+        ).wait_for()
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "calibration.png"))
@@ -1033,7 +1044,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("the calibration runs are listed", calibration_runs)
 
     async def calibration_guide() -> None:
-        await _goto(page, instance, "calibration")
+        await _goto(page, instance, "calibration/measure")
         guide = page.locator(f"{PANEL} table.guide")
         await guide.wait_for()
         # The key tag: a run in the living room and one of unknown setup in the bedroom;
@@ -1050,8 +1061,10 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     )
 
     async def guided_run() -> None:
-        await _goto(page, instance, "calibration")
-        await page.locator(f"{PANEL} ha-button[data-act='cal-height'][data-key='0.75']").click()
+        await _goto(page, instance, "calibration/measure")
+        await page.locator(
+            f"{PANEL} ha-assist-chip[data-act='cal-height'][data-key='0.75']"
+        ).click()
         box = await page.locator(f"{PANEL} #svg svg").bounding_box()
         assert box is not None
         await page.mouse.click(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.3)
@@ -1081,7 +1094,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     async def clear_runs() -> None:
         # Delete all asks first; Cancel keeps the runs
-        await _goto(page, instance, "calibration")
+        await _goto(page, instance, "calibration/runs")
         await page.locator(f"{PANEL} ha-button[data-act='cal-clear']").click()
         await page.locator(f"{PANEL} ha-button[data-act='cal-clear-cancel']").click()
         await page.locator(f"{PANEL} ha-button[data-act='cal-clear-cancel']").wait_for(
@@ -1098,7 +1111,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("all calibration runs are deleted after a confirmation", clear_runs)
 
     async def timeline() -> None:
-        await _goto(page, instance, "timeline")
+        await _goto(page, instance, "live/history")
         await page.locator(f"{PANEL} .tlbar").first.wait_for()
         # Dragging the axis up goes back in time: the trackers where they were, with their trails
         axis = page.locator(f"{PANEL} #tlaxis")
@@ -1117,7 +1130,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     await checks.run("the timeline plays back the made-up tracks", timeline)
 
     async def coverage() -> None:
-        await _goto(page, instance, "coverage")
+        await _goto(page, instance, "analysis/coverage")
         cells = page.locator(f"{PANEL} #svg rect.cov")
         await cells.first.wait_for(state="attached")
         expect(await cells.count() > 100, f"{await cells.count()} model cells drawn")
@@ -1173,9 +1186,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         )
         expect(reply["success"], str(reply))
         try:
-            stale = page.locator(
-                f"{PANEL} ha-alert.covstale", has_text="calibration values changed"
-            )
+            stale = page.locator(f"{PANEL} ha-alert.covstale")
 
             async def noted() -> bool:
                 measured = await api.ws(instance.token, {"type": "ble_floorplan/coverage/measured"})
@@ -1190,6 +1201,8 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
             # The page fetches the measurement again every minute
             await _until(shown, "the hint on the days before the change", seconds=90)
+            why = await stale.locator("ha-tooltip").evaluate("el => el.textContent")
+            expect("calibration values changed" in why, why)
             await stale.locator("ha-button[data-act='cov-reset']").click()
             await page.locator(f"{PANEL} ha-button[data-act='cov-reset-cancel']").click()
         finally:
@@ -1230,19 +1243,17 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
                 browser,
                 instance,
                 ADMIN,
-                "/ble-floorplan/trackers",
+                "/ble-floorplan/devices/trackers",
                 viewport={"width": 390, "height": 844},
                 color_scheme=scheme,
             )
-            await _goto(phone, instance, "trackers")
-            await phone.locator(f"{PANEL} .bottom-tabs").wait_for()
-            # The header keeps icon and name; the tabs are the bar at the bottom
-            await _until(
-                lambda: _brand_loaded(phone),  # noqa: B023 awaited right here
-                f"{scheme}: the icon in the header",
-                seconds=10,
+            await _goto(phone, instance, "devices/trackers")
+            # The areas are Home Assistant's bar at the bottom
+            await _frame(phone, sub=False, page_id="trackers")
+            bottom = await phone.locator(PANEL).evaluate(
+                "el => !!el.shadowRoot.getElementById('frame').shadowRoot.querySelector('#tabbar.bottom-bar')"
             )
-            await _header_row(phone, tabs=False)
+            expect(bottom, f"{scheme}: the areas are not at the bottom")
             # On a phone the stamp makes room; refresh and settings stay
             await phone.locator(f"{PANEL} ha-icon-button#refresh").wait_for()
             await phone.locator(f"{PANEL} ha-icon-button#integration").wait_for()
@@ -1272,27 +1283,28 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     )
 
     async def ignored_suggestions() -> None:
-        # Off the plan, the hall plug is a suggestion; ignored, the card goes and the settings list it
+        # Off the plan, the hall plug is a suggestion; ignored, the card goes and the list folds it below
         before = await _plan(api, instance)
         reply = await api.ws(
             instance.token, {"type": "ble_floorplan/remove_scanner", "key": "hall"}
         )
         expect(reply["success"], str(reply))
-        await _goto(page, instance, "scanners")
+        await _goto(page, instance, "devices/scanners")
         card = page.locator(f"{PANEL} ha-card", has_text="Add scanner")
         await card.wait_for()
         await card.locator("ha-button[data-act='ignore']").click()
         await card.wait_for(state="detached")
-        await _goto(page, instance, "settings")
-        ignored = page.locator(f"{PANEL} ha-card", has_text="Ignored suggestions")
+        ignored = page.locator(f"{PANEL} ha-expansion-panel.ignored")
         await ignored.wait_for()
+        expect("Ignored suggestions" in (await ignored.get_attribute("header") or ""), "header")
+        await ignored.locator("#summary").click()
+        await page.locator(f"{PANEL} ha-expansion-panel.ignored[expanded]").wait_for()
         expect("Hall" in await ignored.inner_text(), await ignored.inner_text())
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "ignored.png"))
         await ignored.locator("ha-button[data-act='unignore']").click()
         await ignored.wait_for(state="detached")
-        await _goto(page, instance, "scanners")
         await page.locator(f"{PANEL} ha-card", has_text="Add scanner").wait_for()
         reply = await api.ws(
             instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": before}
@@ -1303,7 +1315,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     async def scanner_quality() -> None:
         # The made-up scanners hear steadily: after a little while the lights come up
-        await _goto(page, instance, "scanners")
+        await _goto(page, instance, "devices/scanners")
         await _until(
             lambda: _count_at_least(page.locator(f"{PANEL} .item .qdot"), 1),
             "a quality light in the list",
@@ -1333,21 +1345,159 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
                 return bool(reply["result"]["fidelity"]["state"] != "unknown")
 
             await _until(fidelity_known, "enough misses of the living room proxy", seconds=240)
-        await page.locator(f"{PANEL} ha-button[data-act='quality']").click()
-        dialog = page.locator(f"{PANEL} .qdialog")
-        await dialog.locator(".qtile").nth(2).wait_for()
-        expect(await dialog.locator(".qtile").count() == 3, "three tiles")
-        text = await dialog.inner_text()
+        await page.locator(f"{PANEL} #views ha-tab-group-tab[panel='quality']").click()
+        await page.wait_for_url("**view=quality")
+        sheet = page.locator(f"{PANEL} #sheet")
+        await sheet.locator(".qtile").nth(2).wait_for()
+        expect(await sheet.locator(".qtile").count() == 3, "three tiles")
+        text = await sheet.inner_text()
         expect("Reception" in text and "Fidelity" in text and "Contribution" in text, text)
-        await dialog.locator("ha-alert").first.wait_for()
+        await sheet.locator("ha-alert").first.wait_for()
         if shots is not None:
             await _settle(page)
             await page.screenshot(path=str(shots / "scanner-quality.png"))
-        await page.locator(f"{PANEL} .qdialog ha-button[data-act='quality-close']").click()
-        await dialog.wait_for(state="detached")
+        # The same state as in the list: good only so far while a figure lacks data
+        reply = await api.ws(instance.token, {"type": "ble_floorplan/scanner_quality"})
+        summary = reply["result"]["living"]
+        overall = await sheet.locator(".qoverall .qdot").get_attribute("class")
+        if (
+            "unknown" in (summary["rate"]["state"], summary["fidelity"]["state"])
+            and summary["state"] == "good"
+        ):
+            expect("prelim" in (overall or ""), f"quality {overall} while a figure lacks data")
 
     await checks.run(
-        "the quality of a scanner: lights in the list, three tiles and findings", scanner_quality
+        "the quality of a scanner: lights in the list, its page with three tiles and findings",
+        scanner_quality,
+    )
+
+    async def quality_overview() -> None:
+        # Analysis: every active scanner in one table; a row opens its quality page
+        await _goto(page, instance, "analysis/quality")
+        rows = page.locator(f"{PANEL} table.qlist tr[data-act='go']")
+        await rows_at_least(rows, 4)
+        await rows.first.click()
+        await page.wait_for_url("**/devices/scanners?key=*view=quality")
+        await page.locator(f"{PANEL} .qtile").first.wait_for()
+
+    await checks.run("the quality of every scanner in one table", quality_overview)
+
+    async def setup_and_notices() -> None:
+        # Setup: five steps, the first open one is where Continue leads
+        await _goto(page, instance, "setup/overview")
+        steps = page.locator(f"{PANEL} ha-card .item[data-act='go']")
+        await rows_at_least(steps, 5)
+        expect(await steps.count() == 5, f"{await steps.count()} steps")
+        done = await page.locator(f"{PANEL} .icon-bg.step.done").count()
+        expect(done >= 3, f"{done} steps done in the made-up flat")
+        nxt = page.locator(f"{PANEL} ha-button[data-act='go']", has_text="Continue")
+        target = await nxt.get_attribute("data-key")
+        await nxt.click()
+        await page.wait_for_url(f"**/ble-floorplan/{target}")
+        # Live: a scanner that hears nothing is a notice that leads to it; the trackers follow
+        plan = await _plan(api, instance)
+        attic = {**SCANNERS[3], "key": "attic", "name": "Attic plug", "source": "AA:BB:CC:DD:EE:05"}
+        changed = {**plan, "scanners": [*plan["scanners"], attic]}
+        reply = await api.ws(
+            instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": changed}
+        )
+        expect(reply["success"], str(reply))
+        try:
+            await _goto(page, instance, "live/now")
+            notice = page.locator(f"{PANEL} ha-card", has_text="Notices")
+            await notice.locator(".item", has_text="Attic plug is not reachable").wait_for(
+                timeout=90000
+            )
+            await page.locator(f"{PANEL} .item[data-key='devices/trackers?key=tag']").wait_for()
+            await notice.locator(".item", has_text="Attic plug").click()
+            await page.wait_for_url("**/devices/scanners?key=attic")
+        finally:
+            reply = await api.ws(
+                instance.token, {"type": "ble_floorplan/set_floorplan", "floorplan": plan}
+            )
+            expect(reply["success"], str(reply))
+
+            # A whole plan reloads the integration: the next check waits for it to answer again
+            async def loaded() -> bool:
+                again = await api.ws(instance.token, {"type": "ble_floorplan/get_floorplan"})
+                return bool(again["success"])
+
+            await _until(loaded, "the integration loaded again")
+
+    await checks.run("the setup in five steps and the notices on Live", setup_and_notices)
+
+    async def arrow_keys_place() -> None:
+        # Without a mouse: the plan takes the focus, the arrow keys move the point of a run
+        await _goto(page, instance, "calibration/measure")
+        start = page.locator(f"{PANEL} ha-button[data-act='cal-start']")
+        expect(
+            await start.get_attribute("disabled") is not None, "a run could start without a place"
+        )
+        await page.locator(f"{PANEL} #map").focus()
+        await page.keyboard.press("Shift+ArrowRight")
+        await page.keyboard.press("ArrowDown")
+        await page.locator(f"{PANEL} ha-button[data-act='cal-start']:not([disabled])").wait_for()
+        await page.locator(f"{PANEL} #svg g.truepos").wait_for(state="attached")
+        # On the coverage they move a cross, Enter places a test scanner there
+        await _goto(page, instance, "analysis/coverage")
+        await page.locator(f"{PANEL} #map").focus()
+        await page.keyboard.press("Shift+ArrowLeft")
+        await page.keyboard.press("Enter")
+        await page.locator(f"{PANEL} #svg g.probe").first.wait_for(state="attached")
+
+    await checks.run("the arrow keys place a point on the plan", arrow_keys_place)
+
+    async def numbers_in_the_language() -> None:
+        # A German page writes 0,25 in the fields as elsewhere, and takes a comma back
+        await page.evaluate("localStorage.setItem('selectedLanguage', JSON.stringify('de'))")
+        try:
+            await _goto(page, instance, "setup/location")
+            dead = page.get_by_role("textbox", name="Totzone")
+            await dead.wait_for()
+            expect(await dead.input_value() == "0,25", await dead.input_value())
+            await dead.fill("0,3")
+            await page.locator(f"{PANEL} ha-button#save:not([hidden])").click()
+
+            async def saved() -> bool:
+                plan = await _plan(api, instance)
+                return bool(plan["settings"]["min_move"] == 0.3)
+
+            await _until(saved, "0,3 saved as 0.3")
+        finally:
+            await page.evaluate("localStorage.setItem('selectedLanguage', JSON.stringify('en'))")
+            reply = await api.ws(instance.token, {"type": "ble_floorplan/get_floorplan"})
+            settings = {**reply["result"]["floorplan"]["settings"], "min_move": 0.25}
+            await api.ws(
+                instance.token, {"type": "ble_floorplan/set_settings", "settings": settings}
+            )
+            await page.reload()
+
+    await checks.run(
+        "numbers in the fields as on the rest of the page, a comma typed back",
+        numbers_in_the_language,
+    )
+
+    async def errors_read_alike() -> None:
+        # A mistake in the YAML: one line by its kind, what Home Assistant said behind the (i)
+        await _goto(page, instance, "setup/plan")
+        await page.locator(f"{PANEL} ha-button[data-act='plan-mode'][data-key='yaml']").click()
+        textarea = page.locator(f"{PANEL} textarea")
+        await textarea.wait_for()
+        await textarea.fill("rooms: [")
+        await page.locator(f"{PANEL} ha-button[data-act='save-layout']").click()
+        alert = page.locator(
+            f"{PANEL} ha-alert[alert-type='error']", has_text="The input does not fit."
+        )
+        await alert.wait_for()
+        said = await alert.locator("ha-tooltip").evaluate("el => el.textContent")
+        expect(said.strip().startswith("Message:"), said)
+        # Nothing was saved; a reload leaves the typed YAML behind
+        plan = await _plan(api, instance)
+        expect(len(plan["rooms"]) >= 5, "the broken YAML replaced the plan")
+        await page.reload()
+
+    await checks.run(
+        "an error reads one line by its kind, the message behind its (i)", errors_read_alike
     )
 
     async def at(x: float, y: float) -> tuple[float, float]:
@@ -1378,7 +1528,7 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
     async def drawing() -> None:
         before = await _plan(api, instance)
         layout = {k: before[k] for k in ("rooms", "openings") if k in before}
-        await _goto(page, instance, "plan")
+        await _goto(page, instance, "setup/plan")
         await page.locator(f"{PANEL} ha-button[data-act='plan-mode'][data-key='draw']").click()
         tool = f"{PANEL} ha-button[data-act='ed-tool']"
         # A room beside the flat, then a door in its left wall

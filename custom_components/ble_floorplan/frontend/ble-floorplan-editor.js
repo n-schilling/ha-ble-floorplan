@@ -11,7 +11,7 @@ import {
   roomPoints,
   snap,
   toPlan,
-} from "./ble-floorplan-plan.js?v=0.34.0";
+} from "./ble-floorplan-plan.js?v=0.35.0";
 
 // A door is this wide when placed, in metres
 const DOOR_WIDTH = 0.9;
@@ -552,13 +552,16 @@ export class PlanEditor {
       .map(([k, label]) => `<ha-button appearance="${this.tool === k ? "filled" : "plain"}" data-act="ed-tool" data-key="${k}"` +
         `${k === "stairs" && !canStairs ? " disabled" : ""}>${esc(label)}</ha-button>`)
       .join("")}</div>`;
+    // One line asks for the next tap; how the tool works is behind the card's (i)
+    const prompt = { select: t.prSelect, rect: t.prRect, poly: t.prPoly, door: t.prDoor, stairs: t.prStairs }[this.tool];
     const hint = { select: t.edHintSelect, rect: t.edHintRect, poly: t.edHintPoly, door: t.edHintDoor, stairs: t.edHintStairs }[this.tool];
     const polyBtns = this.tool === "poly" && this.poly.length
       ? `${h._btn("ed-poly-done", t.edFinish, { disabled: this.poly.length < 3 })}${h._btn("ed-poly-cancel", t.cancel)}`
       : "";
-    const head = h._card(t.edTitle, toolRow + `<div class="muted small">${esc(hint)}</div>` + (this.dirty ? "" : ""),
+    const head = h._card(t.edTitle, toolRow + h._alert("info", prompt),
       `<span>${h._btn("ed-undo", t.edUndo, { disabled: !this.undo.length })}${polyBtns}</span>` +
-      `<span>${h._btn("ed-cancel", t.edDiscardYes, { disabled: !this.dirty })}${h._btn("ed-save", t.save, { kind: "filled", disabled: !this.dirty })}</span>`);
+      `<span>${h._btn("ed-cancel", t.edDiscardYes, { disabled: !this.dirty })}${h._btn("ed-save", t.save, { kind: "filled", disabled: !this.dirty })}</span>`,
+      "", canStairs ? hint : `${hint} ${t.stairsNeedFloor}`);
     const confirm = this.confirmCancel
       ? `<ha-alert alert-type="warning">${esc(t.edDiscard)}` +
         `<ha-button slot="action" appearance="plain" data-act="ed-cancel-no">${esc(t.cancel)}</ha-button>` +
@@ -655,8 +658,8 @@ export class PlanEditor {
     const t = h._t;
     const d = this.draft;
     if (!d.floors.length) {
-      return h._card(t.edFloors, `<div class="muted small">${esc(t.edOneFloor)}</div>`,
-        `<span></span><span>${h._btn("ed-add-floor", t.edAddFloor)}${h._btn("ed-add-building", t.edAddBuilding)}</span>`);
+      return h._card(t.edFloors, `<div class="muted">${esc(h._fmt(1, 0))} ${esc(t.edFloor)}</div>`,
+        `<span></span><span>${h._btn("ed-add-floor", t.edAddFloor)}${h._btn("ed-add-building", t.edAddBuilding)}</span>`, "", t.i_floors);
     }
     const level = h._level;
     const rows = d.floors
@@ -674,7 +677,7 @@ export class PlanEditor {
       const f = d.floors[this.sel.i];
       form = h._formSlot("ed-floor", [
         { name: "name", label: t.name, selector: { text: {} } },
-        { name: "building", label: t.edBuildingName, helper: t.edBuildingHelp, selector: { text: {} } },
+        { name: "building", label: t.edBuildingName, selector: { text: {} } },
         { type: "grid", name: "", schema: [h._num("elevation", t.edElevation, "m"), h._num("height", t.edHeight, "m", { min: 0.5 })] },
         { name: "ha_floor", label: t.edHaFloor, selector: { floor: {} } },
       ], { name: f.name, building: f.building, elevation: f.elevation ?? 0, height: f.height ?? 2.5, ha_floor: f.ha_floor ?? null }, (v) => {
@@ -695,9 +698,8 @@ export class PlanEditor {
     }
     const del = this.sel?.kind === "floor" && d.floors.length > 1 ? h._btn("ed-delete", t.delete, { kind: "danger" }) : "";
     return h._card(t.edFloors,
-      `<div class="muted small">${esc(t.edFloorsHint)}</div>` +
       `<table class="data edfloors"><tr><th>${esc(t.edBuildingName)}</th><th>${esc(t.floor)}</th><th class="n">${esc(t.edElevation)}</th></tr>${rows}</table>` + form,
-      `<span>${del}</span><span>${h._btn("ed-add-floor", t.edAddFloor)}${h._btn("ed-add-building", t.edAddBuilding)}</span>`);
+      `<span>${del}</span><span>${h._btn("ed-add-floor", t.edAddFloor)}${h._btn("ed-add-building", t.edAddBuilding)}</span>`, "", t.i_floors);
   }
 
   // ---- Actions from the sheet ----

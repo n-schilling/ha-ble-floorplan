@@ -2,6 +2,34 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.35.0] - 2026-11-16
+
+### Changed
+
+- **The page is organised in five areas**, in Home Assistant's own frame for pages with tabs: *Live* (*Now*, *Timeline*), *Devices* (*Scanners*, *Trackers*), *Calibration* (*Measure*, *Runs*, *Fine-tuning*), *Analysis* (*Coverage*, *Scanner quality*) and *Setup* (*Overview*, *Floor plan*, *Positioning*, *Recording*). The areas are the header's tabs, at the bottom on a phone; the pages of an area are tabs below it. Opened without an address the page starts on *Live*, or on *Setup* while there is no floor plan. The addresses of before (`/ble-floorplan/scanners?key=…`, `/settings`, …) lead to the page that took their place.
+- **Explanations sit behind an (i)** everywhere, in Home Assistant's tooltip, shown by hovering, tapping or Enter. On the page stay the state in one line (paused, not reachable, runs from another setup, …) and the one line that asks for a tap on the plan.
+- **Settings** are Home Assistant's settings rows on *Setup → Positioning* and *Setup → Recording*, with the unit in the field and a name for screen readers; one **Save** button shows while something is changed and saves all of them.
+- A scanner's page has the tabs *Overview*, *Quality* and *System*; the quality dialog and the folded system details are gone. The pair corrections are changed in one place, *Calibration → Fine-tuning*.
+- New suggestions stand above the list of scanners or trackers, the ignored ones are folded below it (no longer in the settings).
+- **Errors** read the same everywhere: one line by their kind (not set up, gone meanwhile, input does not fit, needs an administrator, …), what Home Assistant said behind the (i). The card shows the line alone.
+- **Numbers** are written alike on the whole page, in the fields too: in the number format of the user's profile in Home Assistant (by default that of the language, so 0,25 in German), and a field takes a point or a comma. The fields are Home Assistant's text fields, as its number fields write a point whatever the language. The card follows the same format.
+- Words: the section *Engine* is *Signal and position*, the room rules are *Room changes*, probe scanners are *test scanners*, the scanner's height is its *mounting height*, the cog is *Integration in Home Assistant*.
+
+### Added
+
+- *Live → Now*: notices of what needs a look (a scanner not reachable or of poor quality, runs from another scanner setup, new devices), each leading to it, and the trackers.
+- *Setup → Overview*: the five steps of the setup (floor plan, scanners, trackers, calibration, coverage) with their state and the way to the next open one; the version of the integration is shown here.
+- *Analysis → Scanner quality*: reception, fidelity and state of every active scanner in one table; a row opens the scanner's quality.
+- The typical heights of a run are chips.
+- **The plan with the keyboard:** where a point is to be placed (the place of a run, a scanner being moved, a test scanner), Tab reaches the plan and the arrow keys move the point the way they point on the screen, also on a rotated plan, by 10 cm or with Shift by 1 m; on the coverage Enter places the test scanner. The plan shows a focus ring.
+
+### Fixed
+
+- German: the buttons to pause a scanner or a tracker read *Anhalten* (the timeline's word), as one text key was written twice; a test now finds a key written twice.
+- The quality of a scanner read *good* in the list while its page said *too little data*: while reception or fidelity still lacks data, a scanner good in the other is *good so far* everywhere.
+- The samples of a scanner that is paused or not on the plan are kept to the window as well, instead of growing.
+- A position on a level without rooms is kept in the whole site, no longer put at the corner of the plan.
+
 ## [0.34.0] - 2026-11-16
 
 ### Added

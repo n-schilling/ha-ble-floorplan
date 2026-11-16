@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.34.0";
+export const VERSION = "0.35.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -33,15 +33,15 @@ const TEXTS = {
     offline: "not reachable", offlineHint: "This scanner has received nothing for over a minute. Is it powered and connected to Home Assistant?",
     hintMeasure: "Tap the plan where the tracker lies, then start.",
     hintMove: "Tap the plan where the scanner is, or drag it; then save.", runs: "Runs", duration: "Length",
-    delete: "Delete", fitExponent: "Fit the exponent too", fitWalls: "Fit the wall loss too", wallLoss: "Loss per wall (dB)", perWall: "per wall", compute: "Compute", apply: "Apply",
+    delete: "Delete", fitExponent: "Fit the exponent too", fitWalls: "Fit the wall loss too", wallLoss: "Loss per wall", perWall: "per wall", compute: "Compute", apply: "Apply",
     preview: "Proposal", now: "now", proposed: "proposed", obs: "observations", exponent: "Exponent",
-    rms: "RMS error (dB)", applied: "Applied.", saved: "Saved.", display: "Display", engine: "Engine",
-    motion: "Motion", roomRules: "Rooms", robust: "Robust weights", attenuation: "Path loss exponent",
-    refDefault: "Default reference power (dBm)", maxDistance: "Largest distance (m)",
-    smoothing: "Smoothing (s)", minMove: "Dead zone (m)", clamp: "Keep trackers in the rooms",
-    clampOutdoor: "Outdoor areas count as rooms", maxSpeed: "Top speed (m/s, 0 = none)",
-    jumpDistance: "Jump distance (m, 0 = off)", jumpConfirm: "Jump confirmation (s)",
-    walls: "Through walls only at doors", wallTolerance: "Wall tolerance (m)",
+    rms: "RMS error (dB)", applied: "Applied.", saved: "Saved.", display: "Display", engine: "Signal and position",
+    motion: "Motion", roomRules: "Room changes", robust: "Robust weights", attenuation: "Path loss exponent",
+    refDefault: "Default reference power", maxDistance: "Largest distance",
+    smoothing: "Smoothing", minMove: "Dead zone", clamp: "Keep trackers in the rooms",
+    clampOutdoor: "Outdoor areas count as rooms", maxSpeed: "Top speed",
+    jumpDistance: "Jump distance", jumpConfirm: "Jump confirmation",
+    walls: "Through walls only at doors", wallTolerance: "Wall tolerance",
     exteriorDoors: "Leave a building only through its doors", floorsSec: "Floors", floor: "Floor",
     ignore: "Ignore", unignore: "Suggest again", ignoredTitle: "Ignored suggestions",
     ignoredHint: "Scanners and devices the page no longer offers to add, so new ones stand out.",
@@ -51,7 +51,7 @@ const TEXTS = {
     qPart: "Contribution", qPartSub: "{worse} of {cells} cells would be less precise without it",
     q_good: "good", q_fair: "fair", q_poor: "poor", q_unknown: "too little data",
     qBtn: "Details", qSince: "Gathered since {time} ({h} h so far, the last {max} h count); kept over restarts. Starts afresh when the scanner moves or its calibration changes.",
-    qualitySec: "Scanner quality", qualityHours: "Hours looked back over (1–720)", info: "Explanation",
+    qualitySec: "Scanner quality", qualityHours: "Hours looked back over", info: "Explanation",
     h_wall_loss: "How much a wall between scanner and tracker weakens the signal. Drywall about 3 to 5 dB, brick or concrete 10 and more. It is counted from where the tracker was last measured, so scanners behind walls are not taken for far away. 0 is off. The calibration can fit it from runs in several rooms.",
     h_wall_tolerance: "A measured position at most this far behind a wall is taken as noise: the shown position stays in its room and slides along the wall, without a way round by a door. Farther behind, it goes through the nearest door on the way. 0 takes every step behind a wall to a door.",
     h_height_uncertainty: "Trackers are not carried at one height: in a pocket, on a table, in bed. On, a tracker counts anywhere in a range of heights, its own or its height ± the range below; a scanner high above it, close by, then counts less, as its distance on the floor depends most on the height. Off, the fixed height is taken as it is.",
@@ -79,9 +79,9 @@ const TEXTS = {
     edHaFloor: "Floor in Home Assistant", edFloorsHint: "Tap a floor to draw on it. Elevation: height of its floor above the ground; buildings at ground level all stand at 0 m.",
     edFloorUsed: "Something still lies on this floor: move or delete its rooms, doors, stairs and scanners first.",
     edRoom: "Room", edGround: "Ground floor", edBuilding: "Building", edFloor: "Floor", edNoWall: "No wall close by: tap right on a wall.",
-    stairsOnly: "Change floors only over stairs", floorLoss: "Loss per ceiling (dB)",
-    floorMargin: "Floor change: better by (m)", floorHold: "Floor change: hold time (s)", awaySeconds: "Away after (s) without a sighting", heightUncertainty: "Height as a range", heightSpread: "Height range ± (m)", roomHold: "Hold time (s)",
-    roomMargin: "Wall margin (m)", robustResidual: "Residual (m, 0 = off)",
+    stairsOnly: "Change floors only over stairs", floorLoss: "Loss per ceiling",
+    floorMargin: "Floor change: better by", floorHold: "Floor change: hold time", awaySeconds: "Away without a sighting after", heightUncertainty: "Height as a range", heightSpread: "Height range ±", roomHold: "Hold time",
+    roomMargin: "Wall margin", robustResidual: "Residual",
     calibration: "Calibration", noRuns: "No runs yet.", running: "running",
     date: "Date", setupMoved: "{name} moved", setupAdded: "{name} new", setupRemoved: "{name} removed",
     setupUnknown: "scanner setup not recorded", clearRuns: "Delete all",
@@ -93,9 +93,9 @@ const TEXTS = {
     notLoaded: "BLE Floorplan is not set up.", unknown: "–",
     plan: "Floor plan", add: "Add", name: "Name",
     layoutHint: "Rooms as rectangles (x, y, w, h) or polygons (points), zones, outdoor areas and openings, in metres; area links a room to an area of Home Assistant, tracked: false leaves it out of the coverage and the guide for runs. See the README.",
-    confirmRemove: "Take {name} off the plan?", startHere: "No rooms yet: write the floor plan on the right, then add scanners and trackers.",
-    timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", pause: "Pause",
-    speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", fit: "Whole plan", historyDays: "Days kept (0 = off)",
+    confirmRemove: "Take {name} off the plan?", startHere: "No rooms yet: start with the floor plan under Setup.",
+    timeline: "Timeline", live: "LIVE", backToLive: "Back to live", play: "Play", tlPause: "Pause",
+    speed: "Speed", zoomIn: "Zoom in", zoomOut: "Zoom out", fit: "Whole plan", historyDays: "Days kept",
     timelineHint: "Keeps where the trackers were in Home Assistant's storage, at most 30 days.",
     timelineOff: "The timeline is off. Set the days to keep in the settings.",
     runOne: "1 run", runMany: "{n} runs", fitSaved: "Saved from {runs}: reference power {ref} dBm (was {old}), corrections {pairs}. Error {rmsOld} → {rmsNew} dB.",
@@ -116,16 +116,16 @@ const TEXTS = {
     tabPlan: "Floor plan", tabScanners: "Scanners", tabTrackers: "Trackers", tabCalibration: "Calibration",
     tabTimeline: "Timeline", tabSettings: "Settings", menu: "Menu",
     about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · commit {commit}",
-    asOf: "As of {time}", refresh: "Refresh", integrationSettings: "Settings",
+    asOf: "As of {time}", refresh: "Refresh", integrationSettings: "Integration in Home Assistant",
     tabCoverage: "Coverage", coverage: "Coverage", covMode: "Map", covModel: "Model", covMeasured: "Measured",
     covDefault: "Default values", covAll: "All trackers",
     covGood: "Good: 3 or more scanners, around the place", covFair: "Fair: 2 scanners", covPoor: "Poor: 1 scanner or none",
-    covUp: "Better with the probe scanners",
+    covUp: "Better with the test scanners",
     covModelHint: "Predicted from the scanners' places, offsets and the path loss model. A scanner counts when it should receive at least {rssi} dBm.",
     covMeasuredHint: "What the scanners received where the trackers really were, over the days the timeline keeps. Grey: no tracker was there long enough.",
     covSummary: "{good} % of the area good, {fair} % fair, {poor} % poor.",
-    probes: "Probe scanners", probeHint: "Tap the plan to place a scanner that is only thought of (up to 5, 1 m high). Nothing is saved.",
-    probeOffset: "Probe scanners get the median offset of the scanners on the plan ({offset} dB).",
+    probes: "Test scanners", probeHint: "Tap the plan to place a scanner that is only thought of (up to 5, 1 m high). Nothing is saved.",
+    probeOffset: "Test scanners get the median offset of the scanners on the plan ({offset} dB).",
     removeAll: "Remove all", covOff: "The measurement records only while the timeline is on: set the days it keeps in the settings.",
     covDays: "{n} days since {first}", covNone: "No measurement yet.", covReset: "Start anew",
     covResetAsk: "Forget the whole measurement? Useful after a scanner moved or came in.",
@@ -133,6 +133,50 @@ const TEXTS = {
     covReasonScanners: "scanners moved, added, removed or paused", covReasonCalibration: "calibration values changed",
     covRooms: "Rooms", covGoodScanners: "Good scanners", covLevel: "Level", covTime: "Time", covMiss: "Miss",
     covCellModel: "{good} scanners good · HDOP {hdop}", covCellMeasured: "Ø {good} scanners good · miss {miss} m · {time}",
+    // The five areas and their pages
+    tabLive: "Live", tabDevices: "Devices", tabAnalysis: "Analysis", tabSetup: "Setup",
+    subNow: "Now", subHistory: "Timeline", subMeasure: "Measure", subTuning: "Fine-tuning",
+    subQuality: "Scanner quality", subOverview: "Overview", subLocation: "Positioning", subRecording: "Recording", subSystem: "System",
+    mountHeight: "Mounting height",
+    // One line of state; the why behind its (i)
+    stPaused: "Paused", stOffline: "Not reachable",
+    // One line asking for a tap on the plan
+    prMeasure: "Tap the plan where the tracker lies.", prMove: "Tap or drag the scanner to its place.",
+    prProbe: "Tap the plan to place a test scanner ({n} left).",
+    prSelect: "Tap a room, door or stairs.", prRect: "Drag a rectangle.", prPoly: "Tap the corners; tap the first again to close.",
+    prDoor: "Tap the wall where the door is.", prStairs: "Drag the stairs as a rectangle.",
+    stairsNeedFloor: "Add a second floor first.",
+    i_newRun: "A run measures how every scanner hears the tracker at a place you know. Lay the tracker down, tap its place on the plan, start, and leave it there until the run ends. A stopped or deleted run saves the tracker's reference power and its correction per scanner at once.",
+    i_measured: "What the scanners received where the trackers really were, over the days the timeline keeps. Grey: no tracker was there long enough.",
+    i_floors: "Tap a floor to draw on it. Elevation: height of its floor above the ground; buildings at ground level all stand at 0 m. Floors with the same building name form one building. Add a floor for a storey above or below, a building for a garage or garden house.",
+    i_pairs: "A correction in dB for one scanner and one tracker together, on top of the scanner's offset and the tracker's reference power. A stopped run sets it; here it can be changed by hand.",
+    i_quality: "Reception and fidelity of each active scanner over the hours set under Recording. The contribution is in the scanner's own page, as it takes longer to compute. Good so far: one figure still lacks data.",
+    i_hints: "What needs a look: scanners that receive nothing, runs from another scanner setup, new devices and scanners of poor quality.",
+    i_setup: "The steps in their order. Done: the plan has a room; at least three scanners are placed; a tracker is added; every tracked room has a run that fits the scanners as they stand; at least 80 % of the area is good in the coverage model.",
+    // Short lines, the long text behind (i)
+    qSinceShort: "Since {time} · {h} h", staleShort: "{n} of {m} runs from another scanner setup", unknownShort: "{n} of {m} runs with an unknown setup",
+    covStaleShort: "{n} of {m} days from before the change on {date}", autoShort: "Ends by itself, at the latest after {max} min.",
+    histOff: "The timeline is off.", recOff: "Recording is off.", turnOn: "Turn on",
+    noneNew: "Nothing new found.",
+    q_prelim: "good so far", qState: "State",
+    f_t_few_data: "Too little data yet", f_t_plan_position: "Check its place in the plan: about {m} m off", f_t_site: "The site disturbs it",
+    f_t_device: "It receives seldom", f_t_reception: "It receives seldom", f_t_redundant: "Hardly a contribution", f_t_good: "Well placed",
+    // Live
+    hintsTitle: "Notices", hNone: "Nothing needs a look.", hOffline: "{name} is not reachable", hNew: "New devices found: {n}",
+    hStale: "Runs from another scanner setup: {n}", hPoor: "{name}: quality poor", setUp: "Set up",
+    // Setup
+    setupTitle: "Setup", stepPlan: "Floor plan", stepScanners: "Scanners", stepTrackers: "Trackers", stepCal: "Calibration", stepCov: "Check the coverage",
+    sPlan: "Rooms: {rooms} · floors: {floors}", sScanners: "{n} placed · {off} not reachable", sTrackers: "{n} added · {unseen} not seen",
+    sCal: "{n} of {m} rooms measured", sCalStale: " · outdated runs: {k}", sCov: "{good} % of the area good (model)", sOpen: "open",
+    open: "Open", next: "Continue", unsaved: "Unsaved changes", covG: "good", covF: "fair", covP: "poor",
+    // Errors: one line by kind, what Home Assistant said behind the (i)
+    e_not_loaded: "BLE Floorplan is not set up.", e_not_found: "This is gone meanwhile. Refresh and try again.",
+    e_invalid_format: "The input does not fit.", e_calibration_running: "A calibration run is already going.",
+    e_no_calibration: "No calibration run is going.", e_calibration_failed: "Nothing could be computed from the runs.",
+    e_unauthorized: "This needs an administrator.", e_other: "That did not work. Please try again.", errDetail: "Message",
+    kbd: "With the keyboard: Tab to the plan; the arrow keys move the point, by 1 m with Shift.",
+    kbdProbe: "With the keyboard: Tab to the plan; the arrow keys move the cross, by 1 m with Shift; Enter places the test scanner.",
+    mapLabel: "Floor plan. Where a point is to be placed, the arrow keys move it.",
   },
   de: {
     title: "BLE-Grundriss", rooms: "Räume", scanners: "Scanner", trackers: "Tracker",
@@ -154,15 +198,15 @@ const TEXTS = {
     offline: "nicht erreichbar", offlineHint: "Dieser Scanner hat seit über einer Minute nichts empfangen. Hat er Strom und ist er mit Home Assistant verbunden?",
     hintMeasure: "Auf den Grundriss tippen, wo der Tracker liegt, dann starten.",
     hintMove: "Auf den Grundriss tippen, wo der Scanner hängt, oder ihn ziehen; dann speichern.", runs: "Messläufe", duration: "Dauer",
-    delete: "Löschen", fitExponent: "Exponent mitschätzen", fitWalls: "Wanddämpfung mitschätzen", wallLoss: "Dämpfung je Wand (dB)", perWall: "je Wand", compute: "Berechnen", apply: "Übernehmen",
+    delete: "Löschen", fitExponent: "Exponent mitschätzen", fitWalls: "Wanddämpfung mitschätzen", wallLoss: "Dämpfung je Wand", perWall: "je Wand", compute: "Berechnen", apply: "Übernehmen",
     preview: "Vorschlag", now: "jetzt", proposed: "neu", obs: "Beobachtungen", exponent: "Exponent",
-    rms: "RMS-Fehler (dB)", applied: "Übernommen.", saved: "Gespeichert.", display: "Anzeige", engine: "Engine",
-    motion: "Bewegung", roomRules: "Räume", robust: "Robuste Gewichte", attenuation: "Pfadverlust-Exponent",
-    refDefault: "Referenzleistung Standard (dBm)", maxDistance: "Größter Abstand (m)",
-    smoothing: "Glättung (s)", minMove: "Totzone (m)", clamp: "Tracker in den Räumen halten",
-    clampOutdoor: "Außenflächen zählen als Räume", maxSpeed: "Höchstgeschwindigkeit (m/s, 0 = keine)",
-    jumpDistance: "Sprungweite (m, 0 = aus)", jumpConfirm: "Sprung-Bestätigung (s)",
-    walls: "Wände nur an Türen passieren", wallTolerance: "Wandtoleranz (m)",
+    rms: "RMS-Fehler (dB)", applied: "Übernommen.", saved: "Gespeichert.", display: "Anzeige", engine: "Signal und Position",
+    motion: "Bewegung", roomRules: "Raumwechsel", robust: "Robuste Gewichte", attenuation: "Pfadverlust-Exponent",
+    refDefault: "Referenzleistung Standard", maxDistance: "Größter Abstand",
+    smoothing: "Glättung", minMove: "Totzone", clamp: "Tracker in den Räumen halten",
+    clampOutdoor: "Außenflächen zählen als Räume", maxSpeed: "Höchstgeschwindigkeit",
+    jumpDistance: "Sprungweite", jumpConfirm: "Sprung-Bestätigung",
+    walls: "Wände nur an Türen passieren", wallTolerance: "Wandtoleranz",
     exteriorDoors: "Gebäude nur durch ihre Türen verlassen", floorsSec: "Etagen", floor: "Etage",
     ignore: "Ignorieren", unignore: "Wieder vorschlagen", ignoredTitle: "Ignorierte Vorschläge",
     ignoredHint: "Scanner und Geräte, die die Seite nicht mehr zum Hinzufügen anbietet, damit neue auffallen.",
@@ -172,7 +216,7 @@ const TEXTS = {
     qPart: "Beitrag", qPartSub: "{worse} von {cells} Zellen wären ohne ihn ungenauer",
     q_good: "gut", q_fair: "mittel", q_poor: "schlecht", q_unknown: "zu wenig Daten",
     qBtn: "Details", qSince: "Gesammelt seit {time} (bisher {h} h, es zählen die letzten {max} h); bleibt über Neustarts erhalten. Beginnt neu, wenn der Scanner verschoben oder seine Kalibrierung geändert wird.",
-    qualitySec: "Scanner-Qualität", qualityHours: "Zeitraum in Stunden (1–720)", info: "Erklärung",
+    qualitySec: "Scanner-Qualität", qualityHours: "Zeitraum", info: "Erklärung",
     h_wall_loss: "Wie stark eine Wand zwischen Scanner und Tracker das Signal schwächt. Trockenbau etwa 3 bis 5 dB, Mauerwerk oder Beton 10 und mehr. Gezählt wird ab der zuletzt gemessenen Position, so wirken Scanner hinter Wänden nicht zu weit weg. 0 ist aus. Die Kalibrierung kann sie aus Messläufen in mehreren Räumen bestimmen.",
     h_wall_tolerance: "Eine gemessene Position höchstens so weit hinter einer Wand gilt als Rauschen: Die gezeigte Position bleibt im Raum und gleitet an der Wand entlang, ohne Umweg über eine Tür. Liegt sie weiter dahinter, geht sie durch die nächste Tür auf dem Weg. 0 schickt jeden Schritt hinter eine Wand zur Tür.",
     h_height_uncertainty: "Tracker liegen nicht auf einer festen Höhe: in der Tasche, auf dem Tisch, im Bett. An, zählt ein Tracker irgendwo in einem Höhenbereich, seinem eigenen oder seine Höhe ± den Bereich darunter; ein Scanner hoch darüber und in der Nähe zählt dann weniger, weil sein Abstand auf dem Boden am stärksten von der Höhe abhängt. Aus, gilt die feste Höhe wie eingetragen.",
@@ -200,23 +244,23 @@ const TEXTS = {
     edHaFloor: "Etage in Home Assistant", edFloorsHint: "Etage antippen, um auf ihr zu zeichnen. Höhe über Grund: wo ihr Boden liegt; Gebäude auf Bodenhöhe stehen alle bei 0 m.",
     edFloorUsed: "Auf dieser Etage liegt noch etwas: zuerst ihre Räume, Türen, Treppen und Scanner verschieben oder löschen.",
     edRoom: "Raum", edGround: "Erdgeschoss", edBuilding: "Gebäude", edFloor: "Etage", edNoWall: "Keine Wand in der Nähe: direkt auf eine Wand tippen.",
-    stairsOnly: "Etage nur über Treppen wechseln", floorLoss: "Dämpfung je Decke (dB)",
-    floorMargin: "Etagenwechsel: besser um (m)", floorHold: "Etagenwechsel: Haltezeit (s)", awaySeconds: "Abwesend nach (s) ohne Empfang", heightUncertainty: "Höhe als Bereich", heightSpread: "Höhenbereich ± (m)", roomHold: "Haltezeit (s)",
-    roomMargin: "Wandabstand (m)", robustResidual: "Residuum (m, 0 = aus)",
+    stairsOnly: "Etage nur über Treppen wechseln", floorLoss: "Dämpfung je Decke",
+    floorMargin: "Etagenwechsel: besser um", floorHold: "Etagenwechsel: Haltezeit", awaySeconds: "Abwesend ohne Empfang nach", heightUncertainty: "Höhe als Bereich", heightSpread: "Höhenbereich ±", roomHold: "Haltezeit",
+    roomMargin: "Wandabstand", robustResidual: "Residuum",
     calibration: "Kalibrierung", noRuns: "Noch keine Messläufe.", running: "läuft",
     date: "Datum", setupMoved: "{name} verschoben", setupAdded: "{name} neu", setupRemoved: "{name} entfernt",
     setupUnknown: "Scanner-Aufbau nicht gespeichert", clearRuns: "Alle löschen",
     staleRuns: "{n} von {m} Messläufen stammen von einem anderen Scanner-Aufbau: Seither wurden Scanner verschoben, hinzugefügt oder entfernt. Ihre Werte passen nicht mehr; am besten löschen und neu messen.",
     unknownRuns: "{n} von {m} Messläufen sind älter als die Aufzeichnung des Scanner-Aufbaus: Ob er sich seither geändert hat, ist nicht bekannt.",
     confirmClear: "Alle {n} Messläufe löschen? Die daraus gespeicherten Werte bleiben, bis du neu misst.", cleared: "Alle Messläufe gelöscht.",
-    samples: "Samples", rotation: "Drehung",
+    samples: "Messwerte", rotation: "Drehung",
     noPlan: "Noch kein Grundriss: Eine Administratorin oder ein Administrator richtet ihn in BLE Floorplan in der Seitenleiste ein.",
     notLoaded: "BLE Floorplan ist nicht eingerichtet.", unknown: "–",
     plan: "Grundriss", add: "Hinzufügen", name: "Name",
     layoutHint: "Räume als Rechteck (x, y, w, h) oder Polygon (points), Zonen, Außenflächen und Öffnungen, in Metern; area verknüpft einen Raum mit einem Bereich von Home Assistant, tracked: false nimmt ihn aus Abdeckung und „Wo messen“. Siehe README.",
-    confirmRemove: "{name} vom Plan nehmen?", startHere: "Noch keine Räume: rechts den Grundriss eintragen, dann Scanner und Tracker hinzufügen.",
-    timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", pause: "Anhalten",
-    speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", fit: "Ganzer Grundriss", historyDays: "Tage aufbewahren (0 = aus)",
+    confirmRemove: "{name} vom Plan nehmen?", startHere: "Noch keine Räume: unter Einrichtung mit dem Grundriss beginnen.",
+    timeline: "Verlauf", live: "LIVE", backToLive: "Zurück zu live", play: "Abspielen", tlPause: "Anhalten",
+    speed: "Tempo", zoomIn: "Vergrößern", zoomOut: "Verkleinern", fit: "Ganzer Grundriss", historyDays: "Tage aufbewahren",
     timelineHint: "Speichert, wo die Tracker waren, im Speicher von Home Assistant, höchstens 30 Tage.",
     timelineOff: "Der Verlauf ist aus. In den Einstellungen festlegen, wie viele Tage er aufbewahrt wird.",
     runOne: "1 Messlauf", runMany: "{n} Messläufen", fitSaved: "Gespeichert aus {runs}: Referenzleistung {ref} dBm (vorher {old}), Korrekturen {pairs}. Fehler {rmsOld} → {rmsNew} dB.",
@@ -234,19 +278,19 @@ const TEXTS = {
     guideCount: "{n} von {m} Räumen",
     addScanner: "Scanner hinzufügen", addTracker: "Tracker hinzufügen", trackerCount: "{n} Tracker", seenBy: "{n} Scanner",
     planSaved: "Grundriss gespeichert.",
-    tabPlan: "Grundriss", tabScanners: "Scanner", tabTrackers: "Tracker", tabCalibration: "Kalibrierung",
+    tabPlan: "Grundriss", tabScanners: "Scanner", tabTrackers: "Tracker", tabCalibration: "Kalibrieren",
     tabTimeline: "Verlauf", tabSettings: "Einstellungen", menu: "Menü",
     about: "BLE Floorplan {version}", aboutCommit: "BLE Floorplan {version} · Commit {commit}",
-    asOf: "Stand {time}", refresh: "Aktualisieren", integrationSettings: "Einstellungen",
+    asOf: "Stand {time}", refresh: "Aktualisieren", integrationSettings: "Integration in Home Assistant",
     tabCoverage: "Abdeckung", coverage: "Abdeckung", covMode: "Karte", covModel: "Modell", covMeasured: "Gemessen",
     covDefault: "Standardwerte", covAll: "Alle Tracker",
     covGood: "Gut: 3 oder mehr Scanner, rundherum verteilt", covFair: "Mittel: 2 Scanner", covPoor: "Schwach: 1 Scanner oder keiner",
-    covUp: "Besser mit den Probe-Scannern",
+    covUp: "Besser mit den Test-Scannern",
     covModelHint: "Berechnet aus Standorten, Offsets und dem Pfadverlust-Modell der Scanner. Ein Scanner zählt, wenn er mindestens {rssi} dBm empfangen müsste.",
     covMeasuredHint: "Was die Scanner dort empfangen haben, wo die Tracker wirklich waren, über die Tage, die der Verlauf aufbewahrt. Grau: Dort war kein Tracker lange genug.",
     covSummary: "{good} % der Fläche gut, {fair} % mittel, {poor} % schwach.",
-    probes: "Probe-Scanner", probeHint: "Auf den Grundriss tippen, um einen gedachten Scanner zu setzen (bis zu 5, 1 m hoch). Gespeichert wird nichts.",
-    probeOffset: "Probe-Scanner bekommen den mittleren Offset der Scanner auf dem Plan ({offset} dB).",
+    probes: "Test-Scanner", probeHint: "Auf den Grundriss tippen, um einen gedachten Scanner zu setzen (bis zu 5, 1 m hoch). Gespeichert wird nichts.",
+    probeOffset: "Test-Scanner bekommen den mittleren Offset der Scanner auf dem Plan ({offset} dB).",
     removeAll: "Alle entfernen", covOff: "Die Messung zeichnet nur auf, solange der Verlauf an ist: In den Einstellungen festlegen, wie viele Tage er aufbewahrt.",
     covDays: "{n} Tage seit {first}", covNone: "Noch keine Messung.", covReset: "Neu beginnen",
     covResetAsk: "Die ganze Messung vergessen? Sinnvoll, nachdem ein Scanner umgezogen oder dazugekommen ist.",
@@ -254,21 +298,79 @@ const TEXTS = {
     covReasonScanners: "Scanner verschoben, hinzugefügt, entfernt oder pausiert", covReasonCalibration: "Kalibrierwerte geändert",
     covRooms: "Räume", covGoodScanners: "Gute Scanner", covLevel: "Stufe", covTime: "Zeit", covMiss: "Abweichung",
     covCellModel: "{good} Scanner gut · HDOP {hdop}", covCellMeasured: "Ø {good} Scanner gut · Abweichung {miss} m · {time}",
+    // Die fünf Bereiche und ihre Seiten
+    tabLive: "Live", tabDevices: "Geräte", tabAnalysis: "Analyse", tabSetup: "Einrichtung",
+    subNow: "Jetzt", subHistory: "Verlauf", subMeasure: "Messen", subTuning: "Feinabstimmung",
+    subQuality: "Scanner-Qualität", subOverview: "Übersicht", subLocation: "Ortung", subRecording: "Aufzeichnung", subSystem: "System",
+    mountHeight: "Montagehöhe",
+    stPaused: "Pausiert", stOffline: "Nicht erreichbar",
+    prMeasure: "Auf den Grundriss tippen, wo der Tracker liegt.", prMove: "Den Scanner an seinen Platz tippen oder ziehen.",
+    prProbe: "Auf den Grundriss tippen für einen Test-Scanner (noch {n}).",
+    prSelect: "Raum, Tür oder Treppe antippen.", prRect: "Ein Rechteck aufziehen.", prPoly: "Ecken antippen; die erste erneut antippen zum Schließen.",
+    prDoor: "Die Wand antippen, wo die Tür ist.", prStairs: "Die Treppe als Rechteck aufziehen.",
+    stairsNeedFloor: "Erst eine zweite Etage anlegen.",
+    i_newRun: "Ein Messlauf misst, wie jeder Scanner den Tracker an einem bekannten Ort hört. Tracker hinlegen, seinen Ort im Grundriss antippen, starten und bis zum Ende liegen lassen. Ein beendeter oder gelöschter Messlauf speichert sofort die Referenzleistung des Trackers und seine Korrektur je Scanner.",
+    i_measured: "Was die Scanner dort empfangen haben, wo die Tracker wirklich waren, über die Tage, die der Verlauf aufbewahrt. Grau: Dort war kein Tracker lange genug.",
+    i_floors: "Etage antippen, um auf ihr zu zeichnen. Höhe über Grund: wo ihr Boden liegt; Gebäude auf Bodenhöhe stehen alle bei 0 m. Etagen mit demselben Gebäudenamen bilden ein Gebäude. Eine Etage hinzufügen für ein Stockwerk darüber oder darunter, ein Gebäude für Garage, Gartenhaus oder Gästehaus.",
+    i_pairs: "Eine Korrektur in dB für einen Scanner und einen Tracker zusammen, zusätzlich zum Offset des Scanners und zur Referenzleistung des Trackers. Ein beendeter Messlauf setzt sie; hier lässt sie sich von Hand ändern.",
+    i_quality: "Empfang und Modelltreue jedes aktiven Scanners über die Stunden, die unter Aufzeichnung eingestellt sind. Der Beitrag steht auf der Seite des Scanners, weil er länger braucht. Vorläufig gut: Für eine Kennzahl fehlen noch Daten.",
+    i_hints: "Was einen Blick braucht: Scanner, die nichts empfangen, Messläufe von einem anderen Scanner-Aufbau, neue Geräte und Scanner mit schlechter Qualität.",
+    i_setup: "Die Schritte in ihrer Reihenfolge. Erledigt: Der Grundriss hat einen Raum; mindestens drei Scanner sind platziert; ein Tracker ist hinzugefügt; jeder Raum fürs Tracking hat einen Messlauf, der zum heutigen Scanner-Aufbau passt; mindestens 80 % der Fläche sind im Modell gut abgedeckt.",
+    qSinceShort: "Seit {time} · {h} h", staleShort: "{n} von {m} Messläufen von einem anderen Scanner-Aufbau", unknownShort: "{n} von {m} Messläufen mit unbekanntem Aufbau",
+    covStaleShort: "{n} von {m} Tagen vor der Änderung am {date}", autoShort: "Endet von selbst, spätestens nach {max} min.",
+    histOff: "Der Verlauf ist aus.", recOff: "Die Aufzeichnung ist aus.", turnOn: "Einschalten",
+    noneNew: "Nichts Neues gefunden.",
+    q_prelim: "vorläufig gut", qState: "Zustand",
+    f_t_few_data: "Noch zu wenig Daten", f_t_plan_position: "Position im Plan prüfen: etwa {m} m daneben", f_t_site: "Der Standort stört",
+    f_t_device: "Empfängt selten", f_t_reception: "Empfängt selten", f_t_redundant: "Kaum ein Beitrag", f_t_good: "Gut platziert",
+    hintsTitle: "Hinweise", hNone: "Alles in Ordnung.", hOffline: "{name} ist nicht erreichbar", hNew: "Neue Geräte gefunden: {n}",
+    hStale: "Messläufe von einem anderen Scanner-Aufbau: {n}", hPoor: "{name}: Qualität schlecht", setUp: "Einrichten",
+    setupTitle: "Einrichtung", stepPlan: "Grundriss", stepScanners: "Scanner", stepTrackers: "Tracker", stepCal: "Kalibrierung", stepCov: "Abdeckung prüfen",
+    sPlan: "Räume: {rooms} · Etagen: {floors}", sScanners: "{n} platziert · {off} nicht erreichbar", sTrackers: "{n} hinzugefügt · {unseen} nicht gesehen",
+    sCal: "{n} von {m} Räumen gemessen", sCalStale: " · veraltete Messläufe: {k}", sCov: "{good} % der Fläche gut (Modell)", sOpen: "offen",
+    open: "Öffnen", next: "Weiter", unsaved: "Ungespeicherte Änderungen", covG: "gut", covF: "mittel", covP: "schwach",
+    e_not_loaded: "BLE Floorplan ist nicht eingerichtet.", e_not_found: "Das gibt es inzwischen nicht mehr. Aktualisieren und erneut versuchen.",
+    e_invalid_format: "Die Eingabe passt nicht.", e_calibration_running: "Es läuft schon ein Messlauf.",
+    e_no_calibration: "Es läuft kein Messlauf.", e_calibration_failed: "Aus den Messläufen ließ sich nichts berechnen.",
+    e_unauthorized: "Dafür braucht es einen Administrator.", e_other: "Das hat nicht geklappt. Bitte erneut versuchen.", errDetail: "Meldung",
+    kbd: "Mit der Tastatur: den Grundriss mit Tab anwählen; die Pfeiltasten verschieben den Punkt, mit Umschalt um 1 m.",
+    kbdProbe: "Mit der Tastatur: den Grundriss mit Tab anwählen; die Pfeiltasten verschieben das Kreuz, mit Umschalt um 1 m; Enter setzt den Test-Scanner.",
+    mapLabel: "Grundriss. Wo ein Punkt zu setzen ist, verschieben ihn die Pfeiltasten.",
   },
 };
 
 export const texts = (hass) => TEXTS[(hass?.language || "en").slice(0, 2)] || TEXTS.en;
 
-// Numbers to read, in the language of Home Assistant
-export const formatter = (hass) => {
-  const lang = hass?.language || "en";
-  return (v, d = 1) =>
-    Number.isFinite(v) ? v.toLocaleString(lang, { minimumFractionDigits: d, maximumFractionDigits: d }) : "–";
+// An error of a call as the page and the card show it: one line by its kind, the
+// same for every call, and what Home Assistant said for the (i)
+export const errorText = (t, err) => {
+  const code = err?.code;
+  const text = (code && t[`e_${code}`]) || t.e_other;
+  const said = err?.message || (typeof err === "string" ? err : "");
+  return { text, detail: said && said !== text ? said : "" };
 };
 
-// Numbers in a field: the language of Home Assistant; typing takes a point or a comma
+// Numbers to read, in the language of Home Assistant
+// The locale numbers are written in, as Home Assistant writes them: the number
+// format of the user's profile, by default that of the language
+export const numberLocale = (hass) => {
+  const format = hass?.locale?.number_format;
+  if (format === "system") return undefined;
+  return { comma_decimal: "en-US", decimal_comma: "de", space_comma: "fr", none: "en-US" }[format] ||
+    hass?.locale?.language || hass?.language || "en";
+};
+const grouping = (hass) => hass?.locale?.number_format !== "none";
+
+export const formatter = (hass) => {
+  const lang = numberLocale(hass);
+  const useGrouping = grouping(hass);
+  return (v, d = 1) =>
+    Number.isFinite(v) ? v.toLocaleString(lang, { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping }) : "–";
+};
+
+// Numbers in a field: the number format of the profile; typing takes a point or a comma
 export const fieldNumber = (hass, value) =>
-  Number.isFinite(value) ? value.toLocaleString(hass?.language || "en", { useGrouping: false, maximumFractionDigits: 3 }) : "";
+  Number.isFinite(value) ? value.toLocaleString(numberLocale(hass), { useGrouping: false, maximumFractionDigits: 3 }) : "";
 
 export const numOrNull = (v) => {
   const n = parseFloat(String(v).replace(",", "."));
@@ -637,9 +739,10 @@ export const bindHover = (map, tip, html) => {
 };
 
 // Go to a page of Home Assistant without reloading it
-export const navigate = (path) => {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+export const navigate = (path, replace = false) => {
+  if (replace) window.history.replaceState(null, "", path);
+  else window.history.pushState(null, "", path);
+  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace } }));
 };
 
 // Zoom and pan of the plan in a map: pinch, wheel (on the card with Ctrl, as a
@@ -852,6 +955,9 @@ export const MDI = {
   calibration: "M11,2V4.07C7.38,4.53 4.53,7.38 4.07,11H2V13H4.07C4.53,16.62 7.38,19.47 11,19.93V22H13V19.93C16.62,19.47 19.47,16.62 19.93,13H22V11H19.93C19.47,7.38 16.62,4.53 13,4.07V2M11,6.08V8H13V6.09C15.5,6.5 17.5,8.5 17.92,11H16V13H17.91C17.5,15.5 15.5,17.5 13,17.92V16H11V17.91C8.5,17.5 6.5,15.5 6.08,13H8V11H6.09C6.5,8.5 8.5,6.5 11,6.08M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11Z",
   coverage: "M3,21H6V18H3M8,21H11V14H8M13,21H16V9H13M18,21H21V3H18V21Z",
   timeline: "M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3",
+  save: "M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z",
+  check: "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z",
+  alert: "M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z",
   settings: "M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z",
 };
 

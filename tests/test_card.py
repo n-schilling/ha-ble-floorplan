@@ -85,22 +85,48 @@ def test_card_and_page_share_the_subscription() -> None:
 
 
 def test_panel_is_built_from_home_assistant_elements() -> None:
-    """The page uses Home Assistant's elements, not look-alikes, and shows the version at the bottom."""
+    """The page uses Home Assistant's elements, not look-alikes: its frame with tabs, tabs, rows, tooltips."""
     panel = (FRONTEND / "ble-floorplan-panel.js").read_text(encoding="utf-8")
     for element in (
-        "ha-top-app-bar-fixed",
-        "ha-menu-button",
+        "hass-tabs-subpage",
+        "ha-tab-group",
+        "ha-tab-group-tab",
+        "ha-settings-row",
+        "ha-tooltip",
+        "ha-icon-button",
         "ha-card",
         "ha-button",
         "ha-alert",
         "ha-form",
+        "ha-expansion-panel",
+        "ha-assist-chip",
     ):
         assert f"<{element}" in panel or f'"{element}"' in panel, element
-    # Home Assistant's header: the sidebar's colour with a line, and the height fix
-    assert "--app-header-background-color: var(--sidebar-background-color" in panel
+    # The look-alikes of before are gone: own header, own tabs, own dialog
+    for gone in ("ha-top-app-bar-fixed", "bottom-tabs", "qdialog", 'class="tab'):
+        assert gone not in panel, gone
     assert "height: 100dvh" in panel
     assert "<button" not in panel
-    assert "<select" in panel  # only the speed of the timeline
-    assert panel.count("<select") == 1
+    assert panel.count("<select") == 1  # only the speed of the timeline
     assert "window.confirm" not in panel
     assert 'class="about"' in panel
+
+
+def _language_keys(shared: str, language: str) -> list[str]:
+    """The keys of one language of the texts, in order, each as often as it is written."""
+    start = shared.index(f"\n  {language}: {{\n")
+    end = shared.index("\n  },", start)
+    body = shared[start:end]
+    return re.findall(r'(?:^|", |\{ )\s*([A-Za-z_][A-Za-z0-9_]*): "', body, re.MULTILINE)
+
+
+def test_texts_have_each_key_once_in_both_languages() -> None:
+    """A key written twice silently takes the later text (Pause became Anhalten); both languages alike."""
+    shared = (FRONTEND / "ble-floorplan-plan.js").read_text(encoding="utf-8")
+    english = _language_keys(shared, "en")
+    german = _language_keys(shared, "de")
+    assert len(english) > 300
+    for keys in (english, german):
+        twice = sorted({k for k in keys if keys.count(k) > 1})
+        assert not twice, twice
+    assert set(english) == set(german)

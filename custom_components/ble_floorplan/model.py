@@ -775,8 +775,8 @@ class Floorplan:
     def on_level(self, elevation: float) -> Floorplan:
         """Return the plan of one level: only the rooms and openings of its floors.
 
-        Scanners, trackers and settings stay; the extent stays that of the
-        whole site. A plan of one level is itself.
+        Scanners, trackers and settings stay; the extent becomes that of the
+        level's rooms. A plan of one level is itself.
         """
         if len(self.levels) == 1:
             return self

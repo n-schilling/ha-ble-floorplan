@@ -167,15 +167,20 @@ def _robust_weights(
     return weights
 
 
-def trilaterate(measurements: Sequence[Measurement], plan: Floorplan) -> Point | None:
+def trilaterate(
+    measurements: Sequence[Measurement],
+    plan: Floorplan,
+    extent: tuple[float, float] | None = None,
+) -> Point | None:
     """Return the weighted least-squares position, or None without measurements.
 
     Weights are 1 / d^2: near scanners count more, less where the height
     leaves the distance open (weight()). With robust_residual set and
     four or more scanners, a scanner whose circle the others contradict loses
     weight, so one scanner that swings cannot drag the position. The result is
-    kept in the plan's extent and, when clamping is on, moved into the closest
-    room.
+    kept in the extent (by default the plan's; for the plan of one level, pass
+    the whole site's, as a level without rooms has none) and, when clamping is
+    on, moved into the closest room.
     """
     if not measurements:
         return None
@@ -184,7 +189,7 @@ def trilaterate(measurements: Sequence[Measurement], plan: Floorplan) -> Point |
     if k > 0 and len(measurements) >= ROBUST_MIN_SCANNERS:
         weights = _robust_weights(measurements, weights, k)
     x, y = _solve(measurements, weights)
-    width, height = plan.extent
+    width, height = plan.extent if extent is None else extent
     x = min(max(x, 0.0), width)
     y = min(max(y, 0.0), height)
     return plan.clamp(x, y)

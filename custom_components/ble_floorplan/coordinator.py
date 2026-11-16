@@ -322,6 +322,10 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
                 continue
             sample = (stamp, device.advertisement.rssi)
             samples.append(sample)
+            # Keep only the window, for every scanner: also one that is
+            # paused or not in the plan, whose samples _locate never reads
+            while samples[0][0] < stamp - RSSI_WINDOW_SECONDS:
+                samples.popleft()
             if scanner.source in sources:
                 self.quality.count(key, sources[scanner.source])
             if run is not None and run.tracker == key and scanner.source in sources:
@@ -345,12 +349,8 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
             if scanner.paused:
                 silent[scanner.key] = Reading(None, None, False)
                 continue
+            # _collect keeps only the window of the newest sample
             samples = self._samples.get((tracker.key, scanner.source))
-            if samples:
-                # Drop what fell out of the window; the newest sample defines it
-                newest = samples[-1][0]
-                while samples[0][0] < newest - RSSI_WINDOW_SECONDS:
-                    samples.popleft()
             if not samples or samples[-1][0] < now - STALE_SECONDS:
                 silent[scanner.key] = Reading(None, None, False)
                 continue
@@ -372,6 +372,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
                 point = trilaterate(
                     self._measurements(plan, tracker, heard, candidate, at, strict=False)[0],
                     plan.on_level(candidate),
+                    plan.extent,
                 )
                 if point is not None and hearing:
                     fits[candidate] = misfit(point, hearing, candidate + tracker.height)
@@ -383,7 +384,7 @@ class FloorplanCoordinator(DataUpdateCoordinator[Positions]):
         )
         readings |= silent
         readings = {s.key: readings[s.key] for s in plan.scanners}
-        raw = trilaterate(measurements, level_plan)
+        raw = trilaterate(measurements, level_plan, plan.extent)
         if raw is None:
             self._forget(tracker.key)
             return TrackerPosition(

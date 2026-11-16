@@ -11,6 +11,7 @@ import {
   bindHover,
   computeBounds,
   detailHtml,
+  errorText,
   esc,
   formatter,
   iconButton,
@@ -23,7 +24,7 @@ import {
   planSvg,
   shownLevel,
   texts,
-} from "./ble-floorplan-plan.js?v=0.34.0";
+} from "./ble-floorplan-plan.js?v=0.35.0";
 
 if (!customElements.get("ble-floorplan-card")) {
   const ROT_KEY = "ble-floorplan-card-rot";
@@ -84,7 +85,7 @@ if (!customElements.get("ble-floorplan-card")) {
           this,
           (event) => this._onEvent(event),
           (err) => {
-            const error = !err ? null : err.code === "not_loaded" ? texts(this._hass).notLoaded : String(err.message || err);
+            const error = !err ? null : errorText(texts(this._hass), err).text;
             if (error === this._error) return;
             this._error = error;
             this._render();

@@ -103,6 +103,23 @@ async def test_window_median_and_dedupe(
     assert tag.nearest == "living"
 
 
+async def test_window_of_scanner_outside_plan(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    clock: Callable[[float], None],
+) -> None:
+    """A scanner not in the plan keeps only the window: its samples do not pile up."""
+    coordinator = entry.runtime_data.coordinator
+    proxy = FakeScanner("AA:BB:CC:DD:EE:99", "Proxy outside the plan")
+    for t in range(1000, 1060):
+        scanner_devices[TAG] = [scanner_device(proxy, TAG, -70, float(t))]
+        clock(t + 0.5)
+        await coordinator.async_refresh()
+    samples = coordinator._samples[("tag", proxy.source)]
+    assert [s[0] for s in samples] == [float(t) for t in range(1049, 1060)]
+
+
 async def test_stale_and_reset(
     hass: HomeAssistant,
     entry: MockConfigEntry,

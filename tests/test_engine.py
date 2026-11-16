@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
@@ -77,6 +78,15 @@ def test_trilaterate(
     result = trilaterate([Measurement(p[0], p[1], d) for p, d in measurements], plan)  # type: ignore[arg-type]
     assert result is not None
     assert result == pytest.approx(expected, abs=1e-6)
+
+
+def test_trilaterate_extent_of_site() -> None:
+    """A level without rooms has no extent; the site's keeps the position."""
+    level = dataclasses.replace(NO_CLAMP, rooms=())
+    measurements = [Measurement(1, 1, 3.0), Measurement(9, 1, 5.0)]
+    assert trilaterate(measurements, level) == (0.0, 0.0)
+    result = trilaterate(measurements, level, NO_CLAMP.extent)
+    assert result == pytest.approx((3.9999999903, 1.0), abs=1e-6)
 
 
 def test_trilaterate_nothing() -> None:
