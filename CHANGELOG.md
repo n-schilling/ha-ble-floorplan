@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.35.1] - 2026-11-16
+
+### Fixed
+
+- A link within Home Assistant that changes only the query of the page's address (another scanner, `?view=quality`) shows that page: Home Assistant passes a new route only when the path changes, so the page reads the address itself. Back and forward follow it too.
+
 ## [0.35.0] - 2026-11-16
 
 ### Changed

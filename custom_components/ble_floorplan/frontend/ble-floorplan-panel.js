@@ -46,8 +46,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.35.0";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.35.0";
+} from "./ble-floorplan-plan.js?v=0.35.1";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.35.1";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";
@@ -273,6 +273,9 @@ if (!customElements.get("ble-floorplan-panel")) {
         return;
       }
       const query = new URLSearchParams(search);
+      // The same address again (Home Assistant after the query was read): nothing to do
+      if (window.location.pathname + search === this._href && this._tab === parts[1]) return;
+      this._href = window.location.pathname + search;
       this._route = { prefix: PANEL_PATH, path: `/${area[0]}/${parts[1]}` };
       this._setTab(parts[1], query.get("key"), query.get("view"));
     }
@@ -283,6 +286,15 @@ if (!customElements.get("ble-floorplan-panel")) {
 
     connectedCallback() {
       this._live.ensure(this._hass);
+      // Home Assistant passes a new route only when the path changes: an address that
+      // changes only its query (another scanner, ?view=quality) is read here
+      this._onLocation = () => {
+        const { pathname, search } = window.location;
+        if (!pathname.startsWith(`${PANEL_PATH}/`) || pathname + search === this._href) return;
+        this.route = { prefix: PANEL_PATH, path: pathname.slice(PANEL_PATH.length) };
+      };
+      window.addEventListener("location-changed", this._onLocation);
+      window.addEventListener("popstate", this._onLocation);
       // The measurement on the coverage page is fetched again even while no tracker moves
       this._covTimer = window.setInterval(() => {
         if (this._tab === "coverage" && this._cov.mode === "measured") this._render();
@@ -292,6 +304,8 @@ if (!customElements.get("ble-floorplan-panel")) {
     }
 
     disconnectedCallback() {
+      window.removeEventListener("location-changed", this._onLocation);
+      window.removeEventListener("popstate", this._onLocation);
       this._live.close();
       this._tlPause();
       window.clearInterval(this._covTimer);
@@ -1893,6 +1907,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._dragPos = null;
           const view = name === "overview" ? "" : `&view=${name}`;
           window.history.replaceState(null, "", `${pagePath("scanners")}?key=${encodeURIComponent(this._selScanner)}${view}`);
+          this._href = window.location.pathname + window.location.search;
           this._render();
         }
       });
@@ -2076,6 +2091,7 @@ if (!customElements.get("ble-floorplan-panel")) {
           this._note = null;
           this._confirm = null;
           if (window.location.search) window.history.replaceState(null, "", pagePath(this._tab));
+          this._href = window.location.pathname + window.location.search;
           break;
         case "sys-device":
           navigate(`/config/devices/device/${key}`);
@@ -2149,6 +2165,7 @@ if (!customElements.get("ble-floorplan-panel")) {
             this._dragPos = { [sc.key]: [snap(sc.x + sh.dx), snap(sc.y + sh.dy)] };
             this._note = null;
             window.history.replaceState(null, "", `${pagePath("scanners")}?key=${encodeURIComponent(sc.key)}`);
+            this._href = window.location.pathname + window.location.search;
           }
           break;
         }

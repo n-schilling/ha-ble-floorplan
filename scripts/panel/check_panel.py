@@ -905,8 +905,21 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
             await page.screenshot(path=str(shots / "scanner-system.png"))
         await page.locator(f"{PANEL} #views ha-tab-group-tab[panel='overview']").click()
         await page.locator(f"{PANEL} ha-button[data-act='edit-scanner']").wait_for()
+        # An address that changes only its query, as a link within the app: the page follows
+        await page.evaluate(
+            """() => {
+              history.pushState(null, "", "/ble-floorplan/devices/scanners?key=hall&view=quality");
+              window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+            }"""
+        )
+        await _until(lambda: _named(page, "Hall plug"), "the hall plug's page from the query")
+        await page.locator(f"{PANEL} #views ha-tab-group-tab[panel='quality'][active]").wait_for()
+        await page.locator(f"{PANEL} #sheet .qoverall").wait_for()
 
-    await checks.run("the system details are a page of the scanner", system_details)
+    await checks.run(
+        "the system details are a page of the scanner; a query alone switches the page",
+        system_details,
+    )
 
     async def pause_and_resume() -> None:
         # A paused scanner and tracker: grey with "paused", left out until resumed
