@@ -76,6 +76,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         # The content hash makes browsers fetch every changed page, also within a version
         module_url=f"{PANEL_PATH}?v={await _async_digest(hass)}",
         require_admin=True,
+        # Home Assistant's frame hass-tabs-subpage pads itself by the safe area (iPhone)
+        handle_safe_area=True,
     )
 
 

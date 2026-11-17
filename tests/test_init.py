@@ -157,6 +157,7 @@ async def test_panel_for_administrators(hass: HomeAssistant, entry: MockConfigEn
     assert custom["name"] == PANEL_ELEMENT
     assert custom["module_url"] == (await async_card_url(hass)).replace(CARD_PATH, PANEL_PATH)
     assert not custom["embed_iframe"]
+    assert custom["handle_safe_area"]
 
 
 async def test_panel_stays_through_a_reload(hass: HomeAssistant, entry: MockConfigEntry) -> None:

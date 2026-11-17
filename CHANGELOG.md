@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.35.2] - 2026-11-17
+
+### Fixed
+
+- On a phone with a notch or rounded corners (iPhone) the page's header was too high and the bar at the bottom ran off the screen.
+
 ## [0.35.1] - 2026-11-16
 
 ### Fixed
