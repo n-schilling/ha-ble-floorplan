@@ -13,4 +13,4 @@ habluetooth==7.1.2
 aiousbwatcher==1.1.2
 serialx==1.15.1
 aiohasupervisor==0.8.1
-playwright==1.64.1
+playwright==1.65.2
