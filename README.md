@@ -1,6 +1,6 @@
 # BLE Floorplan
 
-[![Marketplace: custom](https://img.shields.io/badge/Marketplace-custom-41BDF5.svg)](#installation)
+[![Marketplace: default](https://img.shields.io/badge/Marketplace-default-41BDF5.svg)](#installation)
 
 A Home Assistant integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor and a presence tracker. A page in the sidebar, for administrators only, sets everything up; a dashboard card shows the plan with the trackers moving live.
 
@@ -417,17 +417,43 @@ A tracker whose Private BLE Device was removed from Home Assistant raises a repa
 
 ## Installation
 
-1. **Settings → Marketplace → Add from link** (top right), enter `https://github.com/n-schilling/ha-ble-floorplan` as GitHub link and add it. Adding a repository by link asks you to connect GitHub once.
-2. Install **BLE Floorplan** in the Marketplace and restart Home Assistant.
+BLE Floorplan is part of the official catalog of the [Home Assistant Marketplace](https://www.home-assistant.io/integrations/marketplace/): you find it there by its name, with nothing to add first. There are three ways to install it, and each one is complete in itself. All need Home Assistant 2026.11 or later, with the Bluetooth integration, and nothing outside Home Assistant.
+
+### Easy installation
+
+Through the search in the Marketplace, the way for almost everyone.
+
+1. Open **Settings → Marketplace** and search for **BLE Floorplan**.
+2. Install it and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
 4. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
 5. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
 
-Requires Home Assistant 2026.11 or later, with the Bluetooth integration. Without the Marketplace, copy `custom_components/ble_floorplan` into the `custom_components` folder of your configuration directory and restart. There are no requirements outside Home Assistant.
+### Alternative installation
+
+By the link of the repository, if the search does not show BLE Floorplan.
+
+1. Open **Settings → Marketplace → Add from link** (top right), enter `https://github.com/n-schilling/ha-ble-floorplan` as GitHub link and add it. This asks you to connect GitHub once.
+2. Install **BLE Floorplan** and restart Home Assistant.
+3. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
+4. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
+5. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
+
+### Fully manual installation
+
+Without the Marketplace, by copying the files yourself. Home Assistant then does not tell you about new versions: to update, repeat steps 1 to 4 with the newer release.
+
+1. Open the [latest release](https://github.com/n-schilling/ha-ble-floorplan/releases/latest) and download **Source code (zip)**.
+2. Unpack it. Inside is the folder `custom_components/ble_floorplan`.
+3. Copy the folder `ble_floorplan` into the `custom_components` folder of your configuration directory, the one that holds `configuration.yaml`, so that it ends up as `custom_components/ble_floorplan`. Create `custom_components` if it does not exist yet.
+4. Restart Home Assistant.
+5. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
+6. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
+7. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
 
 ### Removal
 
-**Settings → Devices & services → BLE Floorplan → ⋮ → Delete** removes the trackers' devices and entities, the stored plan, the calibration runs, the timeline, the page and the card's dashboard resource. Then remove the integration in the Marketplace and restart.
+**Settings → Devices & services → BLE Floorplan → ⋮ → Delete** removes the trackers' devices and entities, the stored plan, the calibration runs, the timeline, the page and the card's dashboard resource. Then remove the integration in the Marketplace and restart. After a fully manual installation, delete the folder `custom_components/ble_floorplan` instead and restart.
 
 ## Development
 
