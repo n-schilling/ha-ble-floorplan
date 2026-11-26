@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.36.3] - 2026-11-26
+
 ### Changed
 
 - The card's texts follow the font size set in Home Assistant: their sizes and weights come from Home Assistant's variables, no longer from fixed pixels. With the default setting nothing changes but the note under the plan, which is 14 px instead of 13 px.
