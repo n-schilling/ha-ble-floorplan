@@ -33,10 +33,11 @@ from .frontend import (
     async_register_frontend,
     async_register_panel,
     async_remove_resource,
+    async_unload_card,
     async_unregister_panel,
 )
 from .history import HistoryStore
-from .issues import async_check_trackers, async_clear_issues
+from .issues import DATA_ISSUES, async_check_trackers
 from .quality import QualityTracker
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
@@ -116,11 +117,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
         """A tracker taken off the plan loses its device, a renamed one renames it; a missing device is a repair issue."""
         async_remove_stale_devices(hass, entry.entry_id, store.plan)
         async_name_devices(hass, entry.entry_id, store.plan)
-        async_check_trackers(hass, store.plan)
+        async_check_trackers(hass, entry.entry_id, store.plan)
 
     @callback
     def _device_changed(event: Event[dr.EventDeviceRegistryUpdatedData]) -> None:
-        async_check_trackers(hass, store.plan)
+        async_check_trackers(hass, entry.entry_id, store.plan)
 
     entry.async_on_unload(store.async_add_listener(_prune))
     entry.async_on_unload(store.async_add_listener(_plan_changed))
@@ -131,7 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) ->
     await async_register_panel(hass)
     async_register_websocket(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    async_check_trackers(hass, store.plan)
+    async_check_trackers(hass, entry.entry_id, store.plan)
     # Cards and pages subscribed before a reload follow to this coordinator
     async_rebind_subscriptions(hass, entry.runtime_data)
     return True
@@ -153,7 +154,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -
 async def async_remove_entry(hass: HomeAssistant, entry: FloorplanConfigEntry) -> None:
     """Remove the panel, the dashboard resource, the stored floor plan, the calibration runs, the timeline, the coverage, the scanner quality and the repair issues with the entry."""
     async_unregister_panel(hass)
-    async_clear_issues(hass)
+    async_unload_card(hass)
+    # Home Assistant removes the entry's repair issues itself
+    hass.data.pop(DATA_ISSUES, None)
     await async_remove_resource(hass)
     store: Store[dict[str, object]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     await store.async_remove()

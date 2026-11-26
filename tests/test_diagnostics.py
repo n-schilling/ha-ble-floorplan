@@ -85,7 +85,10 @@ async def test_repair_for_a_tracker_without_device(
     """A Private BLE Device that is gone is a repair issue until it is back or off the plan."""
     issues = ir.async_get(hass)
     # The phone of the example names a device that does not exist
-    assert issues.async_get_issue(DOMAIN, "tracker_device_missing_phone") is not None
+    issue = issues.async_get_issue(DOMAIN, "tracker_device_missing_phone")
+    assert issue is not None
+    # It belongs to the entry: Home Assistant removes it with the entry
+    assert issue.config_entry_id == entry.entry_id
     other = MockConfigEntry(domain="private_ble_device", data={})
     other.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(

@@ -9,14 +9,14 @@ from typing import TYPE_CHECKING, Any
 
 import probatio
 
-from homeassistant.components.websocket_api import async_register_command
-from homeassistant.components.websocket_api.connection import ActiveConnection
-from homeassistant.components.websocket_api.decorators import (
+from homeassistant.components.websocket_api import (
+    ActiveConnection,
+    async_register_command,
     async_response,
+    event_message,
     require_admin,
     websocket_command,
 )
-from homeassistant.components.websocket_api.messages import event_message
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv

@@ -9,12 +9,12 @@ from typing import Any
 
 from homeassistant.components import panel_custom
 from homeassistant.components.frontend import (
-    DATA_EXTRA_MODULE_URL,
     add_extra_js_url,
     async_panel_exists,
     async_remove_panel,
+    remove_extra_js_url,
 )
-from homeassistant.components.http.server import StaticPathConfig
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.core import HomeAssistant, callback
@@ -36,6 +36,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 DATA_FRONTEND: HassKey[str] = HassKey(f"{DOMAIN}_frontend")
+# Set while the card's script is among those every page loads
+DATA_CARD_LOADED: HassKey[bool] = HassKey(f"{DOMAIN}_card_loaded")
 CARD_PATH = f"{FRONTEND_URL_BASE}/{CARD_FILENAME}"
 PANEL_PATH = f"{FRONTEND_URL_BASE}/{PANEL_FILENAME}"
 RESOURCE_TYPE = "module"
@@ -90,19 +92,30 @@ def async_unregister_panel(hass: HomeAssistant) -> None:
 async def async_register_frontend(hass: HomeAssistant) -> None:
     """Serve the card, load it on every page and register it as a dashboard resource.
 
-    Serving and loading happen once per run of Home Assistant: the card cannot
-    be unregistered. The resource is checked on every setup, so an entry added
-    again after a removal gets it back.
+    Serving happens once per run of Home Assistant: a static path cannot be
+    taken back. Loading and the resource are checked on every setup, so an
+    entry added again after a removal gets both back.
     """
     if (url := hass.data.get(DATA_FRONTEND)) is None:
         url = hass.data[DATA_FRONTEND] = await async_card_url(hass)
         await hass.http.async_register_static_paths(
             [StaticPathConfig(FRONTEND_URL_BASE, str(Path(__file__).parent / "frontend"), False)]
         )
-        # The frontend is an after-dependency: present in every normal installation
-        if DATA_EXTRA_MODULE_URL in hass.data:
-            add_extra_js_url(hass, url)
+    # The frontend is an after-dependency: present in every normal installation
+    if DATA_CARD_LOADED not in hass.data and "frontend" in hass.config.components:
+        add_extra_js_url(hass, url)
+        hass.data[DATA_CARD_LOADED] = True
     await _async_ensure_resource(hass, url)
+
+
+@callback
+def async_unload_card(hass: HomeAssistant) -> None:
+    """Stop loading the card's script on every page, with the entry.
+
+    A page that is open keeps the card it loaded; a new one no longer gets it.
+    """
+    if hass.data.pop(DATA_CARD_LOADED, False):
+        remove_extra_js_url(hass, hass.data[DATA_FRONTEND])
 
 
 async def async_about(hass: HomeAssistant) -> dict[str, str | None]:

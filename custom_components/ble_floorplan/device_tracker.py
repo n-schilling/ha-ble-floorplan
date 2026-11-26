@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from homeassistant.components.device_tracker.const import SourceType
-from homeassistant.components.device_tracker.entity import BaseScannerEntity
+from homeassistant.components.device_tracker import BaseScannerEntity, SourceType
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback

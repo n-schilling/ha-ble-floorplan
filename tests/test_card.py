@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pytest_homeassistant.common import MockConfigEntry
 
-from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE, MODE_YAML
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.core import HomeAssistant
@@ -227,19 +226,30 @@ async def test_frontend_extra_js_and_resource_created(
     scanner_devices: ScannerDevices,
     config_entry: MockConfigEntry,
 ) -> None:
-    """With the frontend loaded the card is added to every page and to the dashboard resources."""
+    """With the frontend loaded the card is added to every page and to the dashboard resources, until the entry goes."""
     collection = _collection([{"id": "1", "url": "/local/other.js", "type": "module"}])
     hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
-    hass.data[DATA_EXTRA_MODULE_URL] = MagicMock()
+    hass.config.components.add("frontend")
     config_entry.add_to_hass(hass)
     with patch("custom_components.ble_floorplan.frontend.add_extra_js_url") as add_url:
         assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
-    url = hass.data[DATA_FRONTEND]
-    add_url.assert_called_once_with(hass, url)
-    collection.async_get_info.assert_awaited_once()
+        url = hass.data[DATA_FRONTEND]
+        add_url.assert_called_once_with(hass, url)
     collection.async_create_item.assert_awaited_once_with({"res_type": "module", "url": url})
     collection.async_update_item.assert_not_awaited()
+
+    # Removing the entry stops loading the script; a new entry loads it again
+    with patch("custom_components.ble_floorplan.frontend.remove_extra_js_url") as remove_url:
+        assert await hass.config_entries.async_remove(config_entry.entry_id)
+        await hass.async_block_till_done()
+    remove_url.assert_called_once_with(hass, url)
+    again = MockConfigEntry(domain=DOMAIN, title="BLE Floorplan", unique_id=DOMAIN, data={})
+    again.add_to_hass(hass)
+    with patch("custom_components.ble_floorplan.frontend.add_extra_js_url") as add_url:
+        assert await hass.config_entries.async_setup(again.entry_id)
+        await hass.async_block_till_done()
+    add_url.assert_called_once_with(hass, url)
 
 
 async def test_frontend_resource_updated(hass: HomeAssistant, bluetooth: None) -> None:
