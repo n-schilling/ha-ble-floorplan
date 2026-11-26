@@ -2,7 +2,7 @@
 
 [![Marketplace: default](https://img.shields.io/badge/Marketplace-default-41BDF5.svg)](#installation)
 
-A Home Assistant integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor and a presence tracker. A page in the sidebar, for administrators only, sets everything up; a dashboard card shows the plan with the trackers moving live.
+A Home Assistant integration that places Bluetooth Low Energy trackers on a floor plan of your home. It takes the signal strength that every Bluetooth scanner of Home Assistant reports for a tracker, turns it into distances and computes a position by trilateration. Each tracker gets a *Room* sensor and a presence tracker. A page in the sidebar, for administrators only, sets everything up; a dashboard card tells every user which tracker is in which room, or shows the plan with the trackers moving live.
 
 What it is for, for example:
 
@@ -34,9 +34,13 @@ The quality of a scanner: reception, fidelity, contribution and the finding:
 
 <img src="docs/screenshots/scanner-quality.png" alt="The quality of a scanner: three tiles and the finding well placed" width="700">
 
-The card on a dashboard, a tracker tapped, and the page on a phone in dark mode:
+The card on a dashboard in the sizes its space allows (more of it under [The card](#the-card)), and its other view, the plan with the trackers live:
 
-<img src="docs/screenshots/card.png" alt="The card: the plan with the trackers and below it the readings of the key tag" width="700">
+<img src="docs/screenshots/card.png" alt="The card five times: one line with the trackers and their rooms, a list in single lines, a list with a room below each name, and half as wide a list and one line with the number at home" width="500">
+
+<img src="docs/screenshots/card-plan.png" alt="The card as a plan: the rooms of a flat with the key tag in the living room and the phone in the kitchen" width="700">
+
+The page on a phone in dark mode:
 
 <img src="docs/screenshots/phone-dark.png" alt="Devices, Trackers on a phone in dark mode" width="300">
 
@@ -61,8 +65,9 @@ flowchart LR
     scanners -->|"advertisements, RSSI"| engine
     pbd --> engine
     areas --> store
-    engine --> entities["Entities<br/>Room, Presence, Active scanners"]
-    engine --> card["Card<br/>live plan"]
+    engine --> entities["Entities<br/>Room, Presence, Trackers home, scanners"]
+    engine --> card["Card<br/>overview, live plan"]
+    entities --> card
     entities --> automations["Your automations"]
     automations --> persons["Persons, presence"]
     automations --> notify["Notifications"]
@@ -127,18 +132,39 @@ A scanner or a tracker is taken off the plan with **Remove** in its details, aft
 
 ### The card
 
-The card shows the plan with the trackers live, for every user. Pinch with two fingers, Ctrl and the mouse wheel, a trackpad pinch or the buttons in the corner zoom it; zoomed in, drag to move it. Hovering a scanner or a tracker shows its distances and signal strengths; tapping it shows them below the plan, a tracker with its distance circles. The buttons rotate the plan and switch the labels, per browser. Nothing on the card sets anything up: that is the page in the sidebar. While the integration is not loaded, the card says so and tries again every 30 seconds.
+The integration brings a dashboard card, "BLE Floorplan" in the card picker (`custom:ble-floorplan-card`). It is for every user: it changes nothing and shows nothing that only administrators should see. It has two views (`mode`):
+
+- **`overview`** (the default) reads entities only: every tracker with the room it is in, and how many trackers are home. A room linked to a Home Assistant area reads as the area is named. A tap on a tracker opens Home Assistant's own dialog of its *Room* sensor. Paused trackers are left out.
+- **`plan`** shows the floor plan with the trackers live. Pinch with two fingers, Ctrl and the mouse wheel, a trackpad pinch or the buttons in the corner zoom it; zoomed in, drag to move it; a plan of several levels has a switch in its corner. Hovering or tapping a tracker shows its name and its room; an administrator also gets its distance circles and the distance and signal strength at every scanner. The positions are in no entity (each would write a row to the recorder every second), so this view, and only this one, uses the subscription `ble_floorplan/subscribe` ([WebSocket commands](#websocket-commands)), which is open to every user and changes nothing. While the integration is not loaded, the view says so and tries again every 30 seconds.
+
+The overview is as high as what it shows. Given fewer rows in a sections view, it shows what fits, in this order: the trackers at home with their rooms, how many are home, the trackers that are away, the unreachable scanners. Large is a list with the room below each name, medium a list in single lines, small one line: the trackers with their rooms, or the number at home where that is too long. `size` sets a size instead.
+
+Every part can be switched on or off, in the card's editor or in YAML:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `title` | "BLE Floorplan" | the heading |
+| `mode` | `overview` | `overview` or `plan` |
+| `size` | `auto` | of the overview: `auto`, `small`, `medium` or `large` |
+| `show_summary` | on | overview: how many trackers are home |
+| `show_trackers` | on | overview: the trackers |
+| `show_room` | on | overview: the room of each tracker |
+| `show_away` | on | overview: the trackers that are away |
+| `show_problem` | off | overview: a line while a scanner is unreachable |
+| `rotation` | `0` | plan: turned by `0`, `90`, `180` or `270` degrees |
+| `show_room_labels` | on | plan: the names of the rooms |
+| `show_tracker_labels` | on | plan: the names of the trackers |
+| `show_scanners` | off | plan: the scanners; a silent one is drawn red, a paused one grey |
+| `show_scanner_labels` | on | plan: the names of the scanners, where they are drawn |
 
 ```yaml
 type: custom:ble-floorplan-card
-title: Home            # optional
-rotation: 90           # optional default: 0, 90, 180 or 270
-show_room_labels: true
-show_scanner_labels: true
-show_tracker_labels: true
+mode: plan
+title: Home
+rotation: 90
 ```
 
-The visual editor offers the title; rotation and labels are set on the card itself. The integration adds the card to the dashboard resources by itself and removes it with the integration.
+The integration adds the card to the dashboard resources by itself and removes it with the integration.
 
 ### Calibration
 
@@ -292,7 +318,7 @@ How the floor is found: the position is solved for every level, with the tracker
 
 ### Privacy
 
-The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs, the scanner quality (per hour, how many advertisements each scanner took of each tracker, and sums of its misses, no positions) and, when *Days kept* is above 0, the timeline and the measured coverage in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. The measured coverage holds per tracker and day how long it was in which half-metre cell; it follows the same rules. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
+The integration stores the floor plan, the scanners' addresses, the trackers' addresses or device ids, the calibration runs, the scanner quality (per hour, how many advertisements each scanner took of each tracker, and sums of its misses, no positions) and, when *Days kept* is above 0, the timeline and the measured coverage in Home Assistant's storage. The timeline is a movement profile of the people who carry the trackers; only administrators can read it, and setting *Days kept* to 0 deletes it. The measured coverage holds per tracker and day how long it was in which half-metre cell; it follows the same rules. Every user can see the card, as every user can see the room sensors; users who are no administrators get the plan without addresses, device ids, corrections and runs, and the positions without what each scanner measured. The names of the trackers and of the unreachable scanners in the attributes `tracker_list` and `scanners` are not recorded in the history. It sends nothing anywhere else, and the page and the card talk to Home Assistant only. A test in this repository checks that the code uses no network library, that no real address is in any file and that the images carry no metadata.
 
 ## Examples
 
@@ -344,7 +370,8 @@ automation:
 
 - **A tracker is never seen:** on its subpage, the table shows which scanners hear it. A phone needs its Private BLE Device set up and its device tracker present.
 - **A tracker sticks to a wall:** add the door it should pass to `openings`, or the room it is in to the plan.
-- **The card says BLE Floorplan is not set up:** the integration is not loaded; the card tries again every 30 seconds.
+- **The card says BLE Floorplan is not set up:** the integration is not loaded. The overview shows it again by itself; the plan tries again every 30 seconds.
+- **The card shows a list where the plan used to be:** from 0.36.0 the card shows the overview unless it is told otherwise; add `mode: plan` to the card.
 - **The integration does not start and names a file in `.storage`:** that file cannot be read. BLE Floorplan leaves it as it is; correct or remove it and reload the integration.
 - **An old page or card after an update:** reload the page; the Companion app keeps its own cache (*Settings → Companion app → Debugging → Reset frontend cache*).
 - **A repair issue says a tracker has no device:** its Private BLE Device was removed. Take the tracker off the plan and add it again with the new device.
@@ -362,7 +389,15 @@ Each tracker becomes a device with these entities:
 | Position X, Position Y (`sensor`, diagnostic) | Only with the option *Position sensors*: the coordinates on the plan in metres, rounded to a decimetre. |
 | Presence (`device_tracker`) | `home` while a scanner of the plan saw the tracker within `away_seconds`, `not_home` after that. Right after a start of Home Assistant it stays unknown until the tracker is seen or `away_seconds` passed. |
 
-The integration's own device *BLE Floorplan* carries **Active scanners** (`sensor`): the number of scanners of the plan that received anything within the last minute, with `total` and the names of the active and inactive ones as attributes. Paused scanners count neither way; the attribute `paused` names them.
+The integration's own device *BLE Floorplan* carries:
+
+| Entity | Description |
+|---|---|
+| Trackers home (`sensor`) | The number of trackers a scanner saw within `away_seconds`; paused trackers do not count. Attribute `tracker_list` (not recorded): every tracker of the plan with its `name` (the name of its device; one given in Home Assistant wins), `room_entity` and `presence_entity`, the entity IDs of its *Room* sensor and its *Presence*. It follows renamed entities and devices, so a dashboard lists the trackers without searching. |
+| Active scanners (`sensor`) | The number of scanners of the plan that received anything within the last minute, with `total` and the names of the `active` and `inactive` ones as attributes. Paused scanners count neither way; the attribute `paused` names them. |
+| Scanners unreachable (`binary_sensor`, problem, diagnostic) | On while a scanner of the plan received nothing within the last minute; the attribute `scanners` (not recorded) names them. Off until Home Assistant has started, and paused scanners do not count. Looked at every 30 seconds. |
+
+The card finds these entities by their translation keys (`trackers_home`, `unreachable`), not by their entity IDs.
 
 A scanner or a tracker can be **paused** on its page until it is resumed there, over restarts too: a paused scanner adds nothing to the positions, a paused tracker gets no position and its entities are unavailable. Both are drawn grey on the plan and the card.
 
@@ -372,8 +407,8 @@ The page and the card use these commands; they are open for scripts and tools as
 
 | Command | Who | Description |
 |---|---|---|
-| `ble_floorplan/get_floorplan` | everyone | Returns `floorplan` and `positions`. Users who are no administrators get the plan as the card draws it: rooms, openings, scanners with name and position, trackers with name. |
-| `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions` and, for administrators, `calibration` and `about` (version, commit of a test deployment) now, then an event for every change. |
+| `ble_floorplan/get_floorplan` | everyone | Returns `floorplan`, `positions` and `offline` (the keys of the silent scanners). Users who are no administrators get the plan as the card draws it (floors, rooms, openings, stairs, scanners with name and position, trackers with name) and of each position `key`, `x`, `y`, `room`, `present`, `floor` and `level`; the raw position and the `readings` of the scanners are for administrators. |
+| `ble_floorplan/subscribe` | everyone | Sends `floorplan`, `positions`, `offline` and, for administrators, `calibration` and `about` (version, commit of a test deployment) now, then an event for every change; each user gets of them what `get_floorplan` gives. The card's view `plan` uses it. |
 | `ble_floorplan/get_layout` | admins | Returns `yaml`: the floors, rooms, openings and stairs, a template while the plan has none. |
 | `ble_floorplan/set_layout` | admins | `yaml` (at most 200,000 characters) or `layout` (the same as data): replaces the floors, rooms, openings and stairs; scanners, trackers and settings stay. A scanner on a floor that is gone is refused; without floors every scanner stands on the one floor. Returns `yaml` and `floorplan`. |
 | `ble_floorplan/set_floorplan` | admins | `floorplan`: replaces the whole plan and reloads the entry. |
@@ -409,7 +444,7 @@ A tracker whose Private BLE Device was removed from Home Assistant raises a repa
 
 ### Quality scale
 
-`custom_components/ble_floorplan/quality_scale.yaml` lists every rule of Home Assistant's integration quality scale up to Platinum as done or exempt with a reason; `tests/test_quality_scale.py` checks it.
+`custom_components/ble_floorplan/quality_scale.yaml` lists every rule of Home Assistant's integration quality scale up to Platinum as done or exempt with a reason; `tests/test_quality_scale.py` checks it. `tests/test_contract.py` pins what this section lists: entity IDs, unique IDs, translation keys, attributes, the commands and the stores.
 
 ### Store
 
@@ -427,7 +462,7 @@ Through the search in the Marketplace, the way for almost everyone.
 2. Install it and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
 4. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
-5. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
+5. Add the card `custom:ble-floorplan-card` to a dashboard: it shows which tracker is in which room, or the plan with `mode: plan`.
 
 ### Alternative installation
 
@@ -437,7 +472,7 @@ By the link of the repository, if the search does not show BLE Floorplan.
 2. Install **BLE Floorplan** and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
 4. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
-5. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
+5. Add the card `custom:ble-floorplan-card` to a dashboard: it shows which tracker is in which room, or the plan with `mode: plan`.
 
 ### Fully manual installation
 
@@ -449,7 +484,7 @@ Without the Marketplace, by copying the files yourself. Home Assistant then does
 4. Restart Home Assistant.
 5. **Settings → Devices & services → Add integration → BLE Floorplan.** There is nothing to fill in.
 6. Open **BLE Floorplan** in the sidebar and set up the plan, see [The page](#the-page).
-7. Add the card `custom:ble-floorplan-card` to a dashboard, if you want the plan there too.
+7. Add the card `custom:ble-floorplan-card` to a dashboard: it shows which tracker is in which room, or the plan with `mode: plan`.
 
 ### Removal
 
@@ -464,7 +499,7 @@ scripts/check.sh
 
 `scripts/check.sh` runs what CI runs: ruff, the changelog and translation checks, mypy, the tests with full coverage, the page checks and hassfest in Docker. The page check is not part of CI: run `scripts/check.sh` before a release that changes the page.
 
-The page checks start a throwaway Home Assistant with a made-up flat, reachable from this machine only. Made-up scanners (`scripts/panel/demo_ble`) hear made-up trackers, so the plan shows them where they are; no Bluetooth radio is touched. The checks drive the page and the card in a headless browser (plan and version, Home Assistant's frame with the five areas and the tab of each page, the stamp, Refresh and the cog on every page and subpage, the old addresses, trackers, subpages, ha-form edits, the confirmation before removing, the settings rows with their (i) and one save button, calibration, timeline, coverage, the scanner quality, the setup overview and the notices, the card, phone width, dark mode, no page and no addresses for non-administrators) and stop Home Assistant again. They need their own environment:
+The page checks start a throwaway Home Assistant with a made-up flat, reachable from this machine only. Made-up scanners (`scripts/panel/demo_ble`) hear made-up trackers, so the plan shows them where they are; no Bluetooth radio is touched. The checks drive the page and the card in a headless browser (plan and version, Home Assistant's frame with the five areas and the tab of each page, the stamp, Refresh and the cog on every page and subpage, the old addresses, trackers, subpages, ha-form edits, the confirmation before removing, the settings rows with their (i) and one save button, calibration, timeline, coverage, the scanner quality, the setup overview and the notices, the card for a user without administrator rights in the sizes its space allows and as a plan, phone width, dark mode, no page, no addresses and no readings for non-administrators) and stop Home Assistant again. They need their own environment:
 
 ```bash
 uv venv --python 3.14 .venv-panel && uv pip install --python .venv-panel/bin/python -r requirements_panel.txt

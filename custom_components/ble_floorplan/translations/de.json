@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Richtet BLE Floorplan ein. Danach Grundriss, Scanner und Tracker auf der Seite BLE Floorplan in der Seitenleiste einrichten; die Karte custom:ble-floorplan-card zeigt den Grundriss in einem Dashboard."
+        "description": "Richtet BLE Floorplan ein. Danach Grundriss, Scanner und Tracker auf der Seite BLE Floorplan in der Seitenleiste einrichten; die Karte custom:ble-floorplan-card zeigt in einem Dashboard, welcher Tracker in welchem Raum ist, oder den Grundriss."
       }
     },
     "abort": {
@@ -22,6 +22,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "unreachable": {
+        "name": "Scanner nicht erreichbar"
+      }
+    },
     "sensor": {
       "room": {
         "name": "Raum"
@@ -34,6 +39,9 @@
       },
       "active_scanners": {
         "name": "Aktive Scanner"
+      },
+      "trackers_home": {
+        "name": "Tracker zu Hause"
       }
     },
     "device_tracker": {

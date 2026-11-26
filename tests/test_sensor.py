@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -120,3 +121,69 @@ async def test_stale_entities_removed(
     assert entities.async_get_entity_id("sensor", DOMAIN, "tag_position_x") is None
     assert devices.async_get_device_by_identifier((DOMAIN, "old"), config_entry.entry_id) is None
     assert entities.async_get_entity_id("sensor", DOMAIN, "tag_room") == "sensor.tag_room"
+
+
+async def test_trackers_home(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    scanner_devices: ScannerDevices,
+    scanners: dict[str, FakeScanner],
+    clock: Callable[[float], None],
+) -> None:
+    """How many trackers are home, with every tracker and its entities for a dashboard."""
+    state = hass.states.get("sensor.ble_floorplan_trackers_home")
+    assert state is not None
+    assert state.state == "0"
+    # The trackers' entities are registered after this one: the list followed the registry
+    assert state.attributes["tracker_list"] == [
+        {
+            "name": "Tag",
+            "room_entity": "sensor.tag_room",
+            "presence_entity": "device_tracker.tag_presence",
+        },
+        {
+            "name": "Phone",
+            "room_entity": "sensor.phone_room",
+            "presence_entity": "device_tracker.phone_presence",
+        },
+    ]
+
+    scanner_devices[TAG] = [
+        scanner_device(scanners["living"], TAG, rssi_exact(2.0, -60, 0.8, 0.3), 1000.0)  # type: ignore[arg-type]
+    ]
+    clock(1001.0)
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.ble_floorplan_trackers_home")
+    assert state is not None
+    assert state.state == "1"
+
+    # Another entity ID and a name given in Home Assistant reach the list
+    er.async_get(hass).async_update_entity("sensor.tag_room", new_entity_id="sensor.keys_room")
+    devices = dr.async_get(hass)
+    device = devices.async_get_device_by_identifier((DOMAIN, "tag"), entry.entry_id)
+    assert device is not None
+    devices.async_update_device(device.id, name_by_user="Keys")
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.ble_floorplan_trackers_home")
+    assert state is not None
+    assert state.attributes["tracker_list"][0] == {
+        "name": "Keys",
+        "room_entity": "sensor.keys_room",
+        "presence_entity": "device_tracker.tag_presence",
+    }
+
+    # A paused tracker is not measured, so it is not home
+    store = entry.runtime_data.store
+    await store.async_save(
+        replace(
+            store.plan,
+            trackers=tuple(replace(t, paused=t.key == "tag") for t in store.plan.trackers),
+        )
+    )
+    clock(1002.0)
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.ble_floorplan_trackers_home")
+    assert state is not None
+    assert state.state == "0"

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "BLE Floorplan",
-        "description": "Sets up BLE Floorplan. Afterwards set up the floor plan, the scanners and the trackers on the page BLE Floorplan in the sidebar; the card custom:ble-floorplan-card shows the plan on a dashboard."
+        "description": "Sets up BLE Floorplan. Afterwards set up the floor plan, the scanners and the trackers on the page BLE Floorplan in the sidebar; the card custom:ble-floorplan-card shows on a dashboard which tracker is in which room, or the plan."
       }
     },
     "abort": {
@@ -22,6 +22,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "unreachable": {
+        "name": "Scanners unreachable"
+      }
+    },
     "sensor": {
       "room": {
         "name": "Room"
@@ -34,6 +39,9 @@
       },
       "active_scanners": {
         "name": "Active scanners"
+      },
+      "trackers_home": {
+        "name": "Trackers home"
       }
     },
     "device_tracker": {

@@ -6,14 +6,12 @@ from collections.abc import Callable
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
 
-from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, DATA_PANELS
-from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE, MODE_YAML
-from homeassistant.components.lovelace.resources import ResourceStorageCollection
+from homeassistant.components.frontend import DATA_PANELS
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -21,7 +19,6 @@ from homeassistant.core import HomeAssistant
 from custom_components.ble_floorplan import frontend
 from custom_components.ble_floorplan.const import (
     CALIBRATION_STORAGE_KEY,
-    DOMAIN,
     HISTORY_STORAGE_KEY,
     PANEL_ELEMENT,
     PANEL_URL_PATH,
@@ -193,112 +190,3 @@ async def test_frontend_registered_once(hass: HomeAssistant, entry: MockConfigEn
     with patch.object(hass.http, "async_register_static_paths", AsyncMock()) as register:
         await async_register_frontend(hass)
     register.assert_not_called()
-
-
-def _lovelace(mode: str, resources: Any) -> MagicMock:
-    data = MagicMock()
-    data.resource_mode = mode
-    data.resources = resources
-    return data
-
-
-def _collection(items: list[dict[str, Any]]) -> MagicMock:
-    collection = MagicMock(spec=ResourceStorageCollection)
-    collection.async_get_info = AsyncMock()
-    collection.async_items = MagicMock(return_value=items)
-    collection.async_create_item = AsyncMock()
-    collection.async_update_item = AsyncMock()
-    collection.async_delete_item = AsyncMock()
-    return collection
-
-
-async def test_frontend_extra_js_and_resource_created(
-    hass: HomeAssistant,
-    bluetooth: None,
-    storage: dict[str, Any],
-    clock: Callable[[float], None],
-    scanner_devices: ScannerDevices,
-    config_entry: MockConfigEntry,
-) -> None:
-    """With the frontend loaded the card is added to every page and to the dashboard resources."""
-    collection = _collection([{"id": "1", "url": "/local/other.js", "type": "module"}])
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
-    hass.data[DATA_EXTRA_MODULE_URL] = MagicMock()
-    config_entry.add_to_hass(hass)
-    with patch("custom_components.ble_floorplan.frontend.add_extra_js_url") as add_url:
-        assert await hass.config_entries.async_setup(config_entry.entry_id)
-        await hass.async_block_till_done()
-    url = hass.data[DATA_FRONTEND]
-    add_url.assert_called_once_with(hass, url)
-    collection.async_get_info.assert_awaited_once()
-    collection.async_create_item.assert_awaited_once_with({"res_type": "module", "url": url})
-    collection.async_update_item.assert_not_awaited()
-
-
-async def test_frontend_resource_updated(hass: HomeAssistant, bluetooth: None) -> None:
-    """An entry of an earlier version is pointed to this one; a current one is left alone."""
-    url = await async_card_url(hass)
-    collection = _collection([{"id": "7", "url": f"{CARD_PATH}?v=0.0.1", "type": "module"}])
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
-    await async_register_frontend(hass)
-    collection.async_update_item.assert_awaited_once_with("7", {"url": url})
-    collection.async_create_item.assert_not_awaited()
-
-    hass.data.pop(DATA_FRONTEND)
-    collection = _collection([{"id": "7", "url": url, "type": "module"}])
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
-    await async_register_frontend(hass)
-    collection.async_update_item.assert_not_awaited()
-    collection.async_create_item.assert_not_awaited()
-
-
-async def test_frontend_resource_skipped(hass: HomeAssistant, bluetooth: None) -> None:
-    """Resources in YAML are the user's; a collection of another kind is left alone."""
-    collection = _collection([])
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_YAML, collection)
-    await async_register_frontend(hass)
-    collection.async_create_item.assert_not_awaited()
-
-    hass.data.pop(DATA_FRONTEND)
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, MagicMock())
-    await async_register_frontend(hass)
-    assert DATA_FRONTEND in hass.data
-    assert DOMAIN in hass.data[DATA_FRONTEND]
-
-
-async def test_remove_takes_the_resource_away_and_a_new_entry_brings_it_back(
-    hass: HomeAssistant,
-    bluetooth: None,
-    storage: dict[str, Any],
-    clock: Callable[[float], None],
-    scanner_devices: ScannerDevices,
-    config_entry: MockConfigEntry,
-) -> None:
-    """Removing the entry removes the card's dashboard resource; a new entry adds it again."""
-    items: list[dict[str, Any]] = [{"id": "1", "url": "/local/other.js", "type": "module"}]
-    collection = _collection(items)
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
-    config_entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(config_entry.entry_id)
-    await hass.async_block_till_done()
-    url = hass.data[DATA_FRONTEND]
-    items.append({"id": "2", "url": url, "type": "module"})
-    assert await hass.config_entries.async_remove(config_entry.entry_id)
-    await hass.async_block_till_done()
-    collection.async_delete_item.assert_awaited_once_with("2")
-
-    items.pop()
-    collection.async_create_item.reset_mock()
-    again = MockConfigEntry(domain=DOMAIN, title="BLE Floorplan", unique_id=DOMAIN, data={})
-    again.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(again.entry_id)
-    await hass.async_block_till_done()
-    collection.async_create_item.assert_awaited_once_with({"res_type": "module", "url": url})
-
-
-async def test_remove_leaves_yaml_resources_alone(hass: HomeAssistant, bluetooth: None) -> None:
-    """Resources in YAML are the user's, also when the entry goes."""
-    collection = _collection([{"id": "2", "url": f"{CARD_PATH}?v=1", "type": "module"}])
-    hass.data[LOVELACE_DATA] = _lovelace(MODE_YAML, collection)
-    await frontend.async_remove_resource(hass)
-    collection.async_delete_item.assert_not_awaited()

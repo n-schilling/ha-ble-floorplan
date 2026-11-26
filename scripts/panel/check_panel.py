@@ -9,7 +9,7 @@ failure.
 
 Usage (from the repository root, with the packages of requirements_panel.txt):
 
-    python -I scripts/panel/check_panel.py [--screenshots DIR] [--keep]
+    python -I scripts/panel/check_panel.py [--screenshots DIR] [--keep] [--only TEXT]
         [--browser chrome|chromium] [--headed]
 
 --screenshots writes the pictures of the README into DIR (docs/screenshots).
@@ -482,7 +482,11 @@ class Instance:
         result = await api.post(self.token, f"/api/config/config_entries/flow/{flow['flow_id']}")
         if result.get("type") != "create_entry" or result["result"]["state"] != "loaded":
             raise RuntimeError(f"BLE Floorplan did not load: {result}")
-        # A dashboard with the card
+        # A dashboard with the card: the overview as it comes, and in a sections view
+        # with one, three and six rows, where it has to show what fits (STANDARD §7);
+        # the live plan, as a panel and with a fixed height
+        card = {"type": f"custom:{CARD}"}
+        plan = {**card, "mode": "plan", "title": "Home"}
         created = await api.ws(
             self.token,
             {
@@ -501,11 +505,37 @@ class Instance:
                 "url_path": DASHBOARD,
                 "config": {
                     "views": [
+                        {"path": "plan", "title": "Plan", "type": "panel", "cards": [plan]},
+                        {"path": "plain", "title": "Plain", "cards": [card]},
                         {
-                            "title": "Plan",
-                            "type": "panel",
-                            "cards": [{"type": "custom:ble-floorplan-card", "title": "Home"}],
-                        }
+                            "path": "sizes",
+                            "title": "Sizes",
+                            "type": "sections",
+                            "sections": [
+                                {
+                                    "type": "grid",
+                                    "cards": [
+                                        {**card, "grid_options": {"columns": 12, "rows": rows}}
+                                        for rows in (1, 3, 6)
+                                    ]
+                                    + [card, {**card, "grid_options": {"columns": 6, "rows": 1}}],
+                                }
+                            ],
+                        },
+                        {
+                            "path": "plan-rows",
+                            "title": "Plan rows",
+                            "type": "sections",
+                            "sections": [
+                                {
+                                    "type": "grid",
+                                    "cards": [
+                                        {**plan, "grid_options": {"columns": 12, "rows": 6}},
+                                        {**plan, "show_scanners": True, "rotation": 90},
+                                    ],
+                                }
+                            ],
+                        },
                     ]
                 },
             },
@@ -553,8 +583,12 @@ class Checks:
 
     passed: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
+    # With --only: run just the checks whose name contains this
+    only: str | None = None
 
     async def run(self, name: str, check: Callable[[], Awaitable[None]]) -> None:
+        if self.only is not None and self.only not in name:
+            return
         try:
             await check()
         except Exception as err:
@@ -577,6 +611,44 @@ async def _until(check: Callable[[], Awaitable[bool]], what: str, seconds: float
             return
         await asyncio.sleep(0.25)
     raise AssertionError(f"timed out waiting for {what}")
+
+
+async def _shot(page: Page, element: Any, path: Path) -> None:
+    """A picture of an element of a dashboard, where it lies on the page.
+
+    An element's own screenshot scrolls it to the top of the window, under the
+    dashboard's header.
+    """
+    await page.evaluate("window.scrollTo(0, 0)")
+    box = await element.bounding_box()
+    await page.screenshot(path=str(path), clip=box, full_page=True)
+
+
+async def _says(element: Any, text: str) -> bool:
+    """Whether an element is there and shows the text."""
+    return bool(await element.count()) and text in await element.inner_text()
+
+
+async def _fits(line: Any) -> bool:
+    """Whether a line's text is no wider than the line, to the fraction of a pixel.
+
+    scrollWidth and clientWidth are whole numbers: a text 0.2 px too wide passes them
+    and is cut off all the same.
+    """
+    return bool(
+        await line.evaluate(
+            """(el) => {
+              const probe = document.createElement('span');
+              probe.className = el.className;
+              probe.style.cssText = 'position:absolute;visibility:hidden;overflow:visible;width:auto;display:inline-block';
+              probe.textContent = el.textContent;
+              el.parentElement.appendChild(probe);
+              const fits = probe.getBoundingClientRect().width <= el.getBoundingClientRect().width;
+              probe.remove();
+              return fits;
+            }"""
+        )
+    )
 
 
 async def _open(
@@ -703,9 +775,11 @@ async def _settle(page: Page) -> None:
     await page.wait_for_timeout(600)
 
 
-async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path | None) -> Checks:
+async def check_page(
+    browser: Browser, instance: Instance, api: Api, shots: Path | None, only: str | None = None
+) -> Checks:
     page = await _open(browser, instance, ADMIN, "/ble-floorplan/setup/plan")
-    checks = Checks()
+    checks = Checks(only=only)
 
     async def plan_and_version() -> None:
         await _goto(page, instance, "setup/overview")
@@ -1264,23 +1338,156 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
 
     await checks.run("a calibration change names the measured days before it", coverage_change)
 
-    async def card_only_shows() -> None:
-        card_page = await _open(browser, instance, ADMIN, f"/{DASHBOARD}/0")
+    async def plan_card() -> None:
+        card_page = await _open(browser, instance, ADMIN, f"/{DASHBOARD}/plan")
         card = card_page.locator(CARD)
         await card.locator(".tracker").first.wait_for(timeout=90000)
         await card_page.locator("#ha-launch-screen").wait_for(state="detached")
+        # The level switch and the zoom change the view only
         expect(
-            await card.locator("[data-act]").count() == 0, "the card has buttons to change things"
+            await card.locator("[data-act], input, select").count() == 0,
+            "the plan card has something to change",
         )
-        await card.locator(".tracker[data-key='tag']").click()
-        await card.locator(".info").wait_for()
+        # Scanners are drawn only where the card is told to
+        expect(await card.locator(".scanner").count() == 0, "scanners on the plan card")
         if shots is not None:
             await _settle(card_page)
-            await card.locator("ha-card").screenshot(path=str(shots / "card.png"))
+            await _shot(card_page, card.locator("ha-card"), shots / "card-plan.png")
+        # An administrator sees the readings of a tapped tracker
+        await card.locator(".tracker[data-key='tag']").click()
+        await card.locator(".info table tr").first.wait_for()
+        expect("dBm" in await card.locator(".info").inner_text(), "no readings for an admin")
         await card_page.context.close()
 
+    await checks.run("the plan card shows the trackers live and nothing to change", plan_card)
+
+    async def card_for_every_user() -> None:
+        # A user without administrator rights. Texts inside the card are read
+        # through locators: inner_text() of an element outside does not reach
+        # into a shadow root.
+        visitor = await _open(browser, instance, USER, f"/{DASHBOARD}/plain")
+        try:
+            cards = visitor.locator(CARD)
+            await cards.first.locator(".head").wait_for(timeout=90000)
+            await visitor.locator("#ha-launch-screen").wait_for(state="detached")
+            expect(
+                await cards.first.locator("button, ha-button, input, select").count() == 0,
+                "the card has something to change",
+            )
+            await _until(
+                lambda: _says(cards.first.locator(".row").first, "Living room"),
+                "the key tag in the living room",
+            )
+            text = await cards.first.locator(".content").inner_text()
+            expect("Key tag" in text and "home" in text, f"the overview lacks its parts: {text}")
+            expect("dBm" not in text and "proxy" not in text, f"readings or scanners: {text}")
+            # The card picker knows the card, and its editor has a text for every field
+            offered = await visitor.evaluate(
+                f"""() => {{
+                  const form = customElements.get('{CARD}').getConfigForm();
+                  const names = (schema) => schema.flatMap((f) => f.schema ? names(f.schema) : [f.name]);
+                  return {{
+                    picker: (window.customCards || []).filter((c) => c.type === '{CARD}').length,
+                    fields: names(form.schema),
+                    labels: names(form.schema).map((name) => form.computeLabel({{ name }})),
+                  }};
+                }}"""
+            )
+            expect(offered["picker"] == 1, "the card is not in the card picker once")
+            expect(
+                not set(offered["fields"]) & set(offered["labels"]),
+                f"an editor field without its text: {offered['labels']}",
+            )
+            # What does not fit is left out: one row, three rows, six rows; no rows; half as wide
+            await visitor.goto(f"{instance.base}/{DASHBOARD}/sizes")
+            cards = visitor.locator(CARD)
+            await cards.nth(2).locator(".head").wait_for()
+            await _until(
+                lambda: _says(cards.nth(2).locator(".row").first, "Living room"),
+                "the key tag in the living room on the large card",
+            )
+            expect(
+                await cards.nth(0).locator(".small").count() == 1, "one row is not the small card"
+            )
+            expect(
+                await cards.nth(1).locator(".row.slim").count() >= 1,
+                "three rows are not the medium card",
+            )
+            expect(
+                await cards.nth(2).locator(".row:not(.slim)").count() >= 1,
+                "six rows are not the large card",
+            )
+            for index in range(3):
+                fits = (
+                    await cards.nth(index)
+                    .locator("ha-card")
+                    .evaluate(
+                        "el => el.querySelector('.content').getBoundingClientRect().bottom"
+                        " <= el.getBoundingClientRect().bottom + 1"
+                    )
+                )
+                expect(fits, "a card that cuts off what it shows")
+            spare = await cards.nth(3).evaluate(
+                "el => { const card = el.shadowRoot.querySelector('ha-card');"
+                " const style = getComputedStyle(card);"
+                " return card.clientHeight - parseFloat(style.paddingTop)"
+                " - parseFloat(style.paddingBottom)"
+                " - card.querySelector('.content').scrollHeight; }"
+            )
+            expect(abs(spare) <= 2, f"a card without rows is {spare} px off its content")
+            expect(
+                await _fits(cards.nth(4).locator(".small .sub")), "a second line that is cut off"
+            )
+            # A problem cannot be waited for: a card made in the page gets a changed
+            # copy of the user's hass, with the problem sensor on
+            told = await visitor.evaluate(
+                f"""() => {{
+                  const real = document.querySelector('home-assistant').hass;
+                  const entry = Object.values(real.entities).find(
+                    (e) => e.platform === 'ble_floorplan' && e.translation_key === 'unreachable');
+                  const state = {{ ...real.states[entry.entity_id], state: 'on',
+                    attributes: {{ scanners: ['Hall plug', 'Kitchen plug'] }} }};
+                  const hass = {{ ...real, states: {{ ...real.states, [entry.entity_id]: state }} }};
+                  const texts = [];
+                  for (const config of [{{}}, {{ show_problem: true }}]) {{
+                    const card = document.createElement('{CARD}');
+                    card.setConfig(config);
+                    document.body.appendChild(card);
+                    card.hass = hass;
+                    texts.push(card.shadowRoot.querySelector('.problem')?.textContent ?? null);
+                    card.remove();
+                  }}
+                  return texts;
+                }}"""
+            )
+            expect(told == [None, "2 scanners unreachable"], f"the problem line: {told}")
+            if shots is not None:
+                await _settle(visitor)
+                await _shot(visitor, visitor.locator("hui-grid-section").first, shots / "card.png")
+            # The live plan for this user: the trackers, a level's rooms, no scanners
+            # unless the card asks for them, and of a tapped tracker the name and the room
+            await visitor.goto(f"{instance.base}/{DASHBOARD}/plan-rows")
+            cards = visitor.locator(CARD)
+            await cards.nth(1).locator(".tracker").first.wait_for(timeout=30000)
+            expect(await cards.nth(0).locator(".scanner").count() == 0, "scanners without asking")
+            expect(await cards.nth(1).locator(".scanner").count() >= 3, "no scanners when asked")
+            inside = await cards.nth(0).evaluate(
+                "el => { const card = el.shadowRoot.querySelector('ha-card').getBoundingClientRect();"
+                " const svg = el.shadowRoot.querySelector('.map svg').getBoundingClientRect();"
+                " return svg.height > 100 && svg.bottom <= card.bottom + 1; }"
+            )
+            expect(inside, "the plan does not fit the rows the card got")
+            await cards.nth(0).locator(".tracker[data-key='tag']").click()
+            await cards.nth(0).locator(".info").wait_for()
+            info = await cards.nth(0).locator(".info").inner_text()
+            expect("Key tag" in info and "Living room" in info, f"name and room: {info}")
+            expect("dBm" not in info and " m" not in info, f"readings for a user: {info}")
+        finally:
+            await visitor.context.close()
+
     await checks.run(
-        "the card on a dashboard shows the trackers and nothing to change", card_only_shows
+        "the card shows every user the basics, in the size its space allows, nothing to change",
+        card_for_every_user,
     )
 
     async def phone_and_dark() -> None:
@@ -1669,9 +1876,14 @@ async def check_page(browser: Browser, instance: Instance, api: Api, shots: Path
         token = await api.login(*USER)
         panels = await api.ws(token, {"type": "get_panels"})
         expect("ble-floorplan" not in panels["result"], "the page is offered to a user")
-        plan = (await api.ws(token, {"type": "ble_floorplan/get_floorplan"}))["result"]["floorplan"]
+        result = (await api.ws(token, {"type": "ble_floorplan/get_floorplan"}))["result"]
+        plan = result["floorplan"]
         expect(all("source" not in s for s in plan["scanners"]), "scanner addresses for a user")
         expect(all("address" not in t for t in plan["trackers"]), "tracker addresses for a user")
+        expect(
+            all("readings" not in p for p in result["positions"].values()),
+            "scanner readings for a user",
+        )
         reply = await api.ws(token, {"type": "ble_floorplan/set_scanner", "key": "hall", "x": 1})
         expect(not reply["success"] and reply["error"]["code"] == "unauthorized", str(reply))
 
@@ -1691,6 +1903,7 @@ README_SHOTS = {
     "coverage.png",
     "scanner-quality.png",
     "card.png",
+    "card-plan.png",
     "phone-dark.png",
 }
 
@@ -1710,6 +1923,7 @@ async def main() -> int:
     parser.add_argument("--keep", action="store_true", help="keep the temporary directory")
     parser.add_argument("--browser", choices=["chrome", "chromium"], default="chromium")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument("--only", help="run only the checks whose name contains this text")
     args = parser.parse_args()
     if args.screenshots is not None:
         args.screenshots.mkdir(parents=True, exist_ok=True)
@@ -1728,7 +1942,7 @@ async def main() -> int:
                     headless=not args.headed,
                 )
                 try:
-                    checks = await check_page(browser, instance, api, args.screenshots)
+                    checks = await check_page(browser, instance, api, args.screenshots, args.only)
                 finally:
                     await browser.close()
         except Exception as err:

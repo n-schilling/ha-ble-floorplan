@@ -2,6 +2,22 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.36.0] - 2026-11-26
+
+### Changed
+
+- **Breaking: the card shows an overview unless it is told otherwise.** The new view tells every user which tracker is in which room and how many are home, from entities only, in the size its space allows (`size`, or the rows it gets in a sections view), with every part switchable. The plan is the card's other view: add `mode: plan` to a card that should keep showing it.
+- **Breaking: the plan view takes rotation and labels from the card's options**, set in its editor or in YAML, no longer per browser with buttons on the card. Scanners are drawn only with `show_scanners` (off by default).
+- **Breaking: users who are no administrators get positions without the scanners' readings** from `ble_floorplan/get_floorplan` and `ble_floorplan/subscribe`: where a tracker is, not the raw position, distances and signal strengths. Tapping a tracker on the plan shows them its name and room; administrators see the readings as before.
+- The card's editor has a field for every option, and the card picker shows a preview.
+- The plan's drawing code is loaded only by a card in the view `plan`, no longer on every page of Home Assistant.
+
+### Added
+
+- **Trackers home** (`sensor`) on the integration's device: how many trackers are home, with the list of all trackers and the entities of their room and presence as an attribute, for dashboards.
+- **Scanners unreachable** (`binary_sensor`, problem) on the integration's device: on while a scanner of the plan receives nothing, with their names.
+- `tests/test_contract.py` pins the interface the README lists.
+
 ## [0.35.3] - 2026-11-23
 
 ### Changed

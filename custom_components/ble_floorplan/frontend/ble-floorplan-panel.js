@@ -46,8 +46,8 @@ import {
   texts,
   toPlan,
   trackerColor,
-} from "./ble-floorplan-plan.js?v=0.35.3";
-import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.35.3";
+} from "./ble-floorplan-plan.js?v=0.36.0";
+import { EDITOR_CSS, PlanEditor } from "./ble-floorplan-editor.js?v=0.36.0";
 
 if (!customElements.get("ble-floorplan-panel")) {
   const ROT_KEY = "ble-floorplan-panel-rot";

@@ -154,15 +154,18 @@ def _runtime(hass: HomeAssistant) -> RuntimeData | None:
     return None
 
 
-def _positions(runtime: RuntimeData) -> dict[str, Any]:
-    return {key: p.as_dict() for key, p in runtime.coordinator.data.items()}
+def _positions(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
+    """Return the positions; the readings of the scanners stay with the administrators."""
+    return {
+        key: p.as_dict() if admin else p.as_shown() for key, p in runtime.coordinator.data.items()
+    }
 
 
 def _plan(plan: Floorplan, admin: bool) -> dict[str, Any]:
     """Return the plan for a connection; other users get what the card draws.
 
     Bluetooth addresses, device ids, scanner sources and the calibration stay
-    with the administrators.
+    with the administrators, as do the readings of the scanners in the positions.
     """
     if admin:
         return plan.as_dict()
@@ -190,7 +193,7 @@ def _offline(runtime: RuntimeData) -> list[str]:
 def _snapshot(runtime: RuntimeData, admin: bool) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "floorplan": _plan(runtime.store.plan, admin),
-        "positions": _positions(runtime),
+        "positions": _positions(runtime, admin),
         "offline": _offline(runtime),
     }
     if admin:
@@ -218,7 +221,7 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
 
     The scanners that went silent are looked at every few seconds, because a
     silent scanner need not change any position. A reload of the entry sends a fresh snapshot of the new one. Users who are
-    no administrators get the plan as the card draws it and no runs.
+    no administrators get the plan and the positions as the card draws them, without the scanners' readings, and no runs.
     """
     admin = connection.user.is_admin
     if (runtime := _runtime(hass)) is None:
@@ -243,7 +246,7 @@ def ws_subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
         @callback
         def _send_positions() -> None:
             # A going run sends its progress itself, every refresh
-            _send({"positions": _positions(runtime)})
+            _send({"positions": _positions(runtime, admin)})
 
         offline = _offline(runtime)
 

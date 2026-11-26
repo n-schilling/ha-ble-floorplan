@@ -672,6 +672,9 @@ async def test_other_users_see_what_the_card_draws(
     assert msg["result"]["floorplan"] == card_plan
     assert "calibration" not in msg["result"]
     assert set(msg["result"]["positions"]) == {"tag", "phone"}
+    # Where a tracker is, not what each scanner measured
+    shown = {"key", "x", "y", "room", "present", "floor", "level"}
+    assert set(msg["result"]["positions"]["tag"]) == shown
 
     await client.send_json_auto_id({"type": WS_SUBSCRIBE})
     msg = await client.receive_json()
@@ -679,6 +682,7 @@ async def test_other_users_see_what_the_card_draws(
     msg = await client.receive_json()
     assert msg["event"]["floorplan"] == card_plan
     assert "calibration" not in msg["event"]
+    assert set(msg["event"]["positions"]["tag"]) == shown
 
     # A run going: positions without the run, and no event for its start
     clock(1000.0)
@@ -688,6 +692,8 @@ async def test_other_users_see_what_the_card_draws(
     await entry.runtime_data.coordinator.async_refresh()
     msg = await client.receive_json()
     assert set(msg["event"]) == {"positions"}
+    assert set(msg["event"]["positions"]["tag"]) == shown
+    assert msg["event"]["positions"]["tag"]["x"] is not None
     await entry.runtime_data.coordinator.async_stop_calibration()
 
     await entry.runtime_data.store.async_save(make_plan(settings={"max_distance": 9}))

@@ -117,6 +117,18 @@ class TrackerPosition:
             "level": self.level,
         }
 
+    def as_shown(self) -> dict[str, Any]:
+        """Return what every user may see: where the tracker is, no readings of the scanners."""
+        return {
+            "key": self.key,
+            "x": self.x,
+            "y": self.y,
+            "room": self.room,
+            "present": self.present,
+            "floor": self.floor,
+            "level": self.level,
+        }
+
 
 type Positions = dict[str, TrackerPosition]
 type Sample = tuple[float, float]  # (monotonic time, rssi)

@@ -1,4 +1,4 @@
-"""Sensors per tracker: the room, and on request the position for diagnostics."""
+"""Sensors per tracker: the room, and on request the position for diagnostics; the trackers at home."""
 
 from __future__ import annotations
 
@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import EntityCategory, UnitOfLength
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .catalog import alive_sources
 from .const import CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS, DOMAIN, NAME
@@ -26,6 +27,9 @@ PARALLEL_UPDATES = 0
 KINDS = ("room", "presence")
 POSITION_KINDS = ("position_x", "position_y")
 ACTIVE_SCANNERS = "active_scanners"
+TRACKERS_HOME = "trackers_home"
+# The problem sensor of binary_sensor.py: kept when the stale entities are removed
+UNREACHABLE = "unreachable"
 # Decimals of the position sensors
 POSITION_DIGITS = 1
 
@@ -40,7 +44,7 @@ async def async_setup_entry(
     positions = entry.options.get(CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS)
     kinds = KINDS + POSITION_KINDS if positions else KINDS
     _async_remove_stale(hass, entry.entry_id, coordinator.plan, kinds)
-    async_add_entities([ActiveScannersSensor(coordinator)])
+    async_add_entities([ActiveScannersSensor(coordinator), TrackersHomeSensor(coordinator)])
 
     def _create(tracker: Tracker) -> list[SensorEntity]:
         entities: list[SensorEntity] = [RoomSensor(coordinator, tracker)]
@@ -56,7 +60,11 @@ def _async_remove_stale(
     hass: HomeAssistant, entry_id: str, plan: Floorplan, kinds: tuple[str, ...]
 ) -> None:
     """Remove the devices of trackers no longer in the plan and the entities not wanted."""
-    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in kinds} | {ACTIVE_SCANNERS}
+    wanted_ids = {f"{t.key}_{kind}" for t in plan.trackers for kind in kinds} | {
+        ACTIVE_SCANNERS,
+        TRACKERS_HOME,
+        UNREACHABLE,
+    }
     entities = er.async_get(hass)
     for entry in er.async_entries_for_config_entry(entities, entry_id):
         if entry.unique_id not in wanted_ids:
@@ -155,3 +163,69 @@ class ActiveScannersSensor(SensorEntity):
             "active": active,
             "inactive": inactive,
         }
+
+
+class TrackersHomeSensor(CoordinatorEntity[FloorplanCoordinator], SensorEntity):
+    """How many trackers are home, with the list of all trackers for dashboards.
+
+    The list names every tracker with the entities that tell where it is, so a
+    card needs no search by name. It follows the registries: a tracker's
+    entities registered later, another entity ID or another name of its device
+    write it again.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = TRACKERS_HOME
+    _attr_unique_id = TRACKERS_HOME
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    # Names and entity IDs are for dashboards now, not for the history
+    _unrecorded_attributes = frozenset({"tracker_list"})
+
+    def __init__(self, coordinator: FloorplanCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, HUB)}, name=NAME)
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the registries."""
+        await super().async_added_to_hass()
+        for event_type in (er.EVENT_ENTITY_REGISTRY_UPDATED, dr.EVENT_DEVICE_REGISTRY_UPDATED):
+            self.async_on_remove(self.hass.bus.async_listen(event_type, self._registry_changed))
+
+    @callback
+    def _registry_changed(self, event: Event[Any]) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of trackers a scanner saw within away_seconds."""
+        positions = self.coordinator.data
+        return sum(
+            1
+            for tracker in self.coordinator.plan.trackers
+            if not tracker.paused
+            and (position := positions.get(tracker.key)) is not None
+            and position.present
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return every tracker with its name and the entities of its room and presence."""
+        entities = er.async_get(self.hass)
+        devices = dr.async_get(self.hass)
+        trackers = []
+        for tracker in self.coordinator.plan.trackers:
+            device = devices.async_get_device(identifiers={(DOMAIN, tracker.key)})
+            name = (device.name_by_user or device.name) if device is not None else None
+            trackers.append(
+                {
+                    "name": name or tracker.name,
+                    "room_entity": entities.async_get_entity_id(
+                        "sensor", DOMAIN, f"{tracker.key}_room"
+                    ),
+                    "presence_entity": entities.async_get_entity_id(
+                        "device_tracker", DOMAIN, f"{tracker.key}_presence"
+                    ),
+                }
+            )
+        return {"tracker_list": trackers}

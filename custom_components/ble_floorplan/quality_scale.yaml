@@ -12,7 +12,8 @@ rules:
     comment: >-
       Positions are computed once a second from the advertisements Home
       Assistant's Bluetooth stack holds in memory, no device is asked; Active
-      scanners is polled every 30 s, because a quiet scanner changes nothing.
+      scanners and Scanners unreachable are polled every 30 s, because a quiet
+      scanner changes nothing.
   brands:
     status: done
     comment: Brand images ship in brand/.
@@ -109,7 +110,7 @@ rules:
     comment: A tracker added on the page gets its device and entities without a reload.
   entity-category:
     status: done
-    comment: The position sensors are diagnostic.
+    comment: The position sensors and Scanners unreachable are diagnostic.
   entity-device-class: done
   entity-disabled-by-default:
     status: done

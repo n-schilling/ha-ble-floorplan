@@ -2,7 +2,7 @@
 // the floor plan with its scanners and trackers, the hover tooltip and the
 // icons. The plan comes from the integration over the WebSocket API; this
 // module only turns it into SVG.
-export const VERSION = "0.35.3";
+export const VERSION = "0.36.0";
 
 export const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -671,11 +671,17 @@ export const toPlan = (root, e, bounds) => {
 
 export const snap = (v) => Math.round(v * 20) / 20;
 
-// The facts of a tracker or a scanner, for the tooltip and the card's info box
-export const detailHtml = (info, kind, key, t, fmt) => {
+// The facts of a tracker or a scanner, for the tooltip and the card's info box.
+// `plain` is what users who are no administrators get: the name and where it
+// is, no readings (the integration sends them none)
+export const detailHtml = (info, kind, key, t, fmt, plain = false) => {
   if (kind === "tracker") {
     const tr = info.trackers[key];
     if (!tr) return "";
+    if (plain) {
+      const where = tr.paused ? t.paused : tr.p ? tr.room ?? t.unknown : t.notSeen;
+      return `<b><span class="dot" style="background:${tr.color}"></span>${esc(tr.name)}</b><div class="sub">${esc(where)}</div>`;
+    }
     const rows = Object.values(info.scanners)
       .map((s) => {
         const e = s.trackers.find((x) => x.key === key) || {};
@@ -700,6 +706,7 @@ export const detailHtml = (info, kind, key, t, fmt) => {
     )
     .join("");
   const off = s.paused ? `<div class="sub">${esc(t.paused)}</div>` : s.offline ? `<div class="sub offline">${esc(t.offline)}</div>` : "";
+  if (plain) return `<b>${esc(s.name)}</b>${off}`;
   return `<b>${esc(s.name)}</b>${off}<div class="sub">${t.position} ${fmt(s.p[0])} / ${fmt(s.p[1])} m · ${t.height} ${fmt(s.z)} m</div><table>${rows}</table>`;
 };
 

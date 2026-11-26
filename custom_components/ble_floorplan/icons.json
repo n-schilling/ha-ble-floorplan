@@ -1,5 +1,13 @@
 {
   "entity": {
+    "binary_sensor": {
+      "unreachable": {
+        "default": "mdi:bluetooth-off",
+        "state": {
+          "off": "mdi:bluetooth"
+        }
+      }
+    },
     "sensor": {
       "room": {
         "default": "mdi:floor-plan"
@@ -12,6 +20,9 @@
       },
       "active_scanners": {
         "default": "mdi:bluetooth"
+      },
+      "trackers_home": {
+        "default": "mdi:home-account"
       }
     },
     "device_tracker": {

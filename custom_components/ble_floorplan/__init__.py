@@ -41,7 +41,11 @@ from .quality import QualityTracker
 from .store import FloorplanStore
 from .websocket import async_rebind_subscriptions, async_register_websocket
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.DEVICE_TRACKER]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.DEVICE_TRACKER,
+    Platform.SENSOR,
+]
 
 
 @dataclass(slots=True)

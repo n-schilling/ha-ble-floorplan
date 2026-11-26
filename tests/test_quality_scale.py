@@ -86,7 +86,7 @@ def test_rules_that_files_show() -> None:
     """What the files can prove: parallel updates, icons and translations of every entity."""
     import json
 
-    for platform in ("sensor.py", "device_tracker.py"):
+    for platform in ("binary_sensor.py", "sensor.py", "device_tracker.py"):
         assert "PARALLEL_UPDATES = 0" in (PACKAGE / platform).read_text(encoding="utf-8")
     strings = json.loads((PACKAGE / "strings.json").read_text(encoding="utf-8"))
     icons = json.loads((PACKAGE / "icons.json").read_text(encoding="utf-8"))

@@ -1,13 +1,46 @@
-"""The card and the panel that the integration ships."""
+"""The card and the panel that the integration ships.
+
+The card (STANDARD §7, the dashboard card): served, loaded on every page and
+kept as a dashboard resource; what its script may read and call.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
 import re
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from pytest_homeassistant.common import MockConfigEntry
+
+from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
+from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE, MODE_YAML
+from homeassistant.components.lovelace.resources import ResourceStorageCollection
+from homeassistant.core import HomeAssistant
+
+from custom_components.ble_floorplan import frontend
+from custom_components.ble_floorplan.const import DOMAIN
+from custom_components.ble_floorplan.frontend import (
+    CARD_PATH,
+    DATA_FRONTEND,
+    async_card_url,
+    async_register_frontend,
+)
+
+from .conftest import ScannerDevices
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "ble_floorplan"
 FRONTEND = PACKAGE / "frontend"
+CARD = FRONTEND / "ble-floorplan-card.js"
+
+# The actions the card's controls may call, as "domain.action" (STANDARD §7).
+# The card only reads: none.
+ACTIONS: set[str] = set()
+# The subscriptions the card may open (STANDARD §7): the plan view's one, open to
+# every user, changing nothing, without readings for users who are no administrators
+SUBSCRIPTIONS = {"ble_floorplan/subscribe"}
 
 
 def _version() -> str:
@@ -24,29 +57,66 @@ def test_shared_module_version_matches_manifest() -> None:
 
 
 def test_imports_carry_the_version() -> None:
-    """Every import names the release, so a browser that cached the last one fetches anew."""
+    """Every module names the release it loads, so a browser that cached the last one fetches anew."""
     version = _version()
     for name in ("ble-floorplan-card.js", "ble-floorplan-panel.js", "ble-floorplan-editor.js"):
         code = (FRONTEND / name).read_text(encoding="utf-8")
-        imports = re.findall(r'from "([^"]+)"', code)
-        assert imports, name
-        for target in imports:
+        loaded = re.findall(r'"(\./ble-floorplan-[^"]+)"', code)
+        assert loaded, name
+        for target in loaded:
             assert re.fullmatch(
                 rf"\./ble-floorplan-(plan|editor)\.js\?v={re.escape(version)}", target
             ), (name, target)
 
 
-def test_card_only_shows() -> None:
-    """The card draws the live plan; it neither sets up nor leads to the panel."""
-    card = (FRONTEND / "ble-floorplan-card.js").read_text(encoding="utf-8")
-    assert 'customElements.define("ble-floorplan-card"' in card
-    assert "new LiveSubscription(" in card
-    assert "navigate(" not in card
-    assert "is_admin" not in card
-    # Setting up, calibrating and the timeline are the panel's
-    assert '"ble_floorplan/set_' not in card
-    assert '"ble_floorplan/calibration/' not in card
-    assert '"ble_floorplan/history"' not in card
+def test_card_reads_and_calls_only_its_controls() -> None:
+    """The card reads entities: no command, no fetch, no action; the plan view its one subscription."""
+    card = CARD.read_text(encoding="utf-8")
+    assert "customElements.define(TAG" in card
+    # The overview is the card's own script and reads entities only
+    for call in ("subscribeMessage", "navigate(", "is_admin", '"ble_floorplan/'):
+        assert call not in card, call
+    # The plan view loads one module, and only when a card is in that mode
+    assert re.findall(r'"\./(ble-floorplan-[a-z]+\.js)\?v=', card) == ["ble-floorplan-plan.js"]
+    assert card.count("import(") == 1
+    assert not re.search(r"^import ", card, re.MULTILINE)
+    code = card + (FRONTEND / "ble-floorplan-plan.js").read_text(encoding="utf-8")
+    for call in ("callWS", "callApi", "fetch(", "sendMessage"):
+        assert call not in code, call
+    listed = re.search(r"const ACTIONS = \[(.*?)\];", code, re.DOTALL)
+    assert set(re.findall(r'"([a-z_]+\.[a-z_]+)"', listed.group(1)) if listed else []) == ACTIONS
+    # One place calls, with an entry of the list; a card without controls calls nothing
+    assert code.count("callService") == (1 if ACTIONS else 0)
+    subscribed = re.findall(r'subscribeMessage\([^;]*?\{ type: "([^"]+)" \}', code, re.DOTALL)
+    assert code.count("subscribeMessage(") == len(subscribed)
+    assert set(subscribed) == SUBSCRIPTIONS
+    # Every option the card reads has a field in its editor
+    options = set(re.findall(r"\bc\.(\w+)", card))
+    assert len(options) > 8
+    for option in options - {"title", "size"}:
+        assert f'"{option}"' in card, option
+    # The card picker lists it once, with a preview
+    assert card.count("window.customCards.push(") == 1
+    assert "preview: true" in card
+
+
+def _card_keys(code: str, language: str) -> list[str]:
+    """The keys of one language of the card's texts, in order."""
+    start = code.index(f"\n    {language}: {{\n")
+    end = code.index("\n    },", start)
+    return re.findall(r'^\s+([A-Za-z_][A-Za-z0-9_]*): "', code[start:end], re.MULTILINE)
+
+
+def test_card_texts_have_each_key_once_in_both_languages() -> None:
+    """A key written twice silently takes the later text; both languages have the same keys."""
+    code = CARD.read_text(encoding="utf-8")
+    english = _card_keys(code, "en")
+    german = _card_keys(code, "de")
+    assert len(english) > 20
+    for keys in (english, german):
+        twice = sorted({key for key in keys if keys.count(key) > 1})
+        assert not twice, twice
+    assert english == german
 
 
 def test_panel_uses_the_commands() -> None:
@@ -130,3 +200,112 @@ def test_texts_have_each_key_once_in_both_languages() -> None:
         twice = sorted({k for k in keys if keys.count(k) > 1})
         assert not twice, twice
     assert set(english) == set(german)
+
+
+def _lovelace(mode: str, resources: Any) -> MagicMock:
+    data = MagicMock()
+    data.resource_mode = mode
+    data.resources = resources
+    return data
+
+
+def _collection(items: list[dict[str, Any]]) -> MagicMock:
+    collection = MagicMock(spec=ResourceStorageCollection)
+    collection.async_get_info = AsyncMock()
+    collection.async_items = MagicMock(return_value=items)
+    collection.async_create_item = AsyncMock()
+    collection.async_update_item = AsyncMock()
+    collection.async_delete_item = AsyncMock()
+    return collection
+
+
+async def test_frontend_extra_js_and_resource_created(
+    hass: HomeAssistant,
+    bluetooth: None,
+    storage: dict[str, Any],
+    clock: Callable[[float], None],
+    scanner_devices: ScannerDevices,
+    config_entry: MockConfigEntry,
+) -> None:
+    """With the frontend loaded the card is added to every page and to the dashboard resources."""
+    collection = _collection([{"id": "1", "url": "/local/other.js", "type": "module"}])
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
+    hass.data[DATA_EXTRA_MODULE_URL] = MagicMock()
+    config_entry.add_to_hass(hass)
+    with patch("custom_components.ble_floorplan.frontend.add_extra_js_url") as add_url:
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    url = hass.data[DATA_FRONTEND]
+    add_url.assert_called_once_with(hass, url)
+    collection.async_get_info.assert_awaited_once()
+    collection.async_create_item.assert_awaited_once_with({"res_type": "module", "url": url})
+    collection.async_update_item.assert_not_awaited()
+
+
+async def test_frontend_resource_updated(hass: HomeAssistant, bluetooth: None) -> None:
+    """An entry of an earlier version is pointed to this one; a current one is left alone."""
+    url = await async_card_url(hass)
+    collection = _collection([{"id": "7", "url": f"{CARD_PATH}?v=0.0.1", "type": "module"}])
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
+    await async_register_frontend(hass)
+    collection.async_update_item.assert_awaited_once_with("7", {"url": url})
+    collection.async_create_item.assert_not_awaited()
+
+    hass.data.pop(DATA_FRONTEND)
+    collection = _collection([{"id": "7", "url": url, "type": "module"}])
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
+    await async_register_frontend(hass)
+    collection.async_update_item.assert_not_awaited()
+    collection.async_create_item.assert_not_awaited()
+
+
+async def test_frontend_resource_skipped(hass: HomeAssistant, bluetooth: None) -> None:
+    """Resources in YAML are the user's; a collection of another kind is left alone."""
+    collection = _collection([])
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_YAML, collection)
+    await async_register_frontend(hass)
+    collection.async_create_item.assert_not_awaited()
+
+    hass.data.pop(DATA_FRONTEND)
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, MagicMock())
+    await async_register_frontend(hass)
+    assert DATA_FRONTEND in hass.data
+    assert DOMAIN in hass.data[DATA_FRONTEND]
+
+
+async def test_remove_takes_the_resource_away_and_a_new_entry_brings_it_back(
+    hass: HomeAssistant,
+    bluetooth: None,
+    storage: dict[str, Any],
+    clock: Callable[[float], None],
+    scanner_devices: ScannerDevices,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Removing the entry removes the card's dashboard resource; a new entry adds it again."""
+    items: list[dict[str, Any]] = [{"id": "1", "url": "/local/other.js", "type": "module"}]
+    collection = _collection(items)
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_STORAGE, collection)
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    url = hass.data[DATA_FRONTEND]
+    items.append({"id": "2", "url": url, "type": "module"})
+    assert await hass.config_entries.async_remove(config_entry.entry_id)
+    await hass.async_block_till_done()
+    collection.async_delete_item.assert_awaited_once_with("2")
+
+    items.pop()
+    collection.async_create_item.reset_mock()
+    again = MockConfigEntry(domain=DOMAIN, title="BLE Floorplan", unique_id=DOMAIN, data={})
+    again.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(again.entry_id)
+    await hass.async_block_till_done()
+    collection.async_create_item.assert_awaited_once_with({"res_type": "module", "url": url})
+
+
+async def test_remove_leaves_yaml_resources_alone(hass: HomeAssistant, bluetooth: None) -> None:
+    """Resources in YAML are the user's, also when the entry goes."""
+    collection = _collection([{"id": "2", "url": f"{CARD_PATH}?v=1", "type": "module"}])
+    hass.data[LOVELACE_DATA] = _lovelace(MODE_YAML, collection)
+    await frontend.async_remove_resource(hass)
+    collection.async_delete_item.assert_not_awaited()
