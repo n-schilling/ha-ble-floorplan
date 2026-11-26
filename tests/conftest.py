@@ -26,7 +26,7 @@ def no_deprecated_calls(caplog: pytest.LogCaptureFixture) -> Generator[None]:
     reported = [
         record.getMessage()
         for record in [*caplog.get_records("setup"), *caplog.get_records("call")]
-        if f"custom integration '{DOMAIN}'" in record.getMessage()
+        if DOMAIN in record.getMessage() and "deprecated" in record.getMessage()
     ]
     assert not reported, reported
 
