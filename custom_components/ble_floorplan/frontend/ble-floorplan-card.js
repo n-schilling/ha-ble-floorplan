@@ -124,26 +124,26 @@ const STYLE = `
   .content.fill { height: 100%; }
   .head { display: flex; align-items: center; gap: 8px; }
   .head ha-icon { color: var(--secondary-text-color); --mdc-icon-size: 20px; }
-  .title { flex: 1; font-size: 16px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; white-space: nowrap;
+  .title { flex: 1; font-size: var(--ha-font-size-l); font-weight: var(--ha-font-weight-medium); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: var(--ha-font-size-s); padding: 2px 10px; border-radius: 999px; white-space: nowrap;
     background: rgba(var(--rgb-primary-text-color), 0.06); color: var(--secondary-text-color); }
   .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--divider-color); cursor: pointer; }
   .row ha-icon { color: var(--secondary-text-color); --mdc-icon-size: 20px; flex: none; }
   .row.slim { padding: 6px 0; }
   .head + .row, .head + .line { margin-top: 10px; }
   .who { flex: 1; min-width: 0; }
-  .name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { font-size: var(--ha-font-size-m); font-weight: var(--ha-font-weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row.slim .name { flex: 1; min-width: 0; }
-  .away .name { font-weight: 400; color: var(--secondary-text-color); }
-  .place { font-size: 12px; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row.slim .place { font-size: 14px; flex: none; max-width: 60%; }
-  .line { padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--divider-color); font-size: 12px; color: var(--secondary-text-color); }
+  .away .name { font-weight: var(--ha-font-weight-normal); color: var(--secondary-text-color); }
+  .place { font-size: var(--ha-font-size-s); color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.slim .place { font-size: var(--ha-font-size-m); flex: none; max-width: 60%; }
+  .line { padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--divider-color); font-size: var(--ha-font-size-s); color: var(--secondary-text-color); }
   .line.problem { color: var(--warning-color); }
   .line ha-icon { --mdc-icon-size: 16px; margin-right: 6px; }
   .small { display: flex; align-items: center; gap: 10px; height: 100%; }
   .small ha-icon { color: var(--secondary-text-color); flex: none; }
-  .small .sub { font-size: 12px; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .missing { color: var(--secondary-text-color); font-size: 14px; }
+  .small .sub { font-size: var(--ha-font-size-s); color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .missing { color: var(--secondary-text-color); font-size: var(--ha-font-size-m); }
   ha-card.plan { padding: 12px 16px 16px; }
   ha-card.plan .map { margin-top: 8px; }
   ha-card.plan #svg { position: relative; }
@@ -152,7 +152,7 @@ const STYLE = `
   ha-card.plan.fixed .map { flex: 1; min-height: 0; }
   ha-card.plan.fixed #svg { height: 100%; }
   ha-card.plan.fixed .map svg:not(.mdi) { max-height: none; }
-  .info { position: relative; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider-color); font-size: 13px; }
+  .info { position: relative; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider-color); font-size: var(--ha-font-size-m); }
   .info ha-icon-button { position: absolute; right: -8px; top: 0; }
 `;
 

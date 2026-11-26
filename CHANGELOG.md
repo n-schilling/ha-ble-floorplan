@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The card's texts follow the font size set in Home Assistant: their sizes and weights come from Home Assistant's variables, no longer from fixed pixels. With the default setting nothing changes but the note under the plan, which is 14 px instead of 13 px.
+
+### Fixed
+
+- The small buttons on the page (delete in the lists of calibrations and test points, zoom and play of the timeline) are small again. The page set their size with a variable Home Assistant 2026.11 no longer reads, so they had Home Assistant's full button size.
+
 ## [0.36.2] - 2026-11-26
 
 ### Changed

@@ -1059,9 +1059,9 @@ export const PLAN_CSS = `
   .stairs { fill: var(--secondary-text-color); fill-opacity: 0.14; stroke-dasharray: 0.12 0.08; stroke: var(--secondary-text-color); stroke-width: 0.03; }
   .levels { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; gap: 2px; padding: 2px;
     background: var(--card-background-color); border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
-  .levels button { font: inherit; font-size: 12px; border: none; border-radius: 10px; padding: 6px 12px; cursor: pointer; text-align: left;
+  .levels button { font: inherit; font-size: var(--ha-font-size-s); border: none; border-radius: 10px; padding: 6px 12px; cursor: pointer; text-align: left;
     background: none; color: var(--secondary-text-color); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .levels button.on { background: color-mix(in srgb, var(--primary-color) 16%, transparent); color: var(--primary-color); font-weight: 500; }
+  .levels button.on { background: color-mix(in srgb, var(--primary-color) 16%, transparent); color: var(--primary-color); font-weight: var(--ha-font-weight-medium); }
   .opening { stroke: var(--secondary-text-color); stroke-width: 0.025; stroke-dasharray: 0.1 0.08; }
   .rlabel { font-size: 0.38px; fill: var(--secondary-text-color); text-anchor: middle; dominant-baseline: middle; }
   .scanner rect { fill: var(--primary-text-color); }
@@ -1089,11 +1089,11 @@ export const PLAN_CSS = `
   .probe rect { fill: none; stroke: var(--primary-color); stroke-width: 0.06; stroke-dasharray: 0.1 0.07; }
   .probe text { font-size: 0.3px; font-weight: 600; fill: var(--primary-color); text-anchor: middle; dominant-baseline: middle; }
   .trail { fill: none; stroke-width: 0.08; stroke-linecap: round; stroke-linejoin: round; opacity: 0.55; }
-  .tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; font-size: 12px; line-height: 1.5; display: none;
+  .tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; font-size: var(--ha-font-size-s); line-height: 1.5; display: none;
     background: var(--card-background-color); color: var(--primary-text-color);
     border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
-  .tip b, .info b { display: flex; align-items: center; font-weight: 500; font-size: 14px; }
+  .tip b, .info b { display: flex; align-items: center; font-weight: var(--ha-font-weight-medium); font-size: var(--ha-font-size-m); }
   .tip .sub, .info .sub { color: var(--secondary-text-color); }
   .tip table, .info table { border-collapse: collapse; margin-top: 4px; }
   .tip td, .info td { padding: 1px 12px 1px 0; }

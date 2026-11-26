@@ -2806,7 +2806,7 @@ if (!customElements.get("ble-floorplan-panel")) {
       font-size: var(--ha-card-header-font-size, var(--ha-font-size-2xl, 24px)); font-weight: var(--ha-font-weight-normal, 400);
       line-height: var(--ha-line-height-condensed, 1.2); letter-spacing: -0.012em; min-height: 48px; }
     .card-header ha-icon-button.help { margin-inline-start: auto; }
-    ha-icon-button.help { --mdc-icon-button-size: 32px; --mdc-icon-size: 18px; --ha-icon-button-size: 32px; color: var(--secondary-text-color); flex: none; }
+    ha-icon-button.help { --mdc-icon-size: 18px; --ha-icon-button-size: 32px; color: var(--secondary-text-color); flex: none; }
     ha-tooltip { --max-width: min(360px, 90vw); }
     .alertact { display: flex; align-items: center; gap: 4px; }
     .line { display: flex; align-items: center; gap: 4px; margin: 8px 0; color: var(--secondary-text-color); }
@@ -2840,7 +2840,7 @@ if (!customElements.get("ble-floorplan-panel")) {
     ha-alert { display: block; margin-bottom: 16px; }
     ha-card ha-alert { margin: 0 0 12px; }
     ha-alert ha-button { margin-inline-start: 8px; }
-    ha-icon-button.small { --mdc-icon-button-size: 32px; --mdc-icon-size: 20px; }
+    ha-icon-button.small { --ha-icon-button-size: 32px; --mdc-icon-size: 20px; }
     .haform + .subhead { margin-top: 16px; }
     .item { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 64px; padding: 8px 16px; border: 0;
       background: none; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; }
