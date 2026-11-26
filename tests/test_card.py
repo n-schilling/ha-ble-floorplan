@@ -69,7 +69,7 @@ def test_imports_carry_the_version() -> None:
             ), (name, target)
 
 
-def test_card_reads_and_calls_only_its_controls() -> None:
+def test_card_reads_and_calls_only_what_is_listed() -> None:
     """The card reads entities: no command, no fetch, no action; the plan view its one subscription."""
     card = CARD.read_text(encoding="utf-8")
     assert "customElements.define(TAG" in card

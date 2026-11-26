@@ -395,7 +395,7 @@ The integration's own device *BLE Floorplan* carries:
 |---|---|
 | Trackers home (`sensor`) | The number of trackers a scanner saw within `away_seconds`; paused trackers do not count. Attribute `tracker_list` (not recorded): every tracker of the plan with its `name` (the name of its device; one given in Home Assistant wins), `room_entity` and `presence_entity`, the entity IDs of its *Room* sensor and its *Presence*. It follows renamed entities and devices, so a dashboard lists the trackers without searching. |
 | Active scanners (`sensor`) | The number of scanners of the plan that received anything within the last minute, with `total` and the names of the `active` and `inactive` ones as attributes. Paused scanners count neither way; the attribute `paused` names them. |
-| Scanners unreachable (`binary_sensor`, problem, diagnostic) | On while a scanner of the plan received nothing within the last minute; the attribute `scanners` (not recorded) names them. Off until Home Assistant has started, and paused scanners do not count. Looked at every 30 seconds. |
+| Scanners unreachable (`binary_sensor`, problem, diagnostic) | On while a scanner of the plan received nothing within the last minute; the attribute `scanners` (not recorded) names them. Off while Home Assistant starts and for a minute after, so that a scanner that connects late is no problem; paused scanners do not count. Looked at every 30 seconds. |
 
 The card finds these entities by their translation keys (`trackers_home`, `unreachable`), not by their entity IDs.
 

@@ -15,7 +15,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 
 - **Trackers home** (`sensor`) on the integration's device: how many trackers are home, with the list of all trackers and the entities of their room and presence as an attribute, for dashboards.
-- **Scanners unreachable** (`binary_sensor`, problem) on the integration's device: on while a scanner of the plan receives nothing, with their names.
+- **Scanners unreachable** (`binary_sensor`, problem) on the integration's device: on while a scanner of the plan receives nothing, with their names. After a start of Home Assistant the scanners get a minute to connect before one counts as unreachable.
 - `tests/test_contract.py` pins the interface the README lists.
 
 ## [0.35.3] - 2026-11-23

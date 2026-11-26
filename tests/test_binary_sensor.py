@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_OFF, STATE_ON
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from . import FakeScanner
+from .conftest import ScannerDevices
 
 UNREACHABLE = "binary_sensor.ble_floorplan_scanners_unreachable"
 
@@ -62,9 +65,36 @@ async def test_unreachable(
         scanners["kitchen"].idle = 2.0
         assert await poll() == (STATE_OFF, [])
 
-        # While Home Assistant starts, the scanners of other integrations are not there yet
-        current.clear()
-        hass.set_state(CoreState.starting)
-        assert await poll() == (STATE_OFF, [])
-        hass.set_state(CoreState.running)
-        assert await poll() == (STATE_ON, ["Living room scanner", "Kitchen plug"])
+
+async def test_unreachable_waits_after_a_start(
+    hass: HomeAssistant,
+    bluetooth: None,
+    storage: dict[str, Any],
+    clock: Callable[[float], None],
+    scanner_devices: ScannerDevices,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """No problem while Home Assistant starts, nor in the minute after: the scanners connect first."""
+
+    async def poll(seconds: int) -> str:
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        state = hass.states.get(UNREACHABLE)
+        assert state is not None
+        return state.state
+
+    # No scanner is there at all
+    hass.set_state(CoreState.starting)
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert await poll(31) == STATE_OFF
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert await poll(31) == STATE_OFF
+    assert await poll(31) == STATE_ON
+    await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
