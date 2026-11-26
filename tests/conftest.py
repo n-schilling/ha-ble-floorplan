@@ -19,6 +19,18 @@ from . import FLOORPLAN, FakeScanner
 ScannerDevices = dict[str, list[Any]]
 
 
+@pytest.fixture(autouse=True)
+def no_deprecated_calls(caplog: pytest.LogCaptureFixture) -> Generator[None]:
+    """Home Assistant names the integration when it calls something deprecated: none of that."""
+    yield
+    reported = [
+        record.getMessage()
+        for record in [*caplog.get_records("setup"), *caplog.get_records("call")]
+        if f"custom integration '{DOMAIN}'" in record.getMessage()
+    ]
+    assert not reported, reported
+
+
 @pytest.fixture
 def stored_plan() -> dict[str, Any]:
     """The plan that is in storage before the entry is set up."""

@@ -44,7 +44,9 @@ async def async_setup_entry(
     positions = entry.options.get(CONF_POSITION_SENSORS, DEFAULT_POSITION_SENSORS)
     kinds = KINDS + POSITION_KINDS if positions else KINDS
     _async_remove_stale(hass, entry.entry_id, coordinator.plan, kinds)
-    async_add_entities([ActiveScannersSensor(coordinator), TrackersHomeSensor(coordinator)])
+    async_add_entities(
+        [ActiveScannersSensor(coordinator), TrackersHomeSensor(coordinator, entry.entry_id)]
+    )
 
     def _create(tracker: Tracker) -> list[SensorEntity]:
         entities: list[SensorEntity] = [RoomSensor(coordinator, tracker)]
@@ -181,9 +183,10 @@ class TrackersHomeSensor(CoordinatorEntity[FloorplanCoordinator], SensorEntity):
     # Names and entity IDs are for dashboards now, not for the history
     _unrecorded_attributes = frozenset({"tracker_list"})
 
-    def __init__(self, coordinator: FloorplanCoordinator) -> None:
+    def __init__(self, coordinator: FloorplanCoordinator, entry_id: str) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self._entry_id = entry_id
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, HUB)}, name=NAME)
 
     async def async_added_to_hass(self) -> None:
@@ -215,7 +218,7 @@ class TrackersHomeSensor(CoordinatorEntity[FloorplanCoordinator], SensorEntity):
         devices = dr.async_get(self.hass)
         trackers = []
         for tracker in self.coordinator.plan.trackers:
-            device = devices.async_get_device(identifiers={(DOMAIN, tracker.key)})
+            device = devices.async_get_device_by_identifier((DOMAIN, tracker.key), self._entry_id)
             name = (device.name_by_user or device.name) if device is not None else None
             trackers.append(
                 {
