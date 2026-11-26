@@ -2,6 +2,14 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.36.2] - 2026-11-26
+
+### Changed
+
+- Removing the integration stops loading the card's script on the pages of Home Assistant at once, no longer only after the next restart. A page that is open keeps the card it loaded.
+- The repair issue of a tracker without a device belongs to the integration's entry, so Home Assistant removes it with the entry.
+- The integration takes Home Assistant's classes and functions from the paths Home Assistant publishes them at. Nothing changes in what it does.
+
 ## [0.36.1] - 2026-11-26
 
 ### Fixed

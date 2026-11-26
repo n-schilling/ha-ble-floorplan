@@ -14,7 +14,7 @@
 // setting up, calibrating and the timeline live on the page BLE Floorplan.
 const DOMAIN = "ble_floorplan";
 const TAG = "ble-floorplan-card";
-const PLAN_MODULE = "./ble-floorplan-plan.js?v=0.36.1";
+const PLAN_MODULE = "./ble-floorplan-plan.js?v=0.36.2";
 // The overview from most to least: what does not fit is left out in this order
 const SIZES = ["large", "medium", "small"];
 const LEVEL_KEY = "ble-floorplan-card-level";

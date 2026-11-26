@@ -488,7 +488,7 @@ Without the Marketplace, by copying the files yourself. Home Assistant then does
 
 ### Removal
 
-**Settings → Devices & services → BLE Floorplan → ⋮ → Delete** removes the trackers' devices and entities, the stored plan, the calibration runs, the timeline, the page and the card's dashboard resource. Then remove the integration in the Marketplace and restart. After a fully manual installation, delete the folder `custom_components/ble_floorplan` instead and restart.
+**Settings → Devices & services → BLE Floorplan → ⋮ → Delete** removes the trackers' devices and entities, the stored plan, the calibration runs, the timeline, the page, the card's dashboard resource and its script on Home Assistant's pages. Then remove the integration in the Marketplace and restart. After a fully manual installation, delete the folder `custom_components/ble_floorplan` instead and restart.
 
 ## Development
 
